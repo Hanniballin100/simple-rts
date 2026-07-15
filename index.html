@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flat Earth vs Globalists</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="topbar">
+    <span id="faction-label"></span>
+    <span id="supply"></span>
+    <span id="hint">Right-click: move/harvest/attack (or set rally) | A: attack-move | P/B/T/G/F/D: build | Wheel: zoom | H: home | M: mute</span>
+    <button id="mute-btn" title="Mute (M)">🔊</button>
+  </div>
+  <div id="main">
+    <canvas id="game" width="960" height="600"></canvas>
+    <div id="sidebar">
+      <canvas id="minimap" width="200" height="140"></canvas>
+      <div id="credits">$ 0</div>
+      <div id="powerwrap">
+        <div id="powerbar"><div id="powerfill"></div></div>
+        <span id="powertext">⚡ 0 / 0</span>
+      </div>
+      <div class="side-h">STRUCTURES</div>
+      <div class="build-grid" id="grid-structures"></div>
+      <div class="side-h">UNITS</div>
+      <div class="build-grid" id="grid-units"></div>
+      <div class="side-h">POWERS</div>
+      <div class="build-grid" id="grid-powers"></div>
+    </div>
+  </div>
+  <div id="bottombar">
+    <div id="selinfo">Nothing selected</div>
+    <div id="actions"></div>
+  </div>
+  <div id="overlay" class="hidden">
+    <div id="overlay-text"></div>
+    <button onclick="location.reload()">Play Again</button>
+  </div>
+  <div id="faction-select">
+    <h1>CHOOSE YOUR TRUTH</h1>
+    <div id="family-groups"></div>
+  </div>
+  <script src="game.js"></script>
+</body>
+</html>
