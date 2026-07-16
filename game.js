@@ -1721,19 +1721,22 @@ function refreshSidebar() {
       if (type !== 'sig') continue;
       const pk = facOf(PLAYER).powers.sig;
       const sig = state.sig[PLAYER];
-      ui.btn.classList.remove('castable');
+      // toggle with an explicit boolean: remove-then-maybe-add rewrote the
+      // class attribute every refresh even when nothing changed
       if (pk.kind === 'auto') {
+        ui.btn.classList.toggle('castable', false);
         ui.prog.style.height = (sig.timer / pk.period * 100) + '%';
         ui.costEl.textContent = Math.ceil(pk.period - sig.timer) + 's';
       } else if (pk.kind === 'info') {
+        ui.btn.classList.toggle('castable', false);
         ui.costEl.textContent = 'ALWAYS ON';
       } else if (pk.kind === 'once') {
         ui.costEl.textContent = sig.used ? 'USED' : 'READY';
-        if (!sig.used) ui.btn.classList.add('castable');
+        ui.btn.classList.toggle('castable', !sig.used);
       } else {
         ui.prog.style.height = sig.cd > 0 ? (sig.cd / pk.cd * 100) + '%' : '0%';
         ui.costEl.textContent = sig.cd > 0 ? Math.ceil(sig.cd) + 's' : 'READY';
-        if (sig.cd <= 0) ui.btn.classList.add('castable');
+        ui.btn.classList.toggle('castable', sig.cd <= 0);
       }
       continue;
     }
@@ -1741,7 +1744,9 @@ function refreshSidebar() {
       const isThis = c && c.type === type;
       const capped = atStructCap(PLAYER, type);
       const rq = bstats(PLAYER, type).req;
-      const locked = rq && !hasStruct(PLAYER, rq);
+      // NB: must be a real boolean — classList.toggle(name, undefined) is a
+      // plain toggle and would flip the class every refresh (sidebar strobe)
+      const locked = !!rq && !hasStruct(PLAYER, rq);
       ui.btn.classList.toggle('ready', !!(isThis && c.ready));
       ui.btn.classList.toggle('disabled', !!(c && !isThis) || (capped && !isThis) || locked);
       ui.prog.style.height = isThis && !c.ready ? (c.t / c.duration * 100) + '%' : '0%';
@@ -1753,7 +1758,7 @@ function refreshSidebar() {
     } else {
       const ut = UNIT_TYPES[type];
       const trainers = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
-      const locked = ut.req && !hasStruct(PLAYER, ut.req);
+      const locked = !!ut.req && !hasStruct(PLAYER, ut.req);
       ui.btn.classList.toggle('disabled', trainers.length === 0 || locked);
       ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req) : '$' + ui.baseCost;
       const queued = trainers.reduce((n, b) => n + b.queue.filter(j => j.type === type).length, 0);
