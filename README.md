@@ -38,13 +38,16 @@ Seven factions in four families, each with its own roster, passive trait, and si
 
 - Random map generator — every game is a fresh layout with a coherent water plan (coastline, winding river with fords, big lakes, or landlocked), rocky ridges, mesas, forests, and mineral fields at every base plus contested expansions
 - Four map sizes (Small to Huge — up to 6000×4200) and up to 5 AI opponents in a free-for-all — every AI plays its own faction and fights everyone, including each other
-- Neutral structures dot the map: garrison infantry in houses (4 slots), apartment blocks (6), or barns (3) and they fight for you (evacuate any time); hold an Oil Derrick to earn bonus income
-- Map settings — Urban (dense paved districts of apartments and houses, sparse woods), Town (villages around plazas), or Country (scattered farmsteads with crop fields, heavy forest, extra oil) — pick one or let the generator roll
+- Neutral structures dot the map: garrison infantry in houses, apartments, barns, shops, churches, warehouses, or office towers (6 slots) and they fight for you (evacuate any time); hold an Oil Derrick for bonus income — and mind the gas stations, they explode and burn when destroyed
+- Map settings — Urban (a real city: street grid, zoned blocks from office-tower downtown to residential sprawl, parking lots, pocket parks), Town (villages around plazas), or Country (scattered farmsteads with crop fields, heavy forest, extra oil) — pick one or let the generator roll
 - Terrain matters: water and rock block ground movement, forests slow units pushing through, and nothing can be built on any of them
 - RA2-style sidebar construction: pay up front, build timer, place within your power grid's radius
 - Power system — low power halves production, disables towers, and knocks out your radar
 - Ground units path around buildings and terrain instead of walking through them
-- RA2-style airfields — each holds 4 stationed jets that park on its pads and return to rearm; helicopters, drones, saucers, and blimps fly free
+- RA2-style airfields — each holds 4 stationed aircraft that park on its pads and return to rearm; helicopters, drones, saucers, and blimps fly free
+- Real fixed-wing flight — jets and winged beasts keep airspeed and a turn radius: strafing runs, bombing passes, loitering circles on station, and a landing approach back at the field; the AC-130 Gunship flies a pylon turn around its target pouring cannon fire and howitzer shells
+- Tech buildings — every faction has an expensive, power-hungry research site (Black Site Lab, Institute of Truth, Gene Vault...) gating its heavy hitters: the Globalist families unlock the AC-130 and the B-2 Spirit, the others their signature aircraft — and the Flat Earth factions must research the sky before they may build airfields at all
+- Globalist air doctrine — drones and Black Helicopters roll out of the Motor Pool; the Drone Bay is for real planes: B-1 Lancers on day one, AC-130s and B-2s after the lab
 - Asymmetric economies — Flat Earth swarms cheap Believers, Hollow Earth Diggers haul oversized loads, the Globalist factions field a few armed autonomous Mining Rigs, and the alien factions have no miners at all: their HQ and Zero-Point Cores generate minerals
 - Faction-flavored buildings — the same construction slot costs and delivers differently per faction: Diesel Shacks are cheap and weak, Fusion Plants pricey powerhouses, Hollow Earth structures dug-in and tough
 - Fog of war and a full air game with dedicated anti-air
@@ -60,7 +63,7 @@ Seven factions in four families, each with its own roster, passive trait, and si
 | Drag / click | Select units / buildings (click an enemy to inspect it) |
 | Right-click | Move, harvest, attack, set rally point |
 | A + click | Attack-move |
-| P / B / T / G / F / D | Build power / barracks / tower / AA tower / factory / airpad |
+| P / B / T / G / F / D / R | Build power / barracks / tower / AA tower / factory / airpad / tech |
 | Ctrl+1–5, 1–5 | Assign / recall control groups |
 | Mouse wheel / edge / middle-drag / arrows | Camera |
 | H | Jump to base |

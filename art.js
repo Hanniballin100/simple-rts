@@ -1013,39 +1013,120 @@
     ctx.restore();
   };
   D.gunship = (ctx, t, o) => {
-    // wide wings with twin engines
+    // AC-130: big four-engine airframe with a broadside battery
+    ctx.save();
+    ctx.scale(1.25, 1.25);
+    // wide wing with four props
     ctx.fillStyle = '#272b33';
     rr(ctx, -3, -16, 8, 32, 2);
     ctx.fill();
     for (const s of [-1, 1]) {
-      ctx.fillStyle = '#1d2129';
-      rr(ctx, -1, s * 10 - 2, 8, 4, 1.5);
-      ctx.fill();
-      ctx.save();
-      ctx.translate(8, s * 10);
-      ctx.rotate(t * 26 + s);
-      ctx.strokeStyle = 'rgba(190,195,205,0.6)';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(0, 4); ctx.stroke();
-      ctx.restore();
+      for (const e of [6.5, 12]) {
+        ctx.fillStyle = '#1d2129';
+        rr(ctx, -1, s * e - 1.8, 7, 3.6, 1.5);
+        ctx.fill();
+        ctx.save();
+        ctx.translate(7, s * e);
+        ctx.rotate(t * 26 + s * e);
+        ctx.strokeStyle = 'rgba(190,195,205,0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, -3.4); ctx.lineTo(0, 3.4); ctx.stroke();
+        ctx.restore();
+      }
     }
     // fuselage
     ctx.fillStyle = '#1d2129';
-    rr(ctx, -12, -3.6, 26, 7.2, 3.4);
+    rr(ctx, -13, -3.8, 28, 7.6, 3.4);
     ctx.fill();
     ctx.strokeStyle = '#59626f'; ctx.lineWidth = 0.9; ctx.stroke();
     // tail
     ctx.fillStyle = '#272b33';
-    rr(ctx, -13, -6, 3.5, 12, 1);
+    rr(ctx, -14, -6.5, 3.5, 13, 1);
     ctx.fill();
     // cockpit
     ctx.fillStyle = '#1e4a5f';
-    rr(ctx, 9, -2.6, 4.6, 5.2, 2.2);
+    rr(ctx, 10, -2.8, 4.6, 5.6, 2.2);
     ctx.fill();
-    // side cannon
+    // the broadside: howitzer + cannon barrels off the left of the hull
     ctx.strokeStyle = '#3a3f48';
     ctx.lineWidth = 1.6;
-    ctx.beginPath(); ctx.moveTo(0, 3.6); ctx.lineTo(5, 6.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-2, 3.8); ctx.lineTo(2, 7.5); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-7, 3.8); ctx.lineTo(-4.5, 6.8); ctx.stroke();
+    if (o.firing) {
+      ctx.fillStyle = 'rgba(255,220,130,0.9)';
+      ctx.beginPath();
+      ctx.moveTo(2, 7.5); ctx.lineTo(6, 11.5); ctx.lineTo(1, 9.8);
+      ctx.closePath(); ctx.fill();
+    }
+    blinker(ctx, t, -14, 0, '#ff5f5f', 4);
+    ctx.restore();
+  };
+  D.b1 = (ctx, t, o) => {
+    // swing-wing strike jet: needle nose, swept wings, twin burners
+    ctx.fillStyle = '#2c313a';
+    for (const s of [-1, 1]) { // swept wings
+      ctx.beginPath();
+      ctx.moveTo(4, s * 1.5);
+      ctx.lineTo(-4, s * 12);
+      ctx.lineTo(-8, s * 11);
+      ctx.lineTo(-3, s * 1.5);
+      ctx.closePath(); ctx.fill();
+    }
+    // fuselage blended into the nose
+    ctx.fillStyle = '#2f343d';
+    ctx.beginPath();
+    ctx.moveTo(14, 0);
+    ctx.quadraticCurveTo(6, -3.2, -8, -2.6);
+    ctx.lineTo(-11, 0);
+    ctx.lineTo(-8, 2.6);
+    ctx.quadraticCurveTo(6, 3.2, 14, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#59626f'; ctx.lineWidth = 0.8; ctx.stroke();
+    // tailplanes
+    ctx.fillStyle = '#262b33';
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(-8, s * 1.5); ctx.lineTo(-13, s * 6); ctx.lineTo(-11.5, s * 1);
+      ctx.closePath(); ctx.fill();
+    }
+    // cockpit strip
+    ctx.fillStyle = 'rgba(140,220,255,0.55)';
+    rr(ctx, 6.5, -1.2, 4.5, 2.4, 1.2);
+    ctx.fill();
+    // afterburners
+    const burn = 0.6 + 0.4 * Math.sin(t * 23);
+    ctx.fillStyle = `rgba(255,${150 + Math.floor(burn * 70)},60,${0.55 + burn * 0.4})`;
+    ctx.beginPath(); ctx.moveTo(-11, -1.6); ctx.lineTo(-15 - burn * 3, 0); ctx.lineTo(-11, 1.6); ctx.closePath(); ctx.fill();
+  };
+  D.b2 = (ctx, t, o) => {
+    // stealth flying wing: one black chevron with the sawtooth trailing edge
+    ctx.fillStyle = '#181b20';
+    ctx.beginPath();
+    ctx.moveTo(11, 0);
+    ctx.lineTo(-9, -14);
+    ctx.lineTo(-6.5, -9);   // sawtooth back edge
+    ctx.lineTo(-9.5, -4.5);
+    ctx.lineTo(-5.5, 0);
+    ctx.lineTo(-9.5, 4.5);
+    ctx.lineTo(-6.5, 9);
+    ctx.lineTo(-9, 14);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#3a4048';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    // spine highlight + cockpit slit
+    ctx.strokeStyle = 'rgba(120,130,145,0.45)';
+    ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(10, 0); ctx.lineTo(-5.5, 0); ctx.stroke();
+    ctx.fillStyle = 'rgba(140,220,255,0.4)';
+    rr(ctx, 4.5, -1.1, 3.4, 2.2, 1);
+    ctx.fill();
+    // engine glow notches
+    for (const s of [-1, 1]) {
+      ctx.fillStyle = 'rgba(255,150,70,0.5)';
+      ctx.fillRect(-8.2, s * 6 - 0.8, 1.8, 1.6);
+    }
   };
   D.biobomber = (ctx, t, o) => {
     const breathe = 1 + Math.sin(t * 2.2) * 0.05;
@@ -2258,6 +2339,282 @@
     drum3d(ctx, -o.w / 2 + 13, o.h / 2 - 13, 5, '#5d646d', 2);
     drum3d(ctx, -o.w / 2 + 22, o.h / 2 - 11, 4, '#4d5560', 2);
     blinker(ctx, t, -2, -15, '#ffd75f', 2);
+  };
+  B.office = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    // deep shadow, then tiers stepping up-left like the glob HQ
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    rr(ctx, -w / 2 + 9, -h / 2 + 10, w - 10, h - 12, 3); ctx.fill();
+    block(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3, '#5d6470', 5);
+    block(ctx, -w / 2 + 8, -h / 2 + 8, w - 20, h - 20, 3, '#6a7280', 4);
+    // glass curtain streak
+    ctx.fillStyle = 'rgba(150,200,235,0.16)';
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.18, h * 0.22); ctx.lineTo(-w * 0.02, -h * 0.28);
+    ctx.lineTo(w * 0.1, -h * 0.28); ctx.lineTo(-w * 0.06, h * 0.22);
+    ctx.closePath(); ctx.fill();
+    // roof furniture: elevator house, vents, dish
+    ctx.fillStyle = '#454c58';
+    ctx.fillRect(-w / 2 + 11, -h / 2 + 11, 11, 9);
+    ctx.strokeStyle = '#31363f'; ctx.lineWidth = 1;
+    ctx.strokeRect(-w / 2 + 11, -h / 2 + 11, 11, 9);
+    ctx.fillStyle = '#8b939e';
+    for (let i = 0; i < 2; i++) ctx.fillRect(w / 2 - 20 + i * 8, -h / 2 + 13, 5, 5);
+    ctx.strokeStyle = '#9aa2ac';
+    ctx.beginPath(); ctx.arc(w / 2 - 15, h / 2 - 15, 4, 0.6, Math.PI * 1.4); ctx.stroke();
+    // window grid on the visible tier
+    ctx.fillStyle = 'rgba(20,24,30,0.5)';
+    for (let ix = 0; ix < 3; ix++) {
+      for (let iy = 0; iy < 3; iy++) ctx.fillRect(-8 + ix * 8, -4 + iy * 8, 4.5, 4.5);
+    }
+    blinker(ctx, t, 0, -h / 2 + 6, '#ff5f5f', 2.2);
+  };
+  B.shop = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const v = Math.abs(Math.floor(((o.wx || 0) * 5 + (o.wy || 0) * 17))) % 3;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    rr(ctx, -w / 2 + 6, -h / 2 + 7, w - 8, h - 9, 3); ctx.fill();
+    // flat tar roof
+    ctx.fillStyle = ['#6b655c', '#5f6468', '#6e6055'][v];
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 2.5); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.09)';
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, (h - 6) / 2, 2.5); ctx.fill();
+    // striped storefront awning along the south face
+    const stripe = ['#b04a3a', '#3a6ab0', '#3a8a4a'][v];
+    for (let i = 0; i < Math.floor((w - 10) / 7); i++) {
+      ctx.fillStyle = i % 2 ? stripe : '#ded8c8';
+      ctx.fillRect(-w / 2 + 5 + i * 7, h / 2 - 7, 7, 6);
+    }
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.strokeRect(-w / 2 + 5, h / 2 - 7, Math.floor((w - 10) / 7) * 7, 6);
+    // rooftop sign box + AC unit
+    ctx.fillStyle = '#2e333b';
+    rr(ctx, -9, -h / 2 + 6, 18, 8, 1.5); ctx.fill();
+    ctx.fillStyle = ['#ffd75f', '#8cd0ff', '#7fff9f'][v];
+    ctx.font = 'bold 6px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(['MART', 'DINER', 'PAWN'][v], 0, -h / 2 + 10.2);
+    ctx.fillStyle = '#8b939e';
+    ctx.fillRect(w / 2 - 13, -h / 2 + 7, 6, 6);
+    ctx.strokeStyle = '#5d646d'; ctx.strokeRect(w / 2 - 13, -h / 2 + 7, 6, 6);
+  };
+  B.church = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    rr(ctx, -w / 2 + 6, -h / 2 + 8, w - 8, h - 10, 3); ctx.fill();
+    // long gabled nave, ridge down the long (vertical) axis
+    ctx.fillStyle = '#7d7468';
+    rr(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.1; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.13)';
+    rr(ctx, -w / 2 + 4, -h / 2 + 4, (w - 8) / 2, h - 8, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,32,24,0.5)';
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(0, -h / 2 + 5); ctx.lineTo(0, h / 2 - 5); ctx.stroke();
+    // shingle seams
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 0.7;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(-w / 2 + 5, i * 9); ctx.lineTo(w / 2 - 5, i * 9); ctx.stroke();
+    }
+    // steeple at the south end: white tower, dark spire cap, cross
+    ctx.fillStyle = '#e8e4da';
+    ctx.fillRect(-6, h / 2 - 16, 12, 12);
+    ctx.strokeStyle = '#a8a294'; ctx.lineWidth = 1;
+    ctx.strokeRect(-6, h / 2 - 16, 12, 12);
+    ctx.fillStyle = '#4a4440';
+    ctx.beginPath();
+    ctx.moveTo(-6, h / 2 - 16); ctx.lineTo(0, h / 2 - 22); ctx.lineTo(6, h / 2 - 16);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#f2eee2'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2 - 27); ctx.lineTo(0, h / 2 - 21);
+    ctx.moveTo(-2.4, h / 2 - 25); ctx.lineTo(2.4, h / 2 - 25);
+    ctx.stroke();
+    // stained-glass rose window at the north gable
+    ctx.fillStyle = '#3a5a8a';
+    ctx.beginPath(); ctx.arc(0, -h / 2 + 10, 3.4, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#d8d2c2'; ctx.lineWidth = 0.7; ctx.stroke();
+  };
+  B.warehouse = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    rr(ctx, -w / 2 + 7, -h / 2 + 8, w - 9, h - 10, 3); ctx.fill();
+    // long ribbed metal roof
+    ctx.fillStyle = '#5f6a72';
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.4; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, (h - 6) / 2, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.8;
+    for (let i = 1; i < Math.floor(w / 9); i++) {
+      const sx = -w / 2 + 3 + i * 9;
+      ctx.beginPath(); ctx.moveTo(sx, -h / 2 + 4); ctx.lineTo(sx, h / 2 - 4); ctx.stroke();
+    }
+    // skylight strip
+    ctx.fillStyle = 'rgba(170,215,240,0.3)';
+    rr(ctx, -w / 2 + 10, -2.5, w - 20, 5, 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 0.7; ctx.stroke();
+    // loading dock: two bay doors on the south side + pallets
+    ctx.fillStyle = '#3a3f45';
+    ctx.fillRect(-w / 2 + 10, h / 2 - 7, 12, 6);
+    ctx.fillRect(-w / 2 + 26, h / 2 - 7, 12, 6);
+    ctx.strokeStyle = 'rgba(220,190,80,0.6)'; ctx.lineWidth = 1;
+    ctx.strokeRect(-w / 2 + 10, h / 2 - 7, 12, 6);
+    ctx.strokeRect(-w / 2 + 26, h / 2 - 7, 12, 6);
+    ctx.fillStyle = '#8a6f42';
+    ctx.fillRect(w / 2 - 16, h / 2 - 9, 7, 5);
+    ctx.fillRect(w / 2 - 24, h / 2 - 8, 6, 4);
+    blinker(ctx, t, w / 2 - 7, -h / 2 + 7, '#ffd75f', 2.5);
+  };
+  B.gasstation = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    // oil-stained forecourt
+    ctx.fillStyle = 'rgba(20,18,14,0.35)';
+    ctx.beginPath(); ctx.ellipse(2, 3, w * 0.55, h * 0.52, 0, 0, TAU); ctx.fill();
+    // kiosk at the west end
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    rr(ctx, -w / 2 + 6, -h / 2 + 8, 20, h - 12, 2); ctx.fill();
+    ctx.fillStyle = '#6e6558';
+    rr(ctx, -w / 2 + 4, -h / 2 + 5, 20, h - 12, 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+    // white canopy over the pumps, red trim
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    rr(ctx, -2, -h / 2 + 9, w / 2 - 4, h - 14, 2); ctx.fill();
+    ctx.fillStyle = '#ded8cc';
+    rr(ctx, -4, -h / 2 + 6, w / 2 - 4, h - 14, 2); ctx.fill();
+    ctx.strokeStyle = '#b04a3a'; ctx.lineWidth = 1.6; ctx.stroke();
+    // pumps peeking out under the canopy edge
+    ctx.fillStyle = '#b04a3a';
+    ctx.fillRect(2, h / 2 - 8, 4, 5);
+    ctx.fillRect(12, h / 2 - 8, 4, 5);
+    // price sign + fuel drums
+    ctx.fillStyle = '#2e333b';
+    ctx.fillRect(w / 2 - 8, -h / 2 + 4, 6, 10);
+    ctx.fillStyle = '#ffd75f';
+    ctx.font = 'bold 5px Arial';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('GAS', w / 2 - 5, -h / 2 + 9);
+    drum3d(ctx, -w / 2 + 9, h / 2 - 6, 4, '#8a4438', 2);
+    drum3d(ctx, -w / 2 + 17, h / 2 - 5, 3.5, '#7a6f42', 2);
+  };
+
+  // ================= TECH LAB (research site, one look per family) =================
+  B.tech = (ctx, t, o) => {
+    pad(ctx, o);
+    if (o.fam === 'flat') {
+      // conspiracy research camp: shack, corkboard wall, giant tinfoil dish
+      block(ctx, -22, -6, 24, 24, 3, '#6a6352', 4);
+      // corkboard of TRUTH (red string included)
+      block(ctx, 2, -24, 22, 16, 2, '#8a7a5c', 3);
+      ctx.strokeStyle = '#c0392b';
+      ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(5, -21); ctx.lineTo(14, -14); ctx.lineTo(8, -12); ctx.lineTo(19, -20);
+      ctx.stroke();
+      ctx.fillStyle = '#e8e4da';
+      for (const [px, py] of [[6, -21], [14, -14], [19, -20], [8, -12]]) ctx.fillRect(px - 1, py - 1, 2, 2);
+      // the dish: foil-clad, aimed at the sky they don't trust
+      const sway = Math.sin(t * 0.7) * 0.2;
+      ctx.save();
+      ctx.translate(10, 10);
+      ctx.rotate(sway);
+      const dg = ctx.createRadialGradient(-2, -2, 1, 0, 0, 13);
+      dg.addColorStop(0, '#e8ecf2');
+      dg.addColorStop(1, '#9aa2ac');
+      ctx.fillStyle = dg;
+      ctx.beginPath(); ctx.ellipse(0, 0, 13, 10, 0.4, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#6d7480'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-9, -5); ctx.lineTo(9, 5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-8, 6); ctx.lineTo(8, -6); ctx.stroke();
+      ctx.fillStyle = '#4a4438';
+      ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, TAU); ctx.fill();
+      ctx.restore();
+      radioMast(ctx, t, -24, -20);
+      crateBox(ctx, -8, 20, 6);
+    } else if (o.fam === 'glob') {
+      // black-glass research cube with a radome and server heat shimmer
+      block(ctx, -20, -20, 40, 40, 3, '#2c323d', 5);
+      block(ctx, -14, -14, 28, 28, 3, '#39414f', 4);
+      ctx.fillStyle = 'rgba(140,208,255,0.14)';
+      ctx.beginPath();
+      ctx.moveTo(-8, 10); ctx.lineTo(-1, -11); ctx.lineTo(5, -11); ctx.lineTo(-2, 10);
+      ctx.closePath(); ctx.fill();
+      // radome
+      const rg = ctx.createRadialGradient(6, -8, 1, 8, -6, 9);
+      rg.addColorStop(0, '#f2f5f9');
+      rg.addColorStop(1, '#aab3bf');
+      ctx.fillStyle = rg;
+      ctx.beginPath(); ctx.arc(8, -6, 8, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#6d7480'; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.beginPath(); ctx.arc(8, -6, 5, 0, TAU); ctx.stroke();
+      // vent bank
+      ctx.fillStyle = '#1d2129';
+      for (let i = 0; i < 3; i++) ctx.fillRect(-16 + i * 7, 10, 5, 7);
+      blinker(ctx, t, 8, -6, '#8cd0ff', 2.6);
+      blinker(ctx, t + 1.3, -18, -18, '#ff5f5f', 2);
+    } else if (o.fam === 'hollow') {
+      // exposed geode forge: cracked mound over a glowing crystal core
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(3, 4, 24, 22, 0, 0, TAU); ctx.fill();
+      for (const [rad, col] of [[23, '#4e463b'], [17, '#5c5347']]) {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.arc(-((23 - rad) * 0.3), -((23 - rad) * 0.3), rad, 0, TAU); ctx.fill();
+      }
+      const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
+      ctx.fillStyle = `rgba(255,150,70,${0.25 + pulse * 0.3})`;
+      ctx.beginPath(); ctx.arc(-2, -2, 12, 0, TAU); ctx.fill();
+      // crystal spikes
+      for (let i = 0; i < 5; i++) {
+        const a = i * 1.26 + 0.4;
+        const cx2 = -2 + Math.cos(a) * 7, cy2 = -2 + Math.sin(a) * 6;
+        ctx.fillStyle = `rgba(190,230,255,${0.6 + pulse * 0.3})`;
+        ctx.beginPath();
+        ctx.moveTo(cx2 - 3, cy2 + 2);
+        ctx.lineTo(cx2 + Math.cos(a) * 8, cy2 + Math.sin(a) * 8 - 6);
+        ctx.lineTo(cx2 + 3, cy2 + 2);
+        ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(90,130,170,0.7)'; ctx.lineWidth = 0.7; ctx.stroke();
+      }
+      // anvil-drill rig on the rim
+      block(ctx, 12, 6, 12, 12, 2, '#59524a', 3);
+      ctx.strokeStyle = '#8b7f5e'; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(18, 6); ctx.lineTo(14, -6); ctx.stroke();
+    } else {
+      // alien: levitating obelisk over a containment ring
+      ctx.strokeStyle = 'rgba(125,255,214,0.5)';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(0, 6, 20, 12, 0, 0, TAU); ctx.stroke();
+      const bob2 = Math.sin(t * 1.6) * 2;
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(0, 8, 9 - bob2 * 0.6, 4.5 - bob2 * 0.3, 0, 0, TAU); ctx.fill();
+      const og = ctx.createLinearGradient(-6, -18, 6, 10);
+      og.addColorStop(0, '#d7dce4');
+      og.addColorStop(0.6, '#8b93a6');
+      og.addColorStop(1, '#5a6172');
+      ctx.fillStyle = og;
+      ctx.beginPath();
+      ctx.moveTo(0, -20 - bob2);
+      ctx.lineTo(7, -6 - bob2); ctx.lineTo(4, 8 - bob2);
+      ctx.lineTo(-4, 8 - bob2); ctx.lineTo(-7, -6 - bob2);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#454b58'; ctx.lineWidth = 1; ctx.stroke();
+      // glyph glow lines
+      const gl = 0.5 + 0.5 * Math.sin(t * 3.1);
+      ctx.strokeStyle = `rgba(125,255,214,${0.4 + gl * 0.5})`;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-3, -14 - bob2); ctx.lineTo(3, -14 - bob2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-4, -8 - bob2); ctx.lineTo(4, -8 - bob2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-3.5, -2 - bob2); ctx.lineTo(3.5, -2 - bob2); ctx.stroke();
+      // orbiting motes
+      for (let i = 0; i < 3; i++) {
+        const a = t * 1.8 + i * (TAU / 3);
+        ctx.fillStyle = `rgba(125,255,214,${0.5 + 0.4 * Math.sin(t * 4 + i)})`;
+        ctx.beginPath();
+        ctx.arc(Math.cos(a) * 20, 6 + Math.sin(a) * 12 - bob2 * 0.4, 1.6, 0, TAU);
+        ctx.fill();
+      }
+    }
   };
 
   // ---------- public API ----------

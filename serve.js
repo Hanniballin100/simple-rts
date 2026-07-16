@@ -12,6 +12,19 @@ const mime = {
 };
 
 http.createServer((req, res) => {
+  // dev aid: POST a canvas data-URL to /shot and it lands in .shots/ as a jpg
+  if (req.method === 'POST' && req.url.startsWith('/shot')) {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', () => {
+      const name = (req.url.split('?name=')[1] || 'shot').replace(/[^\w-]/g, '');
+      const b64 = body.split(',')[1] || '';
+      fs.mkdirSync(path.join(root, '.shots'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.shots', name + '.jpg'), Buffer.from(b64, 'base64'));
+      res.writeHead(200); res.end('ok');
+    });
+    return;
+  }
   const urlPath = decodeURIComponent(req.url.split('?')[0]);
   let file = path.normalize(path.join(root, urlPath === '/' ? 'index.html' : urlPath));
   if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }

@@ -145,24 +145,68 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     farFrom(TERRAIN, x, y, 70) &&
     neutrals.every(n => dist2(n.x, n.y, x, y) > 95);
 
-  // a city district: paved plaza with a street grid of apartments and houses
-  const placeDistrict = (x, y) => {
-    const cols = 2 + Math.floor(Math.random() * 2), rows = 2 + Math.floor(Math.random() * 2);
-    let placed = 0;
-    for (let cxi = 0; cxi < cols; cxi++) {
-      for (let ryi = 0; ryi < rows; ryi++) {
-        if (Math.random() < 0.25) continue; // vacant lot
-        const bx = x + (cxi - (cols - 1) / 2) * 118 + (Math.random() - 0.5) * 16;
-        const by = y + (ryi - (rows - 1) / 2) * 108 + (Math.random() - 0.5) * 14;
-        if (!clearForNeutral(bx, by, 330)) continue;
-        neutrals.push({ type: Math.random() < 0.45 ? 'apartment' : 'house', x: bx, y: by });
-        placed++;
+  // ---- a real city: shared street grid, zoned blocks, downtown core ----
+  // Blocks sit on one pitch so every district lines up with the roads.
+  // Zoning by distance from the city center: office/apartment core,
+  // shops+civic mid-ring, houses (and combustible gas stations) at the edge.
+  const BLOCK_W = 150, BLOCK_H = 132, ROAD = 30;
+  const PITCH_X = BLOCK_W + ROAD, PITCH_Y = BLOCK_H + ROAD;
+  const blockClear = (bx, by) =>
+    bx > 160 && by > 160 && bx < WORLD_W - 160 && by < WORLD_H - 160 &&
+    farFrom(starts, bx, by, 430) &&
+    farFrom(patchSpots, bx, by, 175) &&
+    farFrom(TERRAIN, bx, by, 135) &&
+    neutrals.every(n => dist2(n.x, n.y, bx, by) > 165);
+
+  // fill one block with an aligned lot layout picked by zone (0 core - 1 edge)
+  const fillBlock = (bx, by, zone) => {
+    const roll = prand(seed++);
+    const put = (type, ox, oy) => neutrals.push({ type, x: bx + ox, y: by + oy });
+    if (zone < 0.38) { // downtown: towers over storefronts
+      if (roll < 0.42) { put('office', -34, 0); put('shop', 42, -34); put('shop', 42, 34); }
+      else if (roll < 0.8) { put('apartment', -38, 0); put('apartment', 30, 0); }
+      else { put('office', 30, 22); put('shop', -40, -34); decor.push({ kind: 'lot', x: -34 + bx, y: 22 + by, w: 74, h: 68, seed: seed++ }); }
+    } else if (zone < 0.72) { // mid-ring: commerce and civic lots
+      if (roll < 0.3) { put('church', -34, 0); put('house', 40, -28); decor.push({ kind: 'park', x: bx + 34, y: by + 32, w: 70, h: 56, seed: seed++ }); }
+      else if (roll < 0.62) { put('shop', -42, -30); put('shop', -42, 32); put('apartment', 34, 0); }
+      else { put('warehouse', -26, -28); put('shop', 34, 34); decor.push({ kind: 'lot', x: bx + 34, y: by - 30, w: 66, h: 58, seed: seed++ }); }
+    } else { // edge: residential sprawl, the odd gas station
+      if (roll < 0.24) { put('gasstation', -36, -32); put('house', 34, -30); put('house', 34, 34); }
+      else if (roll < 0.5) { put('warehouse', -26, 28); put('house', 36, -30); }
+      else { put('house', -36, -30); put('house', 38, -30); put('house', -36, 32); if (prand(seed++) < 0.6) put('house', 38, 32); }
+    }
+  };
+
+  // a city: pick every clear block on a bw x bh grid, lay roads along block
+  // edges (overlaps merge into a street network), then zone-fill the blocks
+  const placeCity = (ccx, ccy, bw, bh) => {
+    const x0 = ccx - (bw / 2) * PITCH_X, y0 = ccy - (bh / 2) * PITCH_Y;
+    const used = [];
+    for (let gx = 0; gx < bw; gx++) {
+      for (let gy = 0; gy < bh; gy++) {
+        const bx = x0 + (gx + 0.5) * PITCH_X, by = y0 + (gy + 0.5) * PITCH_Y;
+        if (blockClear(bx, by)) used.push({ bx, by });
       }
     }
-    if (placed) {
-      decor.push({ kind: 'plaza', x, y, w: cols * 118 + 60, h: rows * 108 + 56, seed: seed++ });
+    if (used.length < 3) return 0; // not enough room here for a real town
+    const maxD = Math.hypot(bw * PITCH_X, bh * PITCH_Y) / 2;
+    let parkDone = false;
+    for (const b of used) {
+      decor.push({ kind: 'road', x: b.bx, y: b.by - PITCH_Y / 2, w: PITCH_X + ROAD, h: ROAD, seed: seed++ });
+      decor.push({ kind: 'road', x: b.bx, y: b.by + PITCH_Y / 2, w: PITCH_X + ROAD, h: ROAD, seed: seed++ });
+      decor.push({ kind: 'road', x: b.bx - PITCH_X / 2, y: b.by, w: ROAD, h: PITCH_Y + ROAD, seed: seed++ });
+      decor.push({ kind: 'road', x: b.bx + PITCH_X / 2, y: b.by, w: ROAD, h: PITCH_Y + ROAD, seed: seed++ });
+      decor.push({ kind: 'plaza', x: b.bx, y: b.by, w: BLOCK_W + 14, h: BLOCK_H + 14, seed: seed++ });
+      const zone = Math.hypot(b.bx - ccx, b.by - ccy) / maxD;
+      // one central block stays open as the town park
+      if (!parkDone && zone < 0.3 && prand(seed++) < 0.5) {
+        parkDone = true;
+        decor.push({ kind: 'park', x: b.bx, y: b.by, w: BLOCK_W - 10, h: BLOCK_H - 10, seed: seed++ });
+        continue;
+      }
+      fillBlock(b.bx, b.by, zone);
     }
-    return placed;
+    return used.length;
   };
   // a small town: houses loosely ringing a paved square
   const placeTown = (x, y, n) => {
@@ -172,7 +216,11 @@ function generateMap(sizeKey, numPlayers, settingKey) {
       const d = 85 + Math.random() * 60;
       const hx = x + Math.cos(a) * d, hy = y + Math.sin(a) * d;
       if (!clearForNeutral(hx, hy, 330)) continue;
-      neutrals.push({ type: Math.random() < 0.12 ? 'apartment' : 'house', x: hx, y: hy });
+      const roll = Math.random();
+      neutrals.push({
+        type: roll < 0.1 ? 'apartment' : roll < 0.24 ? 'shop' : roll < 0.32 ? 'church' : 'house',
+        x: hx, y: hy,
+      });
       placed++;
     }
     if (placed >= 3) decor.push({ kind: 'plaza', x, y, w: 120, h: 110, seed: seed++ });
@@ -204,8 +252,19 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   };
 
   if (setting === 'urban') {
-    scatterSpots(2 + Math.round(area / 3.2e6), 420, placeDistrict);
-    scatterSpots(Math.round(area / 6e6), 340, (x, y) => (neutrals.push({ type: 'house', x, y }), 1));
+    // one metropolis near the middle of the map...
+    const big = Math.random() < 0.5 ? [5, 3] : [4, 4];
+    for (let tries = 0; tries < 40; tries++) {
+      const x = WORLD_W * (0.3 + Math.random() * 0.4);
+      const y = WORLD_H * (0.3 + Math.random() * 0.4);
+      if (placeCity(x, y, big[0], big[1]) >= 5) break;
+    }
+    // ...plus satellite districts, and lone roadside stops in the sticks
+    scatterSpots(1 + Math.round(area / 5.5e6), 400, (x, y) => placeCity(x, y, 2, 2) >= 3 ? 1 : 0);
+    scatterSpots(Math.round(area / 6e6), 340, (x, y) => {
+      neutrals.push({ type: Math.random() < 0.3 ? 'gasstation' : 'house', x, y });
+      return 1;
+    });
   } else if (setting === 'town') {
     scatterSpots(1 + Math.round(area / 6e6), 400, (x, y) => placeTown(x, y, 5 + Math.floor(Math.random() * 4)));
     scatterSpots(1 + Math.round(area / 5e6), 360, (x, y) => placeTown(x, y, 2 + Math.floor(Math.random() * 2)));

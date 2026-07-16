@@ -170,9 +170,16 @@ function nearest(from, list, filter) {
   return best;
 }
 
+// per-frame memo (state.time only advances once per frame): enemiesOf and
+// powerOf are called per unit / per building per frame, and rebuilding those
+// arrays thousands of times a second was churning enough garbage to cause
+// visible GC hitches on big late-game maps
+let enemyMemo = { t: -1 };
 function enemiesOf(owner) {
-  return state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned)
-    .concat(state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0));
+  if (enemyMemo.t !== state.time) enemyMemo = { t: state.time };
+  return enemyMemo[owner] || (enemyMemo[owner] =
+    state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned)
+      .concat(state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0)));
 }
 
 function entityRadius(e) {
@@ -186,14 +193,22 @@ function canTarget(stats, target) {
   return isAir ? (t === 'air' || t === 'both') : (t === 'ground' || t === 'both');
 }
 
+let powerMemo = { t: -1 };
 function powerOf(owner) {
+  if (powerMemo.t !== state.time) powerMemo = { t: state.time };
+  if (powerMemo[owner]) return powerMemo[owner];
   let cap = 0, used = 0;
   for (const b of state.buildings) {
     if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
     const p = bstatsOf(b).power || 0;
     if (p > 0) cap += p; else used -= p;
   }
-  return { cap, used, low: used > cap };
+  return (powerMemo[owner] = { cap, used, low: used > cap });
+}
+
+// does the owner have a finished building of this type? (tech prereqs)
+function hasStruct(owner, type) {
+  return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done && b.type === type);
 }
 
 function tileState(x, y) {
@@ -358,6 +373,8 @@ function atStructCap(owner, type) {
 function startConstruction(owner, type) {
   if (state.construction[owner]) return false;
   if (atStructCap(owner, type)) return false;
+  const rq = bstats(owner, type).req;
+  if (rq && !hasStruct(owner, rq)) return false;
   const cost = bstats(owner, type).cost;
   if (state.minerals[owner] < cost) return false;
   state.minerals[owner] -= cost;
@@ -678,6 +695,42 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   return false;
 }
 
+// fixed-wing flight: planes never hover — they keep airspeed and steer by
+// turning their heading toward the target at a limited rate, so they carve
+// arcs, overshoot strafing runs, and naturally circle whatever they chase.
+// Returns true once within `arrive` of the point.
+function flyToward(u, tx, ty, dt, arrive = 24, approach = false) {
+  const t = UNIT_TYPES[u.type];
+  let speed = t.speed;
+  if (u.slowUntil && u.slowUntil > state.time) speed *= 0.55;
+  // landing approach: bleed airspeed near the field so the turn radius
+  // (speed / turn rate) shrinks below the arrive window — otherwise fast
+  // jets orbit their own pad forever, unable to hit the slot
+  if (approach) speed *= clamp(Math.hypot(tx - u.x, ty - u.y) / 120, 0.2, 1);
+  const want = Math.atan2(ty - u.y, tx - u.x);
+  const diff = ((want - u.facing + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  const maxTurn = (t.turn || 2.2) * dt;
+  u.facing += clamp(diff, -maxTurn, maxTurn);
+  u.x += Math.cos(u.facing) * speed * dt;
+  u.y += Math.sin(u.facing) * speed * dt;
+  // bank off the map edge instead of pinning against it
+  if (u.x < 14) { u.x = 14; u.facing = Math.cos(u.facing) < 0 ? Math.PI - u.facing : u.facing; }
+  if (u.x > WORLD_W - 14) { u.x = WORLD_W - 14; u.facing = Math.cos(u.facing) > 0 ? Math.PI - u.facing : u.facing; }
+  if (u.y < 14) { u.y = 14; u.facing = Math.sin(u.facing) < 0 ? -u.facing : u.facing; }
+  if (u.y > WORLD_H - 14) { u.y = WORLD_H - 14; u.facing = Math.sin(u.facing) > 0 ? -u.facing : u.facing; }
+  u.travel += speed * dt;
+  return Math.hypot(tx - u.x, ty - u.y) <= arrive;
+}
+
+// circle a point (combat air patrol / gunship pylon turn). The plane chases a
+// lead point on the ring; turn-rate lag makes the real orbit ~1.5x the chased
+// ring, so aim inside to make the flown circle come out near `radius`
+function flyOrbit(u, cx, cy, dt, radius = 70) {
+  const ang = Math.atan2(u.y - cy, u.x - cx) + 0.85;
+  const r2 = radius * 0.65;
+  flyToward(u, cx + Math.cos(ang) * r2, cy + Math.sin(ang) * r2, dt, 0);
+}
+
 function dealDamage(attacker, target, dmg, stats) {
   // grey superior metallurgy: buildings ignore anti-building bonuses
   if (target.kind === 'building' && stats.bldgBonus && state.factions[target.owner] !== 'grey') {
@@ -800,6 +853,8 @@ function updateZones(dt) {
 
 function tryAttack(u, target, dt) {
   const t = UNIT_TYPES[u.type];
+  if (t.maxAmmo && u.ammo <= 0) { u.order = { type: 'rearm' }; return; } // winchester — RTB
+  if (t.plane) { planeAttack(u, target, t, dt); return; }
   const range = t.atkRange + entityRadius(target);
   const d = dist(u, target);
   if (d > range) {
@@ -808,7 +863,30 @@ function tryAttack(u, target, dt) {
   }
   u.facing = Math.atan2(target.y - u.y, target.x - u.x);
   if (t.minRange && d < t.minRange) return; // artillery: too close to fire
-  if (t.maxAmmo && u.ammo <= 0) { u.order = { type: 'rearm' }; return; } // winchester — RTB
+  fireAt(u, target, t);
+}
+
+// how a fixed-wing craft prosecutes a target, by weapon fit
+function planeAttack(u, target, t, dt) {
+  const d = dist(u, target);
+  const range = t.atkRange + entityRadius(target);
+  if (t.weapon === 'gunship') {
+    // pylon turn: circle the target and pour sideways fire into it
+    flyOrbit(u, target.x, target.y, dt, t.orbitR || 140);
+    if (d <= range) fireAt(u, target, t);
+  } else if (t.weapon === 'bomb') {
+    // bombing run: fly straight across the target, release on overflight
+    flyToward(u, target.x, target.y, dt, 0);
+    if (d <= range) fireAt(u, target, t);
+  } else {
+    // strafing pass: shoot while lined up, overshoot, bank around, repeat
+    flyToward(u, target.x, target.y, dt, 0);
+    const aim = Math.abs(((Math.atan2(target.y - u.y, target.x - u.x) - u.facing + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+    if (d <= range && aim < 0.5) fireAt(u, target, t);
+  }
+}
+
+function fireAt(u, target, t) {
   if (u.cooldown <= 0) {
     const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
     const dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
@@ -827,6 +905,23 @@ function tryAttack(u, target, dt) {
     } else if (wkind === 'storm') {
       state.zones.push({ x: target.x, y: target.y, r: 60, until: state.time + 3, caster: u.owner, kind: 'storm', dmg: t.dmg });
       if (visible) sfx('laser');
+    } else if (wkind === 'gunship') {
+      // broadside battery: a stream of cannon tracers with a howitzer shell
+      // punctuating every shellEvery-th round
+      u.burst = (u.burst || 0) + 1;
+      if (u.burst % (t.shellEvery || 8) === 0) {
+        const ja = Math.random() * Math.PI * 2, jr = Math.random() * 14;
+        spawnProjectile('shell', u.x, u.y,
+          target.x + Math.cos(ja) * jr, target.y + Math.sin(ja) * jr, u.owner,
+          { dmg: t.shellDmg || 40, splash: t.shellSplash || 30, bldgBonus: 1.4 });
+        if (visible) sfx('shot');
+      } else {
+        dealDamage(u, target, dmg, t);
+        Particles.shot(u.x + Math.cos(a + 1.5) * (t.r - 3), u.y + Math.sin(a + 1.5) * (t.r - 3),
+          target.x, target.y, 'bullet');
+        if (visible && u.burst % 3 === 0) sfx('shot');
+      }
+      if (target.hp <= 0 && u.order.type === 'attack') u.order = { type: 'idle' };
     } else {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
@@ -844,9 +939,14 @@ function tryAttack(u, target, dt) {
   }
 }
 
-function autoAcquire(u) {
+function autoAcquire(u, dt) {
   const t = UNIT_TYPES[u.type];
   if (t.maxAmmo && u.ammo <= 0) return; // nothing left to shoot with
+  // stagger the full-map target sweeps — every idle unit scanning every
+  // frame was a big slice of late-game frame time
+  u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
+  if (u.scanT > 0) return;
+  u.scanT = 0.3;
   const foe = nearest(u, enemiesOf(u.owner), e =>
     !e.disguised && canTarget(t, e) && dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
   if (foe) orderAttack(u, foe);
@@ -910,18 +1010,38 @@ function updateUnit(u, dt) {
         break;
       }
       if (stats.pad && findPadFor(u)) { u.order = { type: 'rearm' }; break; }
-      if (stats.role === 'combat') autoAcquire(u);
+      if (stats.plane) { u.order = { type: 'loiter', x: u.x, y: u.y }; break; } // no pad left: circle
+      if (stats.role === 'combat') autoAcquire(u, dt);
       break;
 
     case 'move':
-      if (moveToward(u, o.x, o.y, dt, 6)) u.order = { type: 'idle' };
+      if (stats.plane) {
+        // fly there, then hold on station — a plane never just stops
+        if (flyToward(u, o.x, o.y, dt, 40)) u.order = { type: 'loiter', x: o.x, y: o.y };
+      } else if (moveToward(u, o.x, o.y, dt, 6)) u.order = { type: 'idle' };
+      break;
+
+    case 'loiter': // circling a point (scouting overwatch / stranded plane)
+      flyOrbit(u, o.x, o.y, dt, 72);
+      if (stats.role === 'combat') autoAcquire(u, dt);
       break;
 
     case 'attackmove': {
-      const foe = nearest(u, enemiesOf(u.owner), e =>
-        !e.disguised && canTarget(stats, e) && dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
+      // keep engaging the cached foe; rescan on a stagger instead of every frame
+      let foe = o.foeId ? findEntity(o.foeId) : null;
+      if (foe && (foe.hp <= 0 || foe.disguised || dist(u, foe) > stats.sight + 60 ||
+          dist(u, foe) < (stats.minRange || 0))) foe = null;
+      u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
+      if (!foe && u.scanT <= 0) {
+        u.scanT = 0.25;
+        foe = nearest(u, enemiesOf(u.owner), e =>
+          !e.disguised && canTarget(stats, e) && dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
+      }
+      o.foeId = foe ? foe.id : null;
       if (foe) { tryAttack(u, foe, dt); break; }
-      if (moveToward(u, o.x, o.y, dt, 8)) u.order = { type: 'idle' };
+      if (stats.plane) {
+        if (flyToward(u, o.x, o.y, dt, 40)) u.order = { type: 'loiter', x: o.x, y: o.y };
+      } else if (moveToward(u, o.x, o.y, dt, 8)) u.order = { type: 'idle' };
       break;
     }
 
@@ -967,8 +1087,12 @@ function updateUnit(u, dt) {
       if (!home) { u.order = { type: 'idle' }; break; } // no airfield left — stranded
       if (u.slot === undefined) u.slot = freeSlot(home);
       const [ox, oy] = PAD_SLOT_POS[u.slot % PAD_CAP];
-      if (moveToward(u, home.x + ox, home.y + oy, dt, 5)) {
+      const px = home.x + ox, py = home.y + oy;
+      const arrived = stats.plane ? flyToward(u, px, py, dt, 16, true) : moveToward(u, px, py, dt, 5);
+      if (arrived) {
         u.landed = true;
+        u.x = px; u.y = py;          // settle square on the pad markings
+        u.facing = -Math.PI / 2;     // parked nose-north, RA2 style
         u.order = { type: 'idle' };
       }
       break;
@@ -1041,24 +1165,47 @@ function updateUnit(u, dt) {
   }
 
   // separation only within the same layer (ground vs ground, air vs air);
-  // aircraft parked on a pad hold their slot
-  if (u.landed) return;
+  // aircraft parked on a pad hold their slot, and fixed-wing craft are never
+  // shoved — they are always moving anyway
+  if (u.landed || stats.plane) return;
   const myFlying = !!stats.flying;
-  for (const other of state.units) {
-    if (other === u || other.hp <= 0 || other.garrisoned) continue;
-    if (!!UNIT_TYPES[other.type].flying !== myFlying) continue;
-    const d = dist(u, other);
-    const minD = stats.r + UNIT_TYPES[other.type].r;
-    if (d > 0 && d < minD) {
-      const push = (minD - d) / 2;
-      u.x += (u.x - other.x) / d * push;
-      u.y += (u.y - other.y) / d * push;
+  const sgx = (u.x / SEP_CELL) | 0, sgy = (u.y / SEP_CELL) | 0;
+  for (let cx2 = sgx - 1; cx2 <= sgx + 1; cx2++) {
+    for (let cy2 = sgy - 1; cy2 <= sgy + 1; cy2++) {
+      const cell = sepGrid.get(cx2 * 4096 + cy2);
+      if (!cell) continue;
+      for (const other of cell) {
+        if (other === u || other.hp <= 0 || other.garrisoned) continue;
+        if (!!UNIT_TYPES[other.type].flying !== myFlying) continue;
+        const d = dist(u, other);
+        const minD = stats.r + UNIT_TYPES[other.type].r;
+        if (d > 0 && d < minD) {
+          const push = (minD - d) / 2;
+          u.x += (u.x - other.x) / d * push;
+          u.y += (u.y - other.y) / d * push;
+        }
+      }
     }
+  }
+}
+
+// spatial hash for the separation pass — the old all-pairs sweep was O(n²)
+// across the whole map and chewed frame time once armies got big
+const SEP_CELL = 48; // > 2x the largest unit radius, so 3x3 cells cover any pair
+const sepGrid = new Map();
+function rebuildSepGrid() {
+  sepGrid.clear();
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.garrisoned) continue;
+    const key = ((u.x / SEP_CELL) | 0) * 4096 + ((u.y / SEP_CELL) | 0);
+    const cell = sepGrid.get(key);
+    if (cell) cell.push(u); else sepGrid.set(key, [u]);
   }
 }
 
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
+  if (ut.req && !hasStruct(owner, ut.req)) return false;
   let trainers = state.buildings.filter(b =>
     b.owner === owner && b.hp > 0 && b.done && b.type === ut.builtAt && b.queue.length < 5);
   if (ut.pad) trainers = trainers.filter(b => padLoad(b) < PAD_CAP); // needs a free pad slot
@@ -1245,12 +1392,19 @@ function aiDesiredStructure(owner, counts, power) {
   // income factions (no miners) weave in extra power structures — those ARE
   // their economy
   const order = f.economy.workers === 0
-    ? ['barracks', 'powerplant', f.tower, 'powerplant', 'factory', f.aaTower, 'powerplant', 'airpad', 'powerplant', 'barracks', f.tower, 'powerplant', f.aaTower]
-    : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', f.tower, f.aaTower];
+    ? ['barracks', 'powerplant', f.tower, 'powerplant', 'factory', f.aaTower, 'powerplant', 'airpad', 'powerplant', 'tech', 'barracks', f.tower, 'powerplant', f.aaTower]
+    : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', 'tech', f.tower, f.aaTower];
   const want = {};
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
-    if ((counts[t] || 0) < want[t] && !atStructCap(owner, t)) return t;
+    if ((counts[t] || 0) < want[t] && !atStructCap(owner, t)) {
+      // a gated structure (flat-family airpads) sends the AI for its prereq first
+      const rq = bstats(owner, t).req;
+      if (rq && !(counts[rq] > 0)) {
+        return atStructCap(owner, rq) ? null : rq;
+      }
+      return t;
+    }
   }
   return null;
 }
@@ -1305,11 +1459,23 @@ function updateAI(owner, dt) {
   }
 
   // train toward a target composition: pick the most-lacking type and save for
-  // it — training whatever is affordable would starve the expensive units
+  // it — training whatever is affordable would starve the expensive units.
+  // Candidates come straight from the faction roster, filtered by whether the
+  // right production building (and any tech prereq) actually stands.
   const mix = [];
-  if (counts.barracks) mix.push([f.infantry, 4], [f.aa, 1.2], [f.extras[0], 0.8]);
-  if (counts.factory) mix.push([f.vehicle, 1.6], [f.extras[1], 0.8]);
-  if (counts.airpad) mix.push([f.air[1], 1.2], [f.extras[2], 0.6]);
+  const addMix = (type, w) => {
+    if (!type) return;
+    const ut = UNIT_TYPES[type];
+    if (ut.role !== 'combat') return;               // scouts don't join the army
+    if (!counts[ut.builtAt]) return;                // no building that makes it
+    if (ut.req && !counts[ut.req]) return;          // tech not researched yet
+    mix.push([type, w]);
+  };
+  addMix(f.infantry, 4); addMix(f.aa, 1.2); addMix(f.extras[0], 0.8);
+  addMix(f.vehicle, 1.6); addMix(f.extras[1], 0.8);
+  for (const a of f.air) addMix(a, 1.2);
+  for (const a of f.extras.slice(2)) addMix(a, 0.6);
+  for (const a of (f.advanced || [])) addMix(a, 0.5);
   if (mix.length) {
     const byType = {};
     for (const u of army) byType[u.type] = (byType[u.type] || 0) + 1;
@@ -1459,6 +1625,8 @@ function sidebarStructureClick(type) {
   if (c && c.ready && c.type === type) { placing = type; refreshPanel(); return; }
   if (c) { eva('Unable to comply, building in progress'); return; }
   if (atStructCap(PLAYER, type)) { eva('Build limit reached'); return; }
+  const rq = bstats(PLAYER, type).req;
+  if (rq && !hasStruct(PLAYER, rq)) { eva(`Requires ${facOf(PLAYER).buildingNames[rq] || rq}`); return; }
   if (state.minerals[PLAYER] < bstats(PLAYER, type).cost) { eva('Insufficient funds'); return; }
   startConstruction(PLAYER, type);
   sfx('click');
@@ -1469,6 +1637,7 @@ function sidebarUnitClick(type) {
   const ut = UNIT_TYPES[type];
   const hasTrainer = state.buildings.some(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
   if (!hasTrainer) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.builtAt] || ut.builtAt}`); return; }
+  if (ut.req && !hasStruct(PLAYER, ut.req)) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.req] || ut.req}`); return; }
   if (ut.pad && !padSlotsFree(PLAYER)) { eva('Airfields at capacity'); return; }
   if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
   if (trainUnit(PLAYER, type)) sfx('click');
@@ -1494,14 +1663,21 @@ function buildSidebar() {
   for (const k of Object.keys(cameoButtons)) delete cameoButtons[k];
   const f = facOf(PLAYER);
 
-  const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad'];
+  const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech'];
   for (const s of structs) {
     makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || s, bstats(PLAYER, s).cost, () => sidebarStructureClick(s));
   }
+  const unlocks = [...(f.advanced || []).map(u => UNIT_TYPES[u].name),
+    ...(bstats(PLAYER, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
+  cameoButtons['s:tech'].btn.title = unlocks.length ? 'Unlocks: ' + unlocks.join(', ') : 'Research site';
   // worker-less factions have no worker cameo — their buildings pay the bills
-  const unitList = [f.worker, f.infantry, f.aa, f.extras[0], f.vehicle, f.extras[1], ...f.air, f.extras[2]].filter(Boolean);
+  const unitList = [f.worker, f.infantry, f.aa, f.extras[0], f.vehicle, f.extras[1],
+    ...f.air, ...f.extras.slice(2), ...(f.advanced || [])].filter(Boolean);
   for (const u of unitList) {
     makeCameo(gridUnits, 'u:' + u, UNIT_TYPES[u].name, UNIT_TYPES[u].cost, () => sidebarUnitClick(u));
+    if (UNIT_TYPES[u].req) {
+      cameoButtons['u:' + u].btn.title = `Requires ${f.buildingNames[UNIT_TYPES[u].req] || UNIT_TYPES[u].req}`;
+    }
   }
 
   const gridPowers = document.getElementById('grid-powers');
@@ -1564,17 +1740,22 @@ function refreshSidebar() {
     if (kind === 's') {
       const isThis = c && c.type === type;
       const capped = atStructCap(PLAYER, type);
+      const rq = bstats(PLAYER, type).req;
+      const locked = rq && !hasStruct(PLAYER, rq);
       ui.btn.classList.toggle('ready', !!(isThis && c.ready));
-      ui.btn.classList.toggle('disabled', !!(c && !isThis) || (capped && !isThis));
+      ui.btn.classList.toggle('disabled', !!(c && !isThis) || (capped && !isThis) || locked);
       ui.prog.style.height = isThis && !c.ready ? (c.t / c.duration * 100) + '%' : '0%';
       const cap = bstats(PLAYER, type).cap;
       ui.costEl.textContent = isThis && c.ready ? 'PLACE'
+        : locked ? '🔒 ' + (facOf(PLAYER).buildingNames[rq] || rq)
         : capped ? 'MAX'
         : '$' + ui.baseCost + (cap ? ` (${countStruct(PLAYER, type)}/${cap})` : '');
     } else {
       const ut = UNIT_TYPES[type];
       const trainers = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
-      ui.btn.classList.toggle('disabled', trainers.length === 0);
+      const locked = ut.req && !hasStruct(PLAYER, ut.req);
+      ui.btn.classList.toggle('disabled', trainers.length === 0 || locked);
+      ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req) : '$' + ui.baseCost;
       const queued = trainers.reduce((n, b) => n + b.queue.filter(j => j.type === type).length, 0);
       ui.badge.style.display = queued ? '' : 'none';
       ui.badge.textContent = queued;
@@ -1826,7 +2007,8 @@ function draw() {
       // reptilian skin suit: enemy infantry render in YOUR color until they attack
       const drawCol = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
       const grounded = !!u.landed; // rearming on the pad
-      const bob = (t.flying && !grounded) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
+      // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim
+      const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
       ctx.save();
       ctx.translate(u.x, u.y + bob);
       // your own gaslight phantoms look ghostly to you; enemy ones look real
@@ -1912,6 +2094,12 @@ function draw() {
       ctx.fillStyle = '#8a7f6e';
       ctx.beginPath(); ctx.arc(p.x, p.y, 3.6, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#5c5347'; ctx.lineWidth = 1; ctx.stroke();
+    } else if (p.kind === 'shell') {
+      // gunship howitzer round: small, fast, mean
+      ctx.fillStyle = '#d8d2c2';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(255,190,90,0.7)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - 5, p.y + 3); ctx.stroke();
     } else if (p.kind === 'magma') {
       ctx.fillStyle = '#ff8a3c';
       ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, Math.PI * 2); ctx.fill();
@@ -2106,6 +2294,7 @@ function frame(now) {
     clampCam();
 
     state.time += dt;
+    rebuildSepGrid();
     for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
     for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
     tickConstruction(PLAYER, dt);
@@ -2124,6 +2313,16 @@ function frame(now) {
         Particles.boom(b.x, b.y, 1.7);
         if (tileState(b.x, b.y) === 2) sfx('boom');
         if (b.owner === PLAYER) eva('Structure lost');
+        // gas stations go up in a fireball that hurts EVERYONE nearby
+        // (owner -99 so not even neutral structures are spared — chain reactions!)
+        const ex = bstatsOf(b).explodes;
+        if (ex) {
+          splashDamage(b.x, b.y, ex.r, ex.dmg, -99, {}, true);
+          Particles.boom(b.x, b.y, 2.4);
+          if (ex.fire) {
+            state.zones.push({ x: b.x, y: b.y, r: ex.fire.r, until: state.time + ex.fire.dur, caster: -99, kind: 'fire', dps: ex.fire.dps });
+          }
+        }
         // a collapsing structure buries its garrison
         if (b.garrison) {
           for (const id of b.garrison) {
@@ -2223,9 +2422,74 @@ function renderGround() {
   for (let x = 0; x <= WORLD_W; x += 100) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, WORLD_H); g.stroke(); }
   for (let y = 0; y <= WORLD_H; y += 100) { g.beginPath(); g.moveTo(0, y); g.lineTo(WORLD_W, y); g.stroke(); }
 
-  // ground decals under settlements: paved plazas and crop fields
+  // ground decals under settlements. Roads first so pavement, lots and
+  // greenery layer cleanly on top of the street network.
   for (const d of mapDecor) {
-    if (d.kind === 'plaza') {
+    if (d.kind !== 'road') continue;
+    const horiz = d.w >= d.h;
+    g.fillStyle = '#33363b'; // asphalt
+    g.fillRect(d.x - d.w / 2, d.y - d.h / 2, d.w, d.h);
+    // curbs along the long sides
+    g.strokeStyle = 'rgba(0,0,0,0.35)';
+    g.lineWidth = 1.5;
+    if (horiz) {
+      g.beginPath(); g.moveTo(d.x - d.w / 2, d.y - d.h / 2 + 1); g.lineTo(d.x + d.w / 2, d.y - d.h / 2 + 1); g.stroke();
+      g.beginPath(); g.moveTo(d.x - d.w / 2, d.y + d.h / 2 - 1); g.lineTo(d.x + d.w / 2, d.y + d.h / 2 - 1); g.stroke();
+    } else {
+      g.beginPath(); g.moveTo(d.x - d.w / 2 + 1, d.y - d.h / 2); g.lineTo(d.x - d.w / 2 + 1, d.y + d.h / 2); g.stroke();
+      g.beginPath(); g.moveTo(d.x + d.w / 2 - 1, d.y - d.h / 2); g.lineTo(d.x + d.w / 2 - 1, d.y + d.h / 2); g.stroke();
+    }
+  }
+  for (const d of mapDecor) {
+    if (d.kind === 'road') {
+      // faded dashed centerline, kept clear of the intersections
+      const horiz = d.w >= d.h;
+      g.strokeStyle = 'rgba(214,193,110,0.4)';
+      g.lineWidth = 2;
+      g.setLineDash([10, 12]);
+      g.beginPath();
+      if (horiz) { g.moveTo(d.x - d.w / 2 + 34, d.y); g.lineTo(d.x + d.w / 2 - 34, d.y); }
+      else { g.moveTo(d.x, d.y - d.h / 2 + 34); g.lineTo(d.x, d.y + d.h / 2 - 34); }
+      g.stroke();
+      g.setLineDash([]);
+    } else if (d.kind === 'lot') {
+      // parking lot: lighter asphalt with painted stalls
+      g.fillStyle = '#3e4147';
+      rr2(g, d.x - d.w / 2, d.y - d.h / 2, d.w, d.h, 4);
+      g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.25)';
+      g.lineWidth = 1.2;
+      const stalls = Math.max(2, Math.floor(d.w / 16));
+      for (let i = 0; i <= stalls; i++) {
+        const sx = d.x - d.w / 2 + 6 + i * (d.w - 12) / stalls;
+        g.beginPath(); g.moveTo(sx, d.y - d.h / 2 + 5); g.lineTo(sx, d.y - d.h / 2 + 5 + d.h * 0.36); g.stroke();
+      }
+      // one abandoned wreck, sometimes
+      if (prand(d.seed) < 0.4) {
+        g.fillStyle = ['#6d4a3a', '#4a5a6d', '#5d5d5d'][Math.floor(prand(d.seed + 1) * 3)];
+        rr2(g, d.x - d.w / 2 + 8 + prand(d.seed + 2) * (d.w - 34), d.y - d.h / 2 + 8, 18, 9, 2.5);
+        g.fill();
+      }
+    } else if (d.kind === 'park') {
+      // pocket park: lawn, path, tree canopies (purely decorative)
+      g.fillStyle = '#3c5232';
+      rr2(g, d.x - d.w / 2, d.y - d.h / 2, d.w, d.h, 8);
+      g.fill();
+      g.strokeStyle = 'rgba(0,0,0,0.25)'; g.lineWidth = 1.5; g.stroke();
+      g.strokeStyle = 'rgba(180,170,140,0.4)';
+      g.lineWidth = 4;
+      g.beginPath(); g.moveTo(d.x - d.w / 2 + 6, d.y); g.quadraticCurveTo(d.x, d.y + d.h * 0.22, d.x + d.w / 2 - 6, d.y); g.stroke();
+      for (let i = 0; i < Math.max(3, Math.round(d.w / 26)); i++) {
+        const tx = d.x + (prand(d.seed + i * 3) - 0.5) * (d.w - 24);
+        const ty = d.y + (prand(d.seed + i * 3 + 1) - 0.5) * (d.h - 24);
+        g.fillStyle = 'rgba(0,0,0,0.25)';
+        g.beginPath(); g.ellipse(tx + 2, ty + 3, 8, 5, 0, 0, Math.PI * 2); g.fill();
+        g.fillStyle = i % 2 ? '#4c6b3c' : '#557a42';
+        g.beginPath(); g.arc(tx, ty, 7 + prand(d.seed + i) * 4, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.1)';
+        g.beginPath(); g.arc(tx - 2, ty - 2, 3.5, 0, Math.PI * 2); g.fill();
+      }
+    } else if (d.kind === 'plaza') {
       g.fillStyle = '#3a3d42';
       rr2(g, d.x - d.w / 2, d.y - d.h / 2, d.w, d.h, 10);
       g.fill();
