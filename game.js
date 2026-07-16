@@ -588,22 +588,39 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   // ground units steer around impassable terrain and buildings (air flies
   // over, forests let you through); ignoreId skips the building being walked to
   if (!t.flying) {
+    const hits = (x, y) => TERRAIN.some(o => !TERRAIN_TYPES[o.type].passes && Math.hypot(x - o.x, y - o.y) < o.r + t.r);
     const ob = TERRAIN.find(o => !TERRAIN_TYPES[o.type].passes && Math.hypot(nx - o.x, ny - o.y) < o.r + t.r);
     if (ob) {
       // destination sits inside the obstacle and we're touching it: close enough
       if (Math.hypot(tx - ob.x, ty - ob.y) < ob.r + t.r &&
-          Math.hypot(u.x - ob.x, u.y - ob.y) < ob.r + t.r + 6) return true;
+          Math.hypot(u.x - ob.x, u.y - ob.y) < ob.r + t.r + 6) { delete u.veer; return true; }
       const away = Math.atan2(u.y - ob.y, u.x - ob.x);
       const desired = Math.atan2(ty - u.y, tx - u.x);
       const diff = a => Math.abs(((a - desired + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-      const tang = diff(away + Math.PI / 2) < diff(away - Math.PI / 2) ? away + Math.PI / 2 : away - Math.PI / 2;
-      nx = u.x + Math.cos(tang) * step;
-      ny = u.y + Math.sin(tang) * step;
-      if (Math.hypot(nx - ob.x, ny - ob.y) < ob.r + t.r) {
-        nx = ob.x + Math.cos(away) * (ob.r + t.r + 1);
-        ny = ob.y + Math.sin(away) * (ob.r + t.r + 1);
+      // commit to one side of this rock: when the target sits straight behind it
+      // the two ways around score nearly equal, and re-picking every frame left
+      // units grinding in place against the rim
+      if (!u.veer || u.veer.ob !== ob.seed || Math.abs(u.veer.tx - tx) > 40 || Math.abs(u.veer.ty - ty) > 40) {
+        u.veer = { ob: ob.seed, side: diff(away + Math.PI / 2) < diff(away - Math.PI / 2) ? 1 : -1, tx, ty };
+      }
+      const slide = side => {
+        const tang = away + side * Math.PI / 2;
+        let sx = u.x + Math.cos(tang) * step, sy = u.y + Math.sin(tang) * step;
+        if (Math.hypot(sx - ob.x, sy - ob.y) < ob.r + t.r) {
+          sx = ob.x + Math.cos(away) * (ob.r + t.r + 1);
+          sy = ob.y + Math.sin(away) * (ob.r + t.r + 1);
+        }
+        return [sx, sy];
+      };
+      [nx, ny] = slide(u.veer.side);
+      // that lane runs into a second rock: flip once and round the other way
+      if (hits(nx, ny)) {
+        u.veer.side *= -1;
+        [nx, ny] = slide(u.veer.side);
+        if (hits(nx, ny)) { nx = u.x; ny = u.y; } // wedged between rocks; hold
       }
     } else {
+      delete u.veer;
       const bld = state.buildings.find(b => b.hp > 0 && b.id !== ignoreId &&
         Math.abs(nx - b.x) < b.w / 2 + t.r && Math.abs(ny - b.y) < b.h / 2 + t.r);
       if (bld) {
@@ -878,8 +895,9 @@ function updateUnit(u, dt) {
   // stationed aircraft lift off the moment they get a real order
   if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
 
-  // out of ammo: break off and return to the airfield
-  if (stats.maxAmmo && u.ammo <= 0 && o.type !== 'rearm') {
+  // out of ammo: break off and return to the airfield (unless already parked —
+  // a landed craft must fall through to the idle case, where it reloads)
+  if (stats.maxAmmo && u.ammo <= 0 && o.type !== 'rearm' && !u.landed) {
     u.order = { type: 'rearm' };
     return;
   }
@@ -923,7 +941,13 @@ function updateUnit(u, dt) {
       }
       const carry = UNIT_TYPES[u.type].carry || HARVEST_AMOUNT; // rigs and diggers haul more
       if (u.carrying >= carry) { u.order = { type: 'return', patchId: patch.id }; break; }
-      if (moveToward(u, patch.x, patch.y, dt, 16)) {
+      // each worker aims at its own spot on a ring around the patch (golden-angle
+      // spread by id) so a crowd doesn't shove itself off the patch center, and
+      // digging counts whenever we're near the patch — even while being jostled
+      const ang = u.id * 2.4;
+      const ring = 6 + UNIT_TYPES[u.type].r;
+      moveToward(u, patch.x + Math.cos(ang) * ring, patch.y + Math.sin(ang) * ring, dt, 4);
+      if (dist(u, patch) <= ring + 22) {
         u.mineTimer += dt;
         if (u.mineTimer >= HARVEST_TIME) {
           u.mineTimer = 0;
