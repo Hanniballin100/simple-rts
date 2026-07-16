@@ -107,7 +107,7 @@ const FACTIONS = {
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Drones and Helicopters. The Drone Bay fields B-1 Lancers — and once the Black Site Lab opens, AC-130 Gunships and B-2 Spirits. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
+    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Drones and Helicopters. The Air Force Base fields B-1 Lancers — and once the Black Site Lab opens, AC-130 Gunships and B-2 Spirits. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
@@ -118,7 +118,7 @@ const FACTIONS = {
     },
     buildingNames: {
       hq: 'World HQ', powerplant: 'Fusion Plant', barracks: 'Command Center',
-      factory: 'Motor Pool', airpad: 'Drone Bay', tech: 'Black Site Lab',
+      factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
       tower5g: '5G Tower', samsite: 'Patriot Battery',
     },
   },
@@ -135,7 +135,7 @@ const FACTIONS = {
     },
     buildingNames: {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
-      factory: 'Motor Pool', airpad: 'Drone Bay', tech: 'Continuity Bunker',
+      factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
       tower5g: '5G Tower', samsite: 'Patriot Battery',
     },
   },

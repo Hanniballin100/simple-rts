@@ -47,7 +47,7 @@ Seven factions in four families, each with its own roster, passive trait, and si
 - RA2-style airfields — each holds 4 stationed aircraft that park on its pads and return to rearm; helicopters, drones, saucers, and blimps fly free
 - Real fixed-wing flight — jets and winged beasts keep airspeed and a turn radius: strafing runs, bombing passes, loitering circles on station, and a landing approach back at the field; the AC-130 Gunship flies a pylon turn around its target pouring cannon fire and howitzer shells
 - Tech buildings — every faction has an expensive, power-hungry research site (Black Site Lab, Institute of Truth, Gene Vault...) gating its heavy hitters: the Globalist families unlock the AC-130 and the B-2 Spirit, the others their signature aircraft — and the Flat Earth factions must research the sky before they may build airfields at all
-- Globalist air doctrine — drones and Black Helicopters roll out of the Motor Pool; the Drone Bay is for real planes: B-1 Lancers on day one, AC-130s and B-2s after the lab
+- Globalist air doctrine — drones and Black Helicopters roll out of the Motor Pool; the Air Force Base is for real planes: B-1 Lancers on day one, AC-130s and B-2s after the lab
 - Asymmetric economies — Flat Earth swarms cheap Believers, Hollow Earth Diggers haul oversized loads, the Globalist factions field a few armed autonomous Mining Rigs, and the alien factions have no miners at all: their HQ and Zero-Point Cores generate minerals
 - Faction-flavored buildings — the same construction slot costs and delivers differently per faction: Diesel Shacks are cheap and weak, Fusion Plants pricey powerhouses, Hollow Earth structures dug-in and tough
 - Fog of war and a full air game with dedicated anti-air
