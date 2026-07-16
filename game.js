@@ -385,8 +385,11 @@ function startConstruction(owner, type) {
 function placementBlocked(owner, type, x, y) {
   const t = bstats(owner, type);
   if (x - t.w / 2 < 10 || y - t.h / 2 < 10 || x + t.w / 2 > WORLD_W - 10 || y + t.h / 2 > WORLD_H - 10) return true;
+  // 32px between structures: wide enough for the fattest ground unit (26px
+  // mining rig) to pass — tighter packing let bases seal their own workers
+  // into courtyards with no physical way out
   return state.buildings.some(b => b.hp > 0 &&
-      Math.abs(b.x - x) < (b.w + t.w) / 2 + 8 && Math.abs(b.y - y) < (b.h + t.h) / 2 + 8)
+      Math.abs(b.x - x) < (b.w + t.w) / 2 + 32 && Math.abs(b.y - y) < (b.h + t.h) / 2 + 32)
     || state.patches.some(p => p.amount > 0 && dist(p, { x, y }) < t.w / 2 + 30)
     || TERRAIN.some(o => dist(o, { x, y }) < o.r + Math.max(t.w, t.h) / 2 + 6);
 }
@@ -593,7 +596,10 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       delete u.dodge; // destination changed or building died: re-plan
     } else {
       const dd = Math.hypot(u.dodge.x - u.x, u.dodge.y - u.y);
-      if (dd <= step) {
+      // arrival must be at least a body-radius wide: with a one-step window a
+      // crowd of units contesting the same corner shove each other off the
+      // exact point forever and the dodge never clears (harvester gridlock)
+      if (dd <= Math.max(step, t.r)) {
         delete u.dodge; // corner rounded; aim at the target again
       } else {
         nx = u.x + (u.dodge.x - u.x) / dd * step;
@@ -658,12 +664,18 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
           // ONWARD leg crosses just means another corner gets rounded after it,
           // so that only costs a mild penalty
           const cross = (x1, y1, x2, y2) => segHitsRect(x1, y1, x2, y2, bld.x, bld.y, ex - 2, ey - 2);
+          // a corner buried inside a NEIGHBORING building (tight tower rows,
+          // city blocks) is unreachable — steer for a free corner instead
+          const buried = c => state.buildings.some(b2 => b2.hp > 0 && b2.id !== bld.id &&
+            b2.id !== ignoreId && Math.abs(c.x - b2.x) < b2.w / 2 + t.r + 2 &&
+            Math.abs(c.y - b2.y) < b2.h / 2 + t.r + 2);
           let best = null, bestCost = Infinity;
           for (const sx2 of [-1, 1]) {
             for (const sy2 of [-1, 1]) {
               const c = { x: bld.x + sx2 * (ex + 8), y: bld.y + sy2 * (ey + 8) };
               const cost = Math.hypot(c.x - u.x, c.y - u.y) + Math.hypot(tx - c.x, ty - c.y)
                 + (cross(u.x, u.y, c.x, c.y) ? 1e5 : 0)
+                + (buried(c) ? 5e4 : 0)
                 + (cross(c.x, c.y, tx, ty) ? (ex + ey) * 2 : 0);
               if (cost < bestCost) { bestCost = cost; best = c; }
             }
@@ -673,7 +685,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
         const dd = Math.hypot(u.dodge.x - u.x, u.dodge.y - u.y);
         nx = u.x + (u.dodge.x - u.x) / (dd || 1) * Math.min(step, dd);
         ny = u.y + (u.dodge.y - u.y) / (dd || 1) * Math.min(step, dd);
-        if (dd <= step) delete u.dodge; // corner rounded; aim at the target again
+        if (dd <= Math.max(step, t.r)) delete u.dodge; // corner rounded (body-radius window; see above)
         // never step from outside into the footprint (walking OUT is allowed,
         // for units that get built over or shoved inside)
         const wasInside = Math.abs(u.x - bld.x) < ex - 1 && Math.abs(u.y - bld.y) < ey - 1;
@@ -956,6 +968,14 @@ function depositTarget(u) {
   return nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'hq' && b.hp > 0);
 }
 
+// distance from a unit to a building's actual footprint rectangle — radial
+// distance to center says a rig hugging the long wall of an HQ is "far away"
+function rectDist(u, b) {
+  const dx = Math.max(0, Math.abs(u.x - b.x) - b.w / 2);
+  const dy = Math.max(0, Math.abs(u.y - b.y) - b.h / 2);
+  return Math.hypot(dx, dy);
+}
+
 // ---------- airfield slots (RA2-style: 4 aircraft stationed per pad) ----------
 
 function padLoad(b) {
@@ -994,6 +1014,46 @@ function updateUnit(u, dt) {
 
   // stationed aircraft lift off the moment they get a real order
   if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
+
+  // stuck watchdog: a unit with somewhere to be that hasn't covered any
+  // ground in 2.5s is pinned — usually a crowd wedged on a stale dodge
+  // commitment. Forget the steering plan; if that didn't help either, slide
+  // the unit out along the least-blocked direction (escalation, rare).
+  u.wdT = (u.wdT || 0) + dt;
+  if (u.wdT >= 2.5) {
+    if (o.type !== 'idle' && o.type !== 'loiter' && !u.landed &&
+        u.travel - (u.wdTravel || 0) < 5) {
+      delete u.dodge;
+      delete u.veer;
+      u.wdStrikes = (u.wdStrikes || 0) + 1;
+      if (u.wdStrikes >= 2 && !stats.flying) {
+        // still pinned after a replan: pick the cardinal direction with the
+        // most open ground and shove — breaks base-notch wedges
+        let bestA = null, bestClear = -1;
+        for (let k = 0; k < 8; k++) {
+          const a = (k / 8) * Math.PI * 2;
+          let clear = 0;
+          for (; clear < 60; clear += 10) {
+            const px2 = u.x + Math.cos(a) * (clear + 10), py2 = u.y + Math.sin(a) * (clear + 10);
+            const hit = state.buildings.some(b => b.hp > 0 &&
+              Math.abs(px2 - b.x) < b.w / 2 + stats.r && Math.abs(py2 - b.y) < b.h / 2 + stats.r) ||
+              TERRAIN.some(t2 => !TERRAIN_TYPES[t2.type].passes && Math.hypot(px2 - t2.x, py2 - t2.y) < t2.r + stats.r);
+            if (hit) break;
+          }
+          if (clear > bestClear) { bestClear = clear; bestA = a; }
+        }
+        if (bestA !== null && bestClear > 0) {
+          u.x = clamp(u.x + Math.cos(bestA) * Math.min(24, bestClear), 10, WORLD_W - 10);
+          u.y = clamp(u.y + Math.sin(bestA) * Math.min(24, bestClear), 10, WORLD_H - 10);
+        }
+        u.wdStrikes = 0;
+      }
+    } else {
+      u.wdStrikes = 0;
+    }
+    u.wdT = 0;
+    u.wdTravel = u.travel;
+  }
 
   // out of ammo: break off and return to the airfield (unless already parked —
   // a landed craft must fall through to the idle case, where it reloads)
@@ -1138,7 +1198,8 @@ function updateUnit(u, dt) {
       // resistance smuggler truck hauling minerals home
       const hq = state.buildings.find(b => b.owner === u.owner && b.type === 'hq' && b.hp > 0);
       if (!hq) { u.order = { type: 'idle' }; break; }
-      if (moveToward(u, hq.x, hq.y, dt, entityRadius(hq) + 12, hq.id)) {
+      if (moveToward(u, hq.x, hq.y, dt, entityRadius(hq) + 12, hq.id) ||
+          rectDist(u, hq) <= UNIT_TYPES[u.type].r + 14) {
         state.minerals[u.owner] += 150;
         u.hp = 0;
         if (u.owner === PLAYER) eva('Supplies delivered');
@@ -1150,7 +1211,10 @@ function updateUnit(u, dt) {
       const depot = depositTarget(u);
       if (!depot) { u.order = { type: 'idle' }; break; }
       const stop = entityRadius(depot) + 10;
-      if (moveToward(u, depot.x, depot.y, dt, stop, depot.id)) {
+      // touching any wall of the depot counts — a hauler pressed against the
+      // HQ by traffic or neighboring buildings must not be told "not close enough"
+      if (moveToward(u, depot.x, depot.y, dt, stop, depot.id) ||
+          rectDist(u, depot) <= UNIT_TYPES[u.type].r + 14) {
         state.minerals[u.owner] += u.carrying;
         u.carrying = 0;
         const patch = state.patches.find(p => p.id === o.patchId && p.amount > 0);
