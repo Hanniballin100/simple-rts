@@ -9,7 +9,7 @@
   <div id="topbar">
     <span id="faction-label"></span>
     <span id="supply"></span>
-    <span id="hint">Drag: box select | Right-drag: pan map | Right-click: move/harvest/attack | A: attack-move | P/B/T/G/F/D: build | Wheel: zoom | H: home | M: mute</span>
+    <span id="hint">Drag: select | Right-drag: pan | Right-click: move/harvest/attack/garrison | A: attack-move | P/B/T/G/F/D: build | Wheel: zoom | H: home | M: mute</span>
     <button id="mute-btn" title="Mute (M)">🔊</button>
   </div>
   <div id="main">
@@ -39,9 +39,24 @@
   </div>
   <div id="faction-select">
     <h1>CHOOSE YOUR TRUTH</h1>
+    <div id="setup-rows">
+      <div class="setup-row">
+        <span class="setup-label">MAP SIZE</span>
+        <div class="setup-opts" id="size-buttons"></div>
+      </div>
+      <div class="setup-row">
+        <span class="setup-label">SETTING</span>
+        <div class="setup-opts" id="setting-buttons"></div>
+      </div>
+      <div class="setup-row">
+        <span class="setup-label">OPPONENTS</span>
+        <div class="setup-opts" id="opp-buttons"></div>
+      </div>
+    </div>
     <div id="family-groups"></div>
   </div>
   <script src="data.js"></script>
+  <script src="mapgen.js"></script>
   <script src="art.js"></script>
   <script src="game.js"></script>
 </body>

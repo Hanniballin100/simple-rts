@@ -240,6 +240,45 @@ body {
 
 #faction-select h1 { font-size: 36px; letter-spacing: 6px; color: #e8eef5; }
 
+#setup-rows {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 14px 40px;
+  margin: -14px 0;
+  max-width: 95vw;
+}
+
+.setup-row { display: flex; align-items: center; gap: 12px; }
+
+.setup-label {
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #6b7684;
+}
+
+.setup-opts { display: flex; gap: 6px; }
+
+.opt-btn {
+  background: #1b212b;
+  border: 1px solid #3a4656;
+  border-radius: 6px;
+  color: #9fabb8;
+  cursor: pointer;
+  font-size: 13px;
+  padding: 6px 14px;
+  min-width: 38px;
+}
+
+.opt-btn:hover { border-color: #6fd3ff; color: #dfe7ef; }
+
+.opt-btn.sel {
+  background: #2b6cb0;
+  border-color: #6fd3ff;
+  color: #fff;
+  font-weight: 600;
+}
+
 #family-groups {
   display: flex;
   gap: 22px;

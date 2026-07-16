@@ -556,6 +556,39 @@
     ctx.fillStyle = o.color;
     ctx.fillRect(-16, 5.5, 32, 1.6);
   };
+  D.harvester = (ctx, t, o) => {
+    treads(ctx, t, o, 24, 5, 10);
+    // low-slung corporate hull
+    ctx.fillStyle = '#15181d';
+    rr(ctx, -14, -8, 26, 16, 3);
+    ctx.fill();
+    ctx.strokeStyle = '#4a515c'; ctx.lineWidth = 1; ctx.stroke();
+    // ore hopper with a mineral shimmer
+    ctx.fillStyle = '#20242a';
+    rr(ctx, -12, -5.5, 11, 11, 2);
+    ctx.fill();
+    ctx.fillStyle = `rgba(63,215,208,${0.3 + 0.2 * Math.sin(t * 3)})`;
+    rr(ctx, -10.5, -4, 8, 8, 1.5);
+    ctx.fill();
+    // tinted cab
+    ctx.fillStyle = '#0a0c0f';
+    rr(ctx, 2, -5.4, 5, 10.8, 1.5);
+    ctx.fill();
+    // intake roller, stripes crawl as it drives
+    ctx.fillStyle = '#8b939e';
+    rr(ctx, 12, -7, 3.5, 14, 1);
+    ctx.fill();
+    ctx.strokeStyle = '#5d646d';
+    ctx.lineWidth = 0.9;
+    const roll = ((o.dist || 0) * 0.6 + t * 2) % 4.7;
+    for (let i = 0; i < 3; i++) {
+      const p = (roll + i * 4.7) % 14;
+      ctx.beginPath(); ctx.moveTo(12.4, -7 + p); ctx.lineTo(15.1, -7 + p); ctx.stroke();
+    }
+    // team stripe
+    ctx.fillStyle = o.color;
+    ctx.fillRect(-14, 5.6, 26, 2);
+  };
   D.drill = (ctx, t, o) => {
     treads(ctx, t, o, 24, 5, 9);
     ctx.fillStyle = shade(o.color, -0.15);
@@ -2066,6 +2099,165 @@
     ctx.lineWidth = 0.9;
     ctx.beginPath(); ctx.moveTo(5, 3); ctx.lineTo(10, -5); ctx.stroke();
     blinker(ctx, t, 10, -5, '#7fff9f', 2);
+  };
+
+  B.aanest = (ctx, t, o) => {
+    pad(ctx, o);
+    // dirt floor ringed by sandbags
+    ctx.fillStyle = '#5c5344';
+    ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#463f34'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.stroke();
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU;
+      sandbag(ctx, Math.cos(a) * 13, Math.sin(a) * 13, a + Math.PI / 2);
+    }
+    crateBox(ctx, 5, 5, 5);
+    // gunner hunched at the mount (engine draws the swiveling barrel on top)
+    ctx.fillStyle = '#3a4534';
+    ctx.beginPath(); ctx.arc(-4, -3, 2.8, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#d9b38c';
+    ctx.beginPath(); ctx.arc(-4, -3, 1.5, 0, TAU); ctx.fill();
+  };
+  B.house = (ctx, t, o) => {
+    // variant keyed off world position so settlements aren't clone rows
+    const v = Math.abs(Math.floor(((o.wx || 0) * 7 + (o.wy || 0) * 13))) % 3;
+    const w = o.w, h = o.h;
+    // yard + shadow
+    ctx.fillStyle = 'rgba(110,100,70,0.28)';
+    rr(ctx, -w / 2, -h / 2, w, h, 5); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    rr(ctx, -w / 2 + 7, -h / 2 + 8, w - 9, h - 11, 3); ctx.fill();
+    // roof with ridge line, lit north slope
+    const roof = ['#7a4a3a', '#5d6470', '#6b5a45'][v];
+    ctx.fillStyle = roof;
+    rr(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+    rr(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, (h - 8) / 2, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.moveTo(-w / 2 + 5, 0); ctx.lineTo(w / 2 - 5, 0); ctx.stroke();
+    // shingle seams
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+    ctx.lineWidth = 0.7;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(i * 8, -h / 2 + 5); ctx.lineTo(i * 8, h / 2 - 5); ctx.stroke();
+    }
+    // chimney + porch
+    ctx.fillStyle = '#5a4f45';
+    ctx.fillRect(w / 2 - 15, -h / 2 + 8, 6.5, 6.5);
+    ctx.strokeStyle = '#38322b'; ctx.lineWidth = 1;
+    ctx.strokeRect(w / 2 - 15, -h / 2 + 8, 6.5, 6.5);
+    ctx.fillStyle = ['#8a7a63', '#7d7480', '#75816c'][v];
+    ctx.fillRect(-7, h / 2 - 8, 14, 8);
+    ctx.fillStyle = '#2c2620';
+    ctx.fillRect(-3, h / 2 - 7, 6, 7);
+  };
+  B.apartment = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const v = Math.abs(Math.floor(((o.wx || 0) * 11 + (o.wy || 0) * 5))) % 2;
+    // deep shadow for a tall building
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    rr(ctx, -w / 2 + 8, -h / 2 + 9, w - 9, h - 11, 3); ctx.fill();
+    // flat roof with parapet
+    const body = v ? '#6e6a72' : '#7a736a';
+    ctx.fillStyle = body;
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, (w - 6) / 2, h - 6, 3); ctx.fill();
+    // rooftop clutter: stairwell box, AC units, vents
+    ctx.fillStyle = '#4d4a52';
+    ctx.fillRect(-w / 2 + 9, -h / 2 + 9, 13, 10);
+    ctx.strokeStyle = '#33313a'; ctx.lineWidth = 1;
+    ctx.strokeRect(-w / 2 + 9, -h / 2 + 9, 13, 10);
+    for (let i = 0; i < 3; i++) {
+      const ax = w / 2 - 15, ay = -h / 2 + 12 + i * 12;
+      ctx.fillStyle = '#8b939e';
+      ctx.fillRect(ax, ay, 8, 8);
+      ctx.strokeStyle = '#5d646d';
+      ctx.strokeRect(ax, ay, 8, 8);
+      ctx.beginPath(); ctx.arc(ax + 4, ay + 4, 2.6, 0, TAU); ctx.stroke();
+    }
+    ctx.fillStyle = '#3a3740';
+    for (let i = 0; i < 4; i++) ctx.fillRect(-8 + (i % 2) * 9, 2 + Math.floor(i / 2) * 9, 5, 5);
+    // rooftop water tank
+    drum3d(ctx, -6, h / 2 - 14, 6, '#5a5148', 3);
+    blinker(ctx, t, w / 2 - 8, -h / 2 + 8, '#ff5f5f', 2);
+  };
+  B.barn = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    // dirt yard + shadow
+    ctx.fillStyle = 'rgba(120,100,60,0.3)';
+    ctx.beginPath(); ctx.ellipse(0, 2, w * 0.62, h * 0.6, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    rr(ctx, -w / 2 + 7, -h / 2 + 8, w - 9, h - 11, 3); ctx.fill();
+    // faded red gabled roof, ridge along the long axis
+    ctx.fillStyle = '#8a4438';
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.13)';
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, (h - 6) / 2, 3); ctx.fill();
+    ctx.strokeStyle = 'rgba(40,20,16,0.5)';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(-w / 2 + 4, 0); ctx.lineTo(w / 2 - 4, 0); ctx.stroke();
+    // plank seams
+    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.lineWidth = 0.8;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(i * 11, -h / 2 + 4); ctx.lineTo(i * 11, h / 2 - 4); ctx.stroke();
+    }
+    // white door cross at the gable end
+    ctx.strokeStyle = '#e8e4da';
+    ctx.lineWidth = 1.6;
+    ctx.strokeRect(w / 2 - 12, -6, 9, 12);
+    ctx.beginPath();
+    ctx.moveTo(w / 2 - 12, -6); ctx.lineTo(w / 2 - 3, 6);
+    ctx.moveTo(w / 2 - 3, -6); ctx.lineTo(w / 2 - 12, 6);
+    ctx.stroke();
+    // hay bales by the wall
+    ctx.fillStyle = '#b89b4a';
+    ctx.beginPath(); ctx.arc(-w / 2 - 6, 6, 5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(-w / 2 - 5, -5, 4.2, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#8f7838'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(-w / 2 - 6, 6, 2.6, 0, TAU); ctx.stroke();
+  };
+  B.derrick = (ctx, t, o) => {
+    // oil-stained pad
+    ctx.fillStyle = 'rgba(18,15,11,0.4)';
+    ctx.beginPath(); ctx.ellipse(0, 4, o.w * 0.48, o.h * 0.38, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#4a443c';
+    rr(ctx, -o.w / 2 + 5, -o.h / 2 + 7, o.w - 10, o.h - 13, 3); ctx.fill();
+    ctx.strokeStyle = '#2e2a24'; ctx.lineWidth = 1; ctx.stroke();
+    // lattice tower leaning up-left for height
+    ctx.strokeStyle = '#8b7f5e';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-9, 9); ctx.lineTo(-3, -15);
+    ctx.moveTo(5, 9); ctx.lineTo(-1, -15);
+    ctx.stroke();
+    ctx.lineWidth = 0.8;
+    for (let i = 1; i <= 3; i++) {
+      const f = i / 4;
+      ctx.beginPath();
+      ctx.moveTo(-9 + 6 * f, 9 - 24 * f);
+      ctx.lineTo(5 - 6 * f, 9 - 24 * f);
+      ctx.stroke();
+    }
+    // nodding pumpjack arm
+    const nod = Math.sin(t * 2.1) * 0.3;
+    ctx.save();
+    ctx.translate(4, 8);
+    ctx.rotate(nod);
+    ctx.strokeStyle = '#9a8a5f';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(11, 0); ctx.stroke();
+    ctx.fillStyle = '#6e6248';
+    ctx.beginPath(); ctx.arc(11, 0, 3, 0, TAU); ctx.fill();
+    ctx.restore();
+    drum3d(ctx, -o.w / 2 + 13, o.h / 2 - 13, 5, '#5d646d', 2);
+    drum3d(ctx, -o.w / 2 + 22, o.h / 2 - 11, 4, '#4d5560', 2);
+    blinker(ctx, t, -2, -15, '#ffd75f', 2);
   };
 
   // ---------- public API ----------

@@ -4,31 +4,57 @@
 // Loaded before art.js and game.js (plain globals, no modules).
 // ============================================================
 
-const WORLD_W = 2000;
-const WORLD_H = 1400;
-const BUILD_RADIUS = 280;    // structures must sit near the HQ or a power plant
-const AI_GRACE_PERIOD = 150; // seconds before the AI's first attack wave
+let WORLD_W = 2000;          // set by generateMap() from the chosen map size
+let WORLD_H = 1400;
+const BUILD_RADIUS = 420;    // structures must sit near the HQ or a power plant
+const AI_GRACE_PERIOD = 180; // seconds before the AI's first attack wave
+const PAD_CAP = 4;           // stationed aircraft per airfield, RA2-style
+// where the four aircraft park on an airpad (offsets from its center)
+const PAD_SLOT_POS = [[-26, -15], [26, -15], [-26, 19], [26, 19]];
 const HARVEST_AMOUNT = 6;    // minerals per trip
 const HARVEST_TIME = 3.5;    // seconds spent mining
 const FOG_TILE = 50;
 
 const PLAYER = 0;
-const ENEMY = 1;
-const COLORS = { [PLAYER]: '#4da3ff', [ENEMY]: '#ff5f5f' };
-const COLORS_DARK = { [PLAYER]: '#2b6cb0', [ENEMY]: '#b03434' };
+const ENEMY = 1;    // first AI opponent; extra AIs are owners 2, 3, ...
+const NEUTRAL = -1; // map-owned civilian structures (garrison infantry to claim)
+const COLORS = {
+  0: '#4da3ff', 1: '#ff5f5f', 2: '#ffa938',
+  3: '#b06fff', 4: '#ffe14d', 5: '#ff7ad9',
+  [NEUTRAL]: '#a8a290',
+};
+const COLORS_DARK = {
+  0: '#2b6cb0', 1: '#b03434', 2: '#b06d1c',
+  3: '#6f3fb0', 4: '#b09a26', 5: '#b0408c',
+  [NEUTRAL]: '#6e6a5e',
+};
 
-// impassable terrain: ground units steer around it, air flies over,
-// nothing can be built on it
-const TERRAIN = [
-  { x: 1000, y: 560,  r: 110, type: 'water' }, // central lake — forces flanks
-  { x: 640,  y: 420,  r: 80,  type: 'rock' },
-  { x: 1360, y: 980,  r: 80,  type: 'rock' },
-  { x: 500,  y: 1000, r: 70,  type: 'water' },
-  { x: 1500, y: 400,  r: 70,  type: 'water' },
-  { x: 1000, y: 950,  r: 60,  type: 'rock' },
-  { x: 780,  y: 1250, r: 55,  type: 'rock' },
-  { x: 1220, y: 150,  r: 55,  type: 'rock' },
-];
+// map sizes: world dimensions (multiples of FOG_TILE) + how many total
+// players (you + AIs) fit on the start ring
+const MAP_SIZES = {
+  small:  { name: 'Small',  w: 2600, h: 1800, maxPlayers: 2 },
+  medium: { name: 'Medium', w: 3600, h: 2400, maxPlayers: 4 },
+  large:  { name: 'Large',  w: 4800, h: 3200, maxPlayers: 5 },
+  huge:   { name: 'Huge',   w: 6000, h: 4200, maxPlayers: 6 },
+};
+
+// garrison combat: occupied civilian structures fire at this range, with the
+// occupants' summed damage scaled down a touch
+const GARRISON_RANGE = 200;
+const GARRISON_COOLDOWN = 0.75;
+const GARRISON_DMG_SCALE = 0.7;
+
+// terrain comes in three flavors:
+//   water/rock — impassable to ground units, air flies over
+//   forest     — passable but slows ground units; nothing can be built on any of them
+const TERRAIN_TYPES = {
+  water:  { passes: false },
+  rock:   { passes: false },
+  forest: { passes: true, slow: 0.65 },
+};
+
+// filled in by generateMap(); each entry {x, y, r, type, seed}
+let TERRAIN = [];
 
 // tracer/impact styling per faction
 const WEAPON_STYLE = {
@@ -46,7 +72,8 @@ const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER
 const FACTIONS = {
   flat: {
     name: 'Flat Earthers', family: 'FLAT EARTH', emoji: '🥞',
-    desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth.',
+    desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth. Flimsy bargain buildings; a big Believer workforce keeps the shacks fueled.',
+    economy: { workers: 7 },
     worker: 'believer', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['preacher', 'catapult', 'cropduster'],
@@ -62,9 +89,10 @@ const FACTIONS = {
   },
   resistance: {
     name: 'The Resistance', family: 'FLAT EARTH', emoji: '📡',
-    desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts.',
+    desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts. The cheapest structures anywhere — none of them built to last.',
+    economy: { workers: 5 },
     worker: 'believer', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
-    air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
+    air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['preacher', 'catapult', 'cropduster'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
@@ -73,14 +101,15 @@ const FACTIONS = {
     buildingNames: {
       hq: 'Pirate Radio Bunker', powerplant: 'Diesel Shack', barracks: 'Safehouse',
       factory: 'Chop Shop', airpad: 'Balloon Dock',
-      watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
+      watchtower: 'Watchtower', aanest: 'AA Gun Nest',
       sleepercell: 'Sleeper Cell',
     },
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit. Elite Agents, Black SUVs, Black Drones, and the Black Helicopter that rules ground and sky.',
-    worker: 'operative', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
+    desc: 'Order through orbit. Elite Agents, Black SUVs, Black Drones, and the Black Helicopter that rules ground and sky. Premium infrastructure, and a fleet of armed autonomous Mining Rigs instead of field hands.',
+    economy: { workers: 3 },
+    worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'gunship'],
     powers: {
@@ -90,13 +119,14 @@ const FACTIONS = {
     buildingNames: {
       hq: 'World HQ', powerplant: 'Fusion Plant', barracks: 'Command Center',
       factory: 'Motor Pool', airpad: 'Drone Bay',
-      tower5g: '5G Tower', samsite: 'Interceptor Battery',
+      tower5g: '5G Tower', samsite: 'Patriot Battery',
     },
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Men in Black hit hard; Surveillance Vans see everything, from very far away.',
-    worker: 'operative', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
+    desc: 'It was never elected and never leaves. Men in Black hit hard; Surveillance Vans see everything, from very far away. Well-funded facilities, with unmarked Mining Rigs doing the dirty work.',
+    economy: { workers: 3 },
+    worker: 'harvester', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'gunship'],
     powers: {
@@ -106,12 +136,13 @@ const FACTIONS = {
     buildingNames: {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
       factory: 'Motor Pool', airpad: 'Drone Bay',
-      tower5g: '5G Tower', samsite: 'Interceptor Battery',
+      tower5g: '5G Tower', samsite: 'Patriot Battery',
     },
   },
   hollow: {
     name: 'Hollow Earthers', family: 'HOLLOW EARTH', emoji: '🕳️',
-    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, Cave Bat swarms, and free-flowing geothermal power.',
+    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and Cave Bat swarms. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and Diggers haul oversized loads.',
+    economy: { workers: 5 },
     worker: 'digger', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['sapper', 'magma', 'ptero'],
@@ -127,8 +158,9 @@ const FACTIONS = {
   },
   grey: {
     name: 'The Greys', family: 'ALIENS', emoji: '👽',
-    desc: 'You will be probed. Abductors, towering Tripod Striders, and the Flying Saucer — supreme in the air and cruel to the ground.',
-    worker: 'probe', infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
+    desc: 'You will be probed. Abductors, towering Tripod Striders, and the Flying Saucer — supreme in the air and cruel to the ground. No miners: Zero-Point Cores conjure minerals from the vacuum itself.',
+    economy: { workers: 0, start: 150 },
+    worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'saucer'], tower: 'pylon', aaTower: 'tractor',
     extras: ['hybrid', 'mortarcrawler', 'biobomber'],
     powers: {
@@ -143,8 +175,9 @@ const FACTIONS = {
   },
   reptilian: {
     name: 'The Reptilians', family: 'ALIENS', emoji: '🦎',
-    desc: 'They walk among us — and bite. Melee Reptoid Warriors, the armored Basilisk Crawler, and fire-breathing Sky Drakes.',
-    worker: 'probe', infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
+    desc: 'They walk among us — and bite. Melee Reptoid Warriors, the armored Basilisk Crawler, and fire-breathing Sky Drakes. No miners: the nest generates minerals — or steal an enemy worker and put it to work.',
+    economy: { workers: 0, start: 150 },
+    worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb', 'drake'], tower: 'pylon', aaTower: 'tractor',
     extras: ['hybrid', 'mortarcrawler', 'biobomber'],
     powers: {
@@ -162,14 +195,16 @@ const FACTIONS = {
 // ---------- units ----------
 // targets: 'ground' | 'air' | 'both' (default 'ground' for anything armed)
 // weapon: 'gun' (default) | 'lob' | 'bomb' | 'storm' | 'spray'
-// maxAmmo: aircraft magazine — empty means return to the airpad to rearm
+// pad: RA2-style airfield craft — occupies one of its airpad's 4 slots,
+//      parks there when idle, and burns maxAmmo ammo it reloads on the pad.
+//      Air units WITHOUT pad (helicopters, blimps, saucers) fly free.
 
 const UNIT_TYPES = {
-  // workers
-  believer:  { name: 'Believer',        role: 'worker', builtAt: 'hq', hp: 40, speed: 85, dmg: 3, atkRange: 22, cooldown: 1, sight: 170, cost: 50, r: 8, buildTime: 4 },
-  operative: { name: 'Field Operative', role: 'worker', builtAt: 'hq', hp: 40, speed: 85, dmg: 3, atkRange: 22, cooldown: 1, sight: 170, cost: 50, r: 8, buildTime: 4 },
-  digger:    { name: 'Mole Digger',     role: 'worker', builtAt: 'hq', hp: 50, speed: 80, dmg: 4, atkRange: 22, cooldown: 1, sight: 160, cost: 50, r: 8, buildTime: 4 },
-  probe:     { name: 'Harvest Probe',   role: 'worker', builtAt: 'hq', hp: 35, speed: 95, dmg: 2, atkRange: 22, cooldown: 1, sight: 190, cost: 50, r: 8, buildTime: 4 },
+  // workers — carry: minerals hauled per trip (default HARVEST_AMOUNT)
+  believer:  { name: 'Believer',    role: 'worker', builtAt: 'hq', hp: 40,  speed: 85, dmg: 3, atkRange: 22, cooldown: 1, sight: 170, cost: 50,  r: 8,  buildTime: 4 },
+  digger:    { name: 'Mole Digger', role: 'worker', builtAt: 'hq', hp: 50,  speed: 80, dmg: 4, atkRange: 22, cooldown: 1, sight: 160, cost: 50,  r: 8,  buildTime: 4, carry: 9 },
+  // globalist automation: a few armed rigs instead of a crowd of field hands
+  harvester: { name: 'Mining Rig',  role: 'worker', builtAt: 'hq', hp: 200, speed: 55, dmg: 5, atkRange: 90, cooldown: 1, sight: 200, cost: 110, r: 13, buildTime: 9, carry: 14, shape: 'square' },
   // basic infantry
   militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5 },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4 },
@@ -185,7 +220,7 @@ const UNIT_TYPES = {
   beamer:   { name: 'Beam Walker',       role: 'combat', builtAt: 'barracks', hp: 75, speed: 74, dmg: 10, dmgVsGround: 5, atkRange: 180, cooldown: 0.65, sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
   // specialist infantry
   preacher: { name: 'Street Preacher',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 70, dmg: 6,  atkRange: 90,  cooldown: 1,   sight: 200, cost: 55, r: 9,  buildTime: 6, bldgBonus: 3 },
-  riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 6,  atkRange: 60,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 },
+  riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   sapper:   { name: 'Tunnel Sapper',      role: 'combat', builtAt: 'barracks', hp: 90,  speed: 80, dmg: 8,  atkRange: 25,  cooldown: 1,   sight: 190, cost: 65, r: 9,  buildTime: 6, bldgBonus: 4 },
   hybrid:   { name: 'Hybrid Infiltrator', role: 'combat', builtAt: 'barracks', hp: 55,  speed: 95, dmg: 14, atkRange: 110, cooldown: 0.7, sight: 240, cost: 70, r: 9,  buildTime: 6 },
   // vehicles
@@ -204,16 +239,16 @@ const UNIT_TYPES = {
   // air
   wballoon: { name: 'Weather Balloon',  role: 'scout',  builtAt: 'airpad', hp: 60,  speed: 90,  dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 360, cost: 40,  r: 9,  buildTime: 6,  flying: true, shape: 'blimp' },
   balloon:  { name: 'Balloon of Truth', role: 'combat', builtAt: 'airpad', hp: 420, speed: 40,  dmg: 40, atkRange: 36,  cooldown: 2.2,  sight: 240, cost: 200, r: 15, buildTime: 14, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 46 },
-  drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'airpad', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri', maxAmmo: 8 },
-  heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'airpad', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri', maxAmmo: 10 },
-  cavebat:  { name: 'Cave Bat Swarm',   role: 'combat', builtAt: 'airpad', hp: 45,  speed: 120, dmg: 4,  atkRange: 60,  cooldown: 0.5,  sight: 300, cost: 45,  r: 8,  buildTime: 5,  flying: true, shape: 'tri', maxAmmo: 12 },
-  gyro:     { name: 'Gyrocopter',       role: 'combat', builtAt: 'airpad', hp: 130, speed: 100, dmg: 11, atkRange: 125, cooldown: 0.7,  sight: 260, cost: 150, r: 10, buildTime: 10, flying: true, targets: 'both', shape: 'tri', maxAmmo: 10 },
+  drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'airpad', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
+  heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'airpad', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
+  cavebat:  { name: 'Cave Bat Swarm',   role: 'combat', builtAt: 'airpad', hp: 45,  speed: 120, dmg: 4,  atkRange: 60,  cooldown: 0.5,  sight: 300, cost: 45,  r: 8,  buildTime: 5,  flying: true, shape: 'tri' },
+  gyro:     { name: 'Gyrocopter',       role: 'combat', builtAt: 'airpad', hp: 130, speed: 100, dmg: 11, atkRange: 125, cooldown: 0.7,  sight: 260, cost: 150, r: 10, buildTime: 10, flying: true, targets: 'both', shape: 'tri' },
   orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp' },
-  saucer:   { name: 'Flying Saucer',    role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', maxAmmo: 10 },
-  drake:    { name: 'Sky Drake',        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', maxAmmo: 8 },
-  cropduster: { name: 'Crop Duster',    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, maxAmmo: 6 },
-  gunship:    { name: 'Night Gunship',  role: 'combat', builtAt: 'airpad', hp: 220, speed: 85,  dmg: 20, atkRange: 150, cooldown: 1.2, sight: 280, cost: 210, r: 12, buildTime: 13, flying: true, shape: 'tri', maxAmmo: 8 },
-  ptero:      { name: 'Pterodactyl',    role: 'combat', builtAt: 'airpad', hp: 170, speed: 120, dmg: 17, atkRange: 60,  cooldown: 0.9, sight: 270, cost: 160, r: 11, buildTime: 11, flying: true, shape: 'tri', maxAmmo: 8 },
+  saucer:   { name: 'Flying Saucer',    role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer' },
+  drake:    { name: 'Sky Drake',        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8 },
+  cropduster: { name: 'Crop Duster',    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6 },
+  gunship:    { name: 'Night Gunship',  role: 'combat', builtAt: 'airpad', hp: 220, speed: 85,  dmg: 20, atkRange: 150, cooldown: 1.2, sight: 280, cost: 210, r: 12, buildTime: 13, flying: true, shape: 'tri', pad: true, maxAmmo: 8 },
+  ptero:      { name: 'Pterodactyl',    role: 'combat', builtAt: 'airpad', hp: 170, speed: 120, dmg: 17, atkRange: 60,  cooldown: 0.9, sight: 270, cost: 160, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8 },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
   // faction-power units (never trainable)
   smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
@@ -236,9 +271,110 @@ const BUILDING_TYPES = {
   pylon:      { hp: 340, w: 40, h: 40, cost: 105, buildTime: 12, sight: 260, power: -30, cap: 5, dmg: 16, atkRange: 200, cooldown: 0.85, targets: 'ground', weapon: 'chain' },
   // anti-air towers
   laserpointer: { hp: 280, w: 38, h: 38, cost: 90,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 14,  atkRange: 230, cooldown: 0.6,  targets: 'air' },
-  samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 18,  atkRange: 260, cooldown: 0.8,  targets: 'air' },
+  aanest:       { hp: 260, w: 36, h: 36, cost: 70,  buildTime: 8,  sight: 270, power: -20, cap: 5, dmg: 3.5, atkRange: 220, cooldown: 0.14, targets: 'air' }, // rapid tracer stream
+  samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 20,  atkRange: 270, cooldown: 1.6,  targets: 'air', weapon: 'missile' },
   geyser:       { hp: 300, w: 38, h: 38, cost: 95,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 16,  atkRange: 240, cooldown: 0.75, targets: 'air' },
   tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 2.4, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam' },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
+  // neutral map structures — garrison infantry inside to claim them
+  house:     { name: 'Abandoned House', hp: 400, w: 46, h: 42, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 4 },
+  apartment: { name: 'Apartment Block', hp: 750, w: 58, h: 66, cost: 0, buildTime: 0, sight: 220, power: 0, slots: 6 },
+  barn:      { name: 'Old Barn',        hp: 480, w: 62, h: 52, cost: 0, buildTime: 0, sight: 190, power: 0, slots: 3 },
+  derrick:   { name: 'Oil Derrick',     hp: 500, w: 50, h: 56, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 2, income: 12 },
 };
+
+// map settings: how built-up the countryside is. Chosen on the start screen
+// (or rolled randomly); mapgen reads these to lay out neutral structures.
+const MAP_SETTINGS = {
+  urban:   { name: 'Urban' },
+  town:    { name: 'Town' },
+  country: { name: 'Country' },
+};
+
+// ---------- per-faction building variation ----------
+// The same construction slot means something different to every faction:
+// a Diesel Shack is not a Fusion Plant. Overrides below are merged over the
+// BUILDING_TYPES base stats into FBUILD at load.
+// income: minerals granted per 10 seconds while the building stands — the
+// alien economy runs on this instead of miners.
+const BUILDING_MODS = {
+  flat: { // cheap, flimsy, quick to raise; big workforce keeps them fueled
+    hq:         { hp: 850,  power: 55 },
+    powerplant: { cost: 60,  hp: 240, power: 70,  buildTime: 8,  w: 52, h: 52 },
+    barracks:   { cost: 80,  hp: 380, buildTime: 10, w: 50, h: 50 },
+    factory:    { cost: 130, hp: 440, buildTime: 14 },
+    airpad:     { cost: 110, hp: 380, buildTime: 14 },
+    watchtower: { cost: 70 },
+  },
+  resistance: { // guerrilla salvage: cheapest structures in the game
+    hq:         { hp: 800,  power: 55 },
+    powerplant: { cost: 55,  hp: 220, power: 65,  buildTime: 7,  w: 52, h: 52 },
+    barracks:   { cost: 70,  hp: 340, buildTime: 9,  w: 50, h: 50 },
+    factory:    { cost: 115, hp: 400, buildTime: 13 },
+    airpad:     { cost: 100, hp: 350, buildTime: 13 },
+    watchtower: { cost: 65 },
+  },
+  glob: { // premium infrastructure: pay double, get the best grid and armor
+    hq:         { hp: 1100, power: 70 },
+    powerplant: { cost: 125, hp: 420, power: 150, buildTime: 13, w: 62, h: 62 },
+    barracks:   { cost: 125, hp: 520, buildTime: 13, w: 58, h: 58 },
+    factory:    { cost: 175, hp: 560, buildTime: 17 },
+    airpad:     { cost: 160, hp: 470, buildTime: 17 },
+  },
+  deep: { // black-budget funding: nearly Globalist quality, slightly leaner
+    hq:         { hp: 1050, power: 70 },
+    powerplant: { cost: 115, hp: 400, power: 140, buildTime: 12, w: 62, h: 62 },
+    barracks:   { cost: 115, hp: 500, buildTime: 12, w: 58, h: 58 },
+    factory:    { cost: 165, hp: 540, buildTime: 16 },
+    airpad:     { cost: 150, hp: 450, buildTime: 16 },
+  },
+  hollow: { // dug into bedrock: sturdiest structures, dirt-cheap geothermal power
+    hq:         { hp: 1250, power: 55 },
+    powerplant: { cost: 70,  hp: 340, power: 120, buildTime: 9 },
+    barracks:   { cost: 105, hp: 560, buildTime: 13 },
+    factory:    { cost: 155, hp: 620, buildTime: 17 },
+    airpad:     { cost: 130, hp: 460 },
+  },
+  grey: { // zero-point economy: no miners, structures conjure minerals
+    hq:         { hp: 1000, power: 80, income: 12 },
+    powerplant: { cost: 130, hp: 350, power: 130, buildTime: 13, income: 8 },
+    barracks:   { cost: 125, hp: 430 },
+    factory:    { cost: 180, hp: 520 },
+    airpad:     { cost: 165, hp: 440 },
+  },
+  reptilian: { // the nest provides: same structure income, slightly cheaper
+    hq:         { hp: 1050, power: 75, income: 12 },
+    powerplant: { cost: 120, hp: 340, power: 125, buildTime: 12, income: 8 },
+    barracks:   { cost: 110, hp: 470 },
+    factory:    { cost: 170, hp: 530 },
+    airpad:     { cost: 150, hp: 450 },
+  },
+};
+
+// FBUILD[faction][type] = final building stats for that faction
+const FBUILD = {};
+for (const fk of Object.keys(FACTIONS)) {
+  FBUILD[fk] = {};
+  for (const [bk, base] of Object.entries(BUILDING_TYPES)) {
+    FBUILD[fk][bk] = { ...base, ...(BUILDING_MODS[fk] || {})[bk] };
+  }
+}
+
+// ---------- global pace tuning ----------
+// One knob for how fast the game feels: more hp makes fights last longer,
+// lower speeds slow army movement, longer build times stretch the macro game.
+// Applied to every unit and building at load so the stat tables above stay
+// readable as relative balance numbers.
+const PACE = { hp: 1.35, speed: 0.85, buildTime: 1.2 };
+for (const t of Object.values(UNIT_TYPES)) {
+  t.hp = Math.round(t.hp * PACE.hp);
+  t.speed = Math.round(t.speed * PACE.speed);
+  if (t.buildTime) t.buildTime = Math.round(t.buildTime * PACE.buildTime);
+}
+for (const table of [BUILDING_TYPES, ...Object.values(FBUILD)]) {
+  for (const b of Object.values(table)) {
+    b.hp = Math.round(b.hp * PACE.hp);
+    if (b.buildTime) b.buildTime = Math.round(b.buildTime * PACE.buildTime);
+  }
+}

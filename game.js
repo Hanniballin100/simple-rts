@@ -13,17 +13,19 @@ const mmCtx = mmCanvas.getContext('2d');
 
 let nextId = 1;
 let started = false;
+let OWNERS = [PLAYER, ENEMY]; // owner 0 is the human; startGame appends extra AIs
 const state = {
-  factions: { [PLAYER]: 'flat', [ENEMY]: 'glob' },
-  minerals: { [PLAYER]: 300, [ENEMY]: 300 },
-  construction: { [PLAYER]: null, [ENEMY]: null }, // {type,t,duration,ready,announced}
+  factions: {},     // owner -> faction key
+  minerals: {},     // owner -> bank
+  construction: {}, // owner -> {type,t,duration,ready,announced} | null
   units: [],
   buildings: [],
   patches: [],
   projectiles: [], // lobbed rocks, dropped bombs
   zones: [],       // temporary area effects: rain, storm, fire, toxin
-  sig: { [PLAYER]: { cd: 0, timer: 0, used: false }, [ENEMY]: { cd: 0, timer: 0, used: false } },
-  infiltrator: { [PLAYER]: null, [ENEMY]: null }, // reptilian sleeper worker ids
+  sig: {},         // owner -> {cd, timer, used}
+  eco: {},         // owner -> structure-income tick timer
+  infiltrator: {}, // owner -> reptilian sleeper worker id
   time: 0,
   over: false,
 };
@@ -40,13 +42,26 @@ let mmDown = false;          // dragging on minimap
 const groups = {};           // control groups 1-5
 let lastUnderAttack = -1e9;
 
-const ai = { attackWaveSize: 5, thinkTimer: 0, time: 0 };
+const ais = {}; // owner -> {attackWaveSize, thinkTimer, time}; one brain per AI
 const cameoButtons = {}; // sidebar buttons: key -> {btn, costEl, prog, badge, baseCost, baseLabel}
 
 // small shared helpers
 const facOf = owner => FACTIONS[state.factions[owner]];
-const buildingName = b => facOf(b.owner).buildingNames[b.type] || b.type;
-const oppOf = owner => owner === PLAYER ? ENEMY : PLAYER;
+const buildingName = b => (facOf(b.owner) && facOf(b.owner).buildingNames[b.type])
+  || BUILDING_TYPES[b.type].name || b.type;
+// building stats vary per faction (a Diesel Shack is not a Fusion Plant);
+// neutral structures fall back to the base table
+const bstats = (owner, type) => (FBUILD[state.factions[owner]] || BUILDING_TYPES)[type];
+const bstatsOf = b => bstats(b.owner, b.type);
+const canGarrison = u => {
+  const t = UNIT_TYPES[u.type];
+  return t.builtAt === 'barracks' && t.role === 'combat' && !t.flying;
+};
+const hostilesOf = owner => OWNERS.filter(o => o !== owner); // free-for-all
+const randomHostile = owner => {
+  const hs = hostilesOf(owner);
+  return hs[Math.floor(Math.random() * hs.length)];
+};
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const hitsAir = stats => stats.targets === 'air' || stats.targets === 'both';
@@ -58,14 +73,22 @@ let audioCtx = null;
 const evaLast = {};
 let sfxCount = 0, sfxWindow = 0;
 
-// ---------- fog of war state ----------
+// ---------- fog of war state (sized by initFog once the map exists) ----------
 
-const FW = WORLD_W / FOG_TILE, FH = WORLD_H / FOG_TILE;
-const vis = new Uint8Array(FW * FH); // 0 unexplored, 1 explored, 2 visible
+let FW = 0, FH = 0;
+let vis = new Uint8Array(0); // 0 unexplored, 1 explored, 2 visible
+let fogImg = null;           // ImageData reused every frame (fillRect per tile is too slow on big maps)
 const fogCanvas = document.createElement('canvas');
-fogCanvas.width = FW;
-fogCanvas.height = FH;
 const fogCtx = fogCanvas.getContext('2d');
+
+function initFog() {
+  FW = Math.round(WORLD_W / FOG_TILE);
+  FH = Math.round(WORLD_H / FOG_TILE);
+  vis = new Uint8Array(FW * FH);
+  fogCanvas.width = FW;
+  fogCanvas.height = FH;
+  fogImg = fogCtx.createImageData(FW, FH);
+}
 
 
 function ensureAudio() {
@@ -148,8 +171,8 @@ function nearest(from, list, filter) {
 }
 
 function enemiesOf(owner) {
-  return state.units.filter(u => u.owner !== owner && u.hp > 0)
-    .concat(state.buildings.filter(b => b.owner !== owner && b.hp > 0));
+  return state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned)
+    .concat(state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0));
 }
 
 function entityRadius(e) {
@@ -167,7 +190,7 @@ function powerOf(owner) {
   let cap = 0, used = 0;
   for (const b of state.buildings) {
     if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
-    const p = BUILDING_TYPES[b.type].power || 0;
+    const p = bstatsOf(b).power || 0;
     if (p > 0) cap += p; else used -= p;
   }
   return { cap, used, low: used > cap };
@@ -195,10 +218,10 @@ function markSight(x, y, sight) {
 function updateFog() {
   for (let i = 0; i < vis.length; i++) if (vis[i] === 2) vis[i] = 1;
   for (const u of state.units) {
-    if (u.owner === PLAYER && u.hp > 0) markSight(u.x, u.y, UNIT_TYPES[u.type].sight);
+    if (u.owner === PLAYER && u.hp > 0 && !u.garrisoned) markSight(u.x, u.y, UNIT_TYPES[u.type].sight);
   }
   for (const b of state.buildings) {
-    if (b.owner === PLAYER && b.hp > 0) markSight(b.x, b.y, BUILDING_TYPES[b.type].sight);
+    if (b.owner === PLAYER && b.hp > 0) markSight(b.x, b.y, bstatsOf(b).sight);
   }
 }
 
@@ -227,13 +250,14 @@ function makeUnit(owner, type, x, y) {
 }
 
 function makeBuilding(owner, type, x, y) {
-  const t = BUILDING_TYPES[type];
+  const t = bstats(owner, type);
   const b = {
     id: nextId++, kind: 'building', owner, type,
     x, y, w: t.w, h: t.h,
     hp: t.hp, maxHp: t.hp,
     done: true, queue: [], cooldown: 0, rally: null,
   };
+  if (t.slots) b.garrison = []; // unit ids stationed inside
   state.buildings.push(b);
   return b;
 }
@@ -242,39 +266,51 @@ function makePatch(x, y, amount = 900) {
   state.patches.push({ id: nextId++, kind: 'patch', x, y, amount });
 }
 
-function setupWorld(playerFaction) {
-  state.factions[PLAYER] = playerFaction; // enemy faction is set by startGame
+function setupWorld(map) {
+  mapDecor = map.decor || [];
+  initFog();
+  renderGround();
 
-  makeBuilding(PLAYER, 'hq', 220, WORLD_H - 220);
-  makeBuilding(ENEMY, 'hq', WORLD_W - 220, 220);
-
-  const clusters = [
-    [120, WORLD_H - 420], [400, WORLD_H - 130],
-    [WORLD_W - 120, 420], [WORLD_W - 400, 130],
-    [WORLD_W / 2 - 60, WORLD_H / 2], [WORLD_W / 2 + 60, WORLD_H / 2 + 80],
-    [260, 260], [WORLD_W - 260, WORLD_H - 260],
-  ];
-  for (const [cx, cy] of clusters) {
-    for (let i = 0; i < 3; i++) makePatch(cx + (i - 1) * 42, cy + (i % 2) * 34);
+  // bases + starting workers, spaced toward the map center
+  // (income factions bring no workers — their structures provide)
+  for (const owner of OWNERS) {
+    const s = map.starts[owner];
+    makeBuilding(owner, 'hq', s.x, s.y);
+    if (!facOf(owner).worker) continue;
+    const home = Math.atan2(WORLD_H / 2 - s.y, WORLD_W / 2 - s.x);
+    for (let i = 0; i < 3; i++) {
+      makeUnit(owner, facOf(owner).worker,
+        s.x + Math.cos(home) * 100 + (i - 1) * 26,
+        s.y + Math.sin(home) * 100 + (i % 2) * 22);
+    }
   }
 
-  for (let i = 0; i < 3; i++) {
-    makeUnit(PLAYER, facOf(PLAYER).worker, 320 + i * 26, WORLD_H - 300);
-    makeUnit(ENEMY, facOf(ENEMY).worker, WORLD_W - 320 - i * 26, 300);
+  // 3-patch cluster at every generated mineral spot
+  for (const spot of map.patchSpots) {
+    for (let i = 0; i < 3; i++) {
+      makePatch(spot.x + (i - 1) * 42, spot.y + (i % 2) * 34, spot.amount);
+    }
   }
+
+  // neutral settlements and derricks — garrison infantry to claim them
+  for (const n of map.neutrals) makeBuilding(NEUTRAL, n.type, n.x, n.y);
 
   // faction setup powers
-  for (const owner of [PLAYER, ENEMY]) {
-    const opp = owner === PLAYER ? ENEMY : PLAYER;
+  for (const owner of OWNERS) {
     if (state.factions[owner] === 'resistance') {
-      // sleeper cells: hidden observation camps around the map
-      for (const [sx, sy] of [[1000, 130], [330, 500], [1670, 900]]) {
+      // sleeper cells: hidden observation camps scattered around the map
+      for (let i = 0, tries = 0; i < 3 && tries < 60; tries++) {
+        const sx = 120 + Math.random() * (WORLD_W - 240);
+        const sy = 120 + Math.random() * (WORLD_H - 240);
+        if (map.starts.some(st => dist(st, { x: sx, y: sy }) < 350)) continue;
         makeBuilding(owner, 'sleepercell', sx, sy);
+        i++;
       }
     }
     if (state.factions[owner] === 'reptilian') {
-      const w = state.units.find(u => u.owner === opp && UNIT_TYPES[u.type].role === 'worker');
-      if (w) state.infiltrator[owner] = w.id;
+      // one random enemy worker was always ours (skips worker-less factions)
+      const pool = state.units.filter(u => u.owner !== owner && UNIT_TYPES[u.type].role === 'worker');
+      if (pool.length) state.infiltrator[owner] = pool[Math.floor(Math.random() * pool.length)].id;
     }
   }
 
@@ -315,22 +351,22 @@ function countStruct(owner, type) {
 }
 
 function atStructCap(owner, type) {
-  const cap = BUILDING_TYPES[type].cap;
+  const cap = bstats(owner, type).cap;
   return cap !== undefined && countStruct(owner, type) >= cap;
 }
 
 function startConstruction(owner, type) {
   if (state.construction[owner]) return false;
   if (atStructCap(owner, type)) return false;
-  const cost = BUILDING_TYPES[type].cost;
+  const cost = bstats(owner, type).cost;
   if (state.minerals[owner] < cost) return false;
   state.minerals[owner] -= cost;
-  state.construction[owner] = { type, t: 0, duration: BUILDING_TYPES[type].buildTime, ready: false, announced: false };
+  state.construction[owner] = { type, t: 0, duration: bstats(owner, type).buildTime, ready: false, announced: false };
   return true;
 }
 
-function placementBlocked(type, x, y) {
-  const t = BUILDING_TYPES[type];
+function placementBlocked(owner, type, x, y) {
+  const t = bstats(owner, type);
   if (x - t.w / 2 < 10 || y - t.h / 2 < 10 || x + t.w / 2 > WORLD_W - 10 || y + t.h / 2 > WORLD_H - 10) return true;
   return state.buildings.some(b => b.hp > 0 &&
       Math.abs(b.x - x) < (b.w + t.w) / 2 + 8 && Math.abs(b.y - y) < (b.h + t.h) / 2 + 8)
@@ -346,7 +382,7 @@ function withinBuildRadius(owner, x, y) {
 function tryPlace(owner, x, y) {
   const c = state.construction[owner];
   if (!c || !c.ready) return false;
-  if (placementBlocked(c.type, x, y) || !withinBuildRadius(owner, x, y)) return false;
+  if (placementBlocked(owner, c.type, x, y) || !withinBuildRadius(owner, x, y)) return false;
   makeBuilding(owner, c.type, x, y);
   state.construction[owner] = null;
   return true;
@@ -379,7 +415,9 @@ function castClone(owner, unit) {
 }
 
 function castGaslight(owner) {
-  const hq = state.buildings.find(b => b.owner === oppOf(owner) && b.type === 'hq' && b.hp > 0);
+  const myHq = state.buildings.find(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
+  const hq = nearest(myHq || { x: WORLD_W / 2, y: WORLD_H / 2 }, state.buildings,
+    b => b.owner !== owner && b.type === 'hq' && b.hp > 0);
   if (!hq) return;
   for (let i = 0; i < 4; i++) {
     const p = makeUnit(owner, 'phantom', hq.x + Math.cos(i * 1.7) * 180, hq.y + Math.sin(i * 1.7) * 180);
@@ -395,22 +433,25 @@ function castRevealInfiltrator(owner) {
   const u = state.units.find(x => x.id === state.infiltrator[owner] && x.hp > 0);
   sig.used = true;
   if (!u) { if (owner === PLAYER) eva('The infiltrator was lost'); return false; }
+  const wasPlayers = u.owner === PLAYER;
   u.owner = owner;
   u.order = { type: 'idle' };
   if (owner === PLAYER) eva('The infiltrator answers the call');
-  else eva('One of our workers was never ours');
+  else if (wasPlayers) eva('One of our workers was never ours');
   return true;
 }
 
 function documentaryDrop(owner) {
-  const pool = state.units.filter(u => u.owner === oppOf(owner) && u.hp > 0 && u.type !== 'phantom');
+  const pool = state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned && u.type !== 'phantom');
   if (!pool.length) return;
   const u = pool[Math.floor(Math.random() * pool.length)];
+  const wasPlayers = u.owner === PLAYER;
   u.owner = owner;
   u.disguised = false;
   u.order = { type: 'idle' };
   u.carrying = 0;
-  eva(owner === PLAYER ? 'They have seen the truth' : 'We have lost someone to their propaganda');
+  if (owner === PLAYER) eva('They have seen the truth');
+  else if (wasPlayers) eva('We have lost someone to their propaganda');
 }
 
 function spawnSmuggler(owner) {
@@ -429,7 +470,7 @@ function spawnSmuggler(owner) {
 function spawnDeepCoverRecruit(owner) {
   const bar = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'barracks');
   if (!bar) return;
-  const ef = facOf(oppOf(owner));
+  const ef = facOf(randomHostile(owner));
   const pool = [ef.infantry, ef.aa, ef.extras[0]];
   const type = pool[Math.floor(Math.random() * pool.length)];
   const u = makeUnit(owner, type, bar.x, bar.y + bar.h / 2 + 22);
@@ -439,7 +480,17 @@ function spawnDeepCoverRecruit(owner) {
 
 function updateAbilities(dt) {
   state.zones = state.zones.filter(z => z.until > state.time);
-  for (const owner of [PLAYER, ENEMY]) {
+  for (const owner of OWNERS) {
+    // structure income: zero-point cores etc. pay out every 10 seconds
+    state.eco[owner] += dt;
+    if (state.eco[owner] >= 10) {
+      state.eco[owner] -= 10;
+      let income = 0;
+      for (const b of state.buildings) {
+        if (b.owner === owner && b.hp > 0 && b.done) income += bstatsOf(b).income || 0;
+      }
+      if (income) state.minerals[owner] += income;
+    }
     const sig = state.sig[owner];
     sig.cd = Math.max(0, sig.cd - dt);
     const fkey = state.factions[owner];
@@ -457,10 +508,10 @@ function updateAbilities(dt) {
       sig.timer -= 120;
       spawnDeepCoverRecruit(owner);
     }
-    // AI casts its manual powers on simple rules
-    if (owner === ENEMY) {
-      if (fkey === 'deep' && sig.cd <= 0) castGaslight(ENEMY);
-      if (fkey === 'reptilian' && !sig.used && ai.time > 240) castRevealInfiltrator(ENEMY);
+    // AIs cast their manual powers on simple rules
+    if (owner !== PLAYER) {
+      if (fkey === 'deep' && sig.cd <= 0) castGaslight(owner);
+      if (fkey === 'reptilian' && !sig.used && ais[owner].time > 240) castRevealInfiltrator(owner);
     }
   }
 }
@@ -477,7 +528,26 @@ function findEntity(id) {
   return state.units.find(u => u.id === id) || state.buildings.find(b => b.id === id);
 }
 
-function moveToward(u, tx, ty, dt, stopDist = 2) {
+// does the segment (x1,y1)-(x2,y2) pass through the axis-aligned box at
+// (cx,cy) with half-extents ex/ey? (slab test)
+function segHitsRect(x1, y1, x2, y2, cx, cy, ex, ey) {
+  const dx = x2 - x1, dy = y2 - y1;
+  let t0 = 0, t1 = 1;
+  for (const [p, d, e] of [[x1 - cx, dx, ex], [y1 - cy, dy, ey]]) {
+    if (Math.abs(d) < 1e-9) {
+      if (Math.abs(p) > e) return false;
+      continue;
+    }
+    let ta = (-e - p) / d, tb = (e - p) / d;
+    if (ta > tb) { const tmp = ta; ta = tb; tb = tmp; }
+    t0 = Math.max(t0, ta);
+    t1 = Math.min(t1, tb);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+
+function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   const d = Math.hypot(tx - u.x, ty - u.y);
   if (d <= stopDist) return true;
   const t = UNIT_TYPES[u.type];
@@ -487,16 +557,42 @@ function moveToward(u, tx, ty, dt, stopDist = 2) {
     for (const z of state.zones) {
       if ((z.kind === 'rain' || z.kind === 'storm') && z.caster !== u.owner && dist(z, u) <= z.r) { speed *= 0.6; break; }
     }
+    // pushing through a forest is slow going
+    for (const o of TERRAIN) {
+      if (TERRAIN_TYPES[o.type].passes && dist(o, u) <= o.r) { speed *= TERRAIN_TYPES[o.type].slow; break; }
+    }
   }
   if (u.slowUntil && u.slowUntil > state.time) speed *= 0.55;
   const step = Math.min(speed * dt, d);
   let nx = u.x + (tx - u.x) / d * step;
   let ny = u.y + (ty - u.y) / d * step;
 
-  // ground units steer around terrain (air flies over)
+  // committed building detour: keep heading for the chosen corner even on
+  // frames where the direct step wouldn't collide, or the unit flip-flops
+  // between corner-seeking and target-seeking at the footprint's rim
+  if (!t.flying && u.dodge) {
+    if (Math.abs(u.dodge.tx - tx) > 40 || Math.abs(u.dodge.ty - ty) > 40 ||
+        !state.buildings.some(b => b.id === u.dodge.bld && b.hp > 0)) {
+      delete u.dodge; // destination changed or building died: re-plan
+    } else {
+      const dd = Math.hypot(u.dodge.x - u.x, u.dodge.y - u.y);
+      if (dd <= step) {
+        delete u.dodge; // corner rounded; aim at the target again
+      } else {
+        nx = u.x + (u.dodge.x - u.x) / dd * step;
+        ny = u.y + (u.dodge.y - u.y) / dd * step;
+      }
+    }
+  }
+
+  // ground units steer around impassable terrain and buildings (air flies
+  // over, forests let you through); ignoreId skips the building being walked to
   if (!t.flying) {
-    const ob = TERRAIN.find(o => Math.hypot(nx - o.x, ny - o.y) < o.r + t.r);
+    const ob = TERRAIN.find(o => !TERRAIN_TYPES[o.type].passes && Math.hypot(nx - o.x, ny - o.y) < o.r + t.r);
     if (ob) {
+      // destination sits inside the obstacle and we're touching it: close enough
+      if (Math.hypot(tx - ob.x, ty - ob.y) < ob.r + t.r &&
+          Math.hypot(u.x - ob.x, u.y - ob.y) < ob.r + t.r + 6) return true;
       const away = Math.atan2(u.y - ob.y, u.x - ob.x);
       const desired = Math.atan2(ty - u.y, tx - u.x);
       const diff = a => Math.abs(((a - desired + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
@@ -506,6 +602,51 @@ function moveToward(u, tx, ty, dt, stopDist = 2) {
       if (Math.hypot(nx - ob.x, ny - ob.y) < ob.r + t.r) {
         nx = ob.x + Math.cos(away) * (ob.r + t.r + 1);
         ny = ob.y + Math.sin(away) * (ob.r + t.r + 1);
+      }
+    } else {
+      const bld = state.buildings.find(b => b.hp > 0 && b.id !== ignoreId &&
+        Math.abs(nx - b.x) < b.w / 2 + t.r && Math.abs(ny - b.y) < b.h / 2 + t.r);
+      if (bld) {
+        const ex = bld.w / 2 + t.r, ey = bld.h / 2 + t.r;
+        // destination inside this building and we're already hugging it: arrived
+        if (Math.abs(tx - bld.x) < ex && Math.abs(ty - bld.y) < ey &&
+            Math.abs(u.x - bld.x) < ex + 8 && Math.abs(u.y - bld.y) < ey + 8) {
+          delete u.dodge;
+          return true;
+        }
+        // commit to rounding one corner of the expanded footprint: the one with
+        // the shortest unit -> corner -> destination path (re-chosen only when
+        // the building or destination changes, so we can't jitter between sides)
+        if (!u.dodge || u.dodge.bld !== bld.id ||
+            Math.abs(u.dodge.tx - tx) > 40 || Math.abs(u.dodge.ty - ty) > 40) {
+          // a corner we can't reach in a straight line is no corner at all
+          // (unless we're stuck inside — then any exit goes); a corner whose
+          // ONWARD leg crosses just means another corner gets rounded after it,
+          // so that only costs a mild penalty
+          const cross = (x1, y1, x2, y2) => segHitsRect(x1, y1, x2, y2, bld.x, bld.y, ex - 2, ey - 2);
+          let best = null, bestCost = Infinity;
+          for (const sx2 of [-1, 1]) {
+            for (const sy2 of [-1, 1]) {
+              const c = { x: bld.x + sx2 * (ex + 8), y: bld.y + sy2 * (ey + 8) };
+              const cost = Math.hypot(c.x - u.x, c.y - u.y) + Math.hypot(tx - c.x, ty - c.y)
+                + (cross(u.x, u.y, c.x, c.y) ? 1e5 : 0)
+                + (cross(c.x, c.y, tx, ty) ? (ex + ey) * 2 : 0);
+              if (cost < bestCost) { bestCost = cost; best = c; }
+            }
+          }
+          u.dodge = { bld: bld.id, x: best.x, y: best.y, tx, ty };
+        }
+        const dd = Math.hypot(u.dodge.x - u.x, u.dodge.y - u.y);
+        nx = u.x + (u.dodge.x - u.x) / (dd || 1) * Math.min(step, dd);
+        ny = u.y + (u.dodge.y - u.y) / (dd || 1) * Math.min(step, dd);
+        if (dd <= step) delete u.dodge; // corner rounded; aim at the target again
+        // never step from outside into the footprint (walking OUT is allowed,
+        // for units that get built over or shoved inside)
+        const wasInside = Math.abs(u.x - bld.x) < ex - 1 && Math.abs(u.y - bld.y) < ey - 1;
+        if (!wasInside && Math.abs(nx - bld.x) < ex - 1 && Math.abs(ny - bld.y) < ey - 1) {
+          nx = u.x;
+          ny = u.y;
+        }
       }
     }
   }
@@ -542,7 +683,7 @@ function dealDamage(attacker, target, dmg, stats) {
 function splashDamage(cx, cy, radius, dmg, owner, stats, hitAir = false) {
   const pt = { x: cx, y: cy };
   for (const u of state.units) {
-    if (u.owner === owner || u.hp <= 0) continue;
+    if (u.owner === owner || u.hp <= 0 || u.garrisoned) continue;
     if (!hitAir && UNIT_TYPES[u.type].flying) continue;
     const d = dist(u, pt);
     if (d <= radius + UNIT_TYPES[u.type].r) {
@@ -569,6 +710,30 @@ function spawnProjectile(kind, x, y, tx, ty, owner, stats) {
 
 function updateProjectiles(dt) {
   for (const p of state.projectiles) {
+    if (p.kind === 'missile') {
+      // homing: track the target until impact or fuel runs out
+      p.life -= dt;
+      const tgt = state.units.find(u => u.id === p.targetId && u.hp > 0 && !u.garrisoned);
+      if (!tgt || p.life <= 0) {
+        p.done = true;
+        Particles.boom(p.x, p.y, 0.35);
+        continue;
+      }
+      p.angle = Math.atan2(tgt.y - p.y, tgt.x - p.x);
+      const step = p.speed * dt;
+      if (dist(p, tgt) <= step + UNIT_TYPES[tgt.type].r) {
+        p.done = true;
+        dealDamage(null, tgt, p.stats.dmg, p.stats);
+        Particles.boom(tgt.x, tgt.y, 0.5);
+        if (tileState(tgt.x, tgt.y) === 2) sfx('boom');
+      } else {
+        p.x += Math.cos(p.angle) * step;
+        p.y += Math.sin(p.angle) * step;
+        p.trail = (p.trail || 0) - dt;
+        if (p.trail <= 0) { p.trail = 0.05; Particles.smoke(p.x, p.y, 1.6); }
+      }
+      continue;
+    }
     p.t += dt;
     if (p.t >= p.dur) {
       p.done = true;
@@ -608,7 +773,7 @@ function updateZones(dt) {
       if (z.tick <= 0) {
         z.tick = 0.4;
         for (const u of state.units) {
-          if (u.owner === z.caster || u.hp <= 0 || UNIT_TYPES[u.type].flying) continue;
+          if (u.owner === z.caster || u.hp <= 0 || u.garrisoned || UNIT_TYPES[u.type].flying) continue;
           if (dist(u, z) <= z.r + UNIT_TYPES[u.type].r) u.hp -= (z.dps || 5) * 0.4;
         }
       }
@@ -621,7 +786,7 @@ function tryAttack(u, target, dt) {
   const range = t.atkRange + entityRadius(target);
   const d = dist(u, target);
   if (d > range) {
-    moveToward(u, target.x, target.y, dt, range - 4);
+    moveToward(u, target.x, target.y, dt, range - 4, target.kind === 'building' ? target.id : null);
     return;
   }
   u.facing = Math.atan2(target.y - u.y, target.x - u.x);
@@ -674,10 +839,44 @@ function depositTarget(u) {
   return nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'hq' && b.hp > 0);
 }
 
+// ---------- airfield slots (RA2-style: 4 aircraft stationed per pad) ----------
+
+function padLoad(b) {
+  return state.units.filter(u => u.hp > 0 && u.homeId === b.id && UNIT_TYPES[u.type].pad).length
+    + b.queue.filter(j => UNIT_TYPES[j.type].pad).length;
+}
+
+function freeSlot(b) {
+  const taken = new Set(state.units
+    .filter(u => u.hp > 0 && u.homeId === b.id && UNIT_TYPES[u.type].pad)
+    .map(u => u.slot));
+  for (let s = 0; s < PAD_CAP; s++) if (!taken.has(s)) return s;
+  return 0;
+}
+
+function padSlotsFree(owner) {
+  return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done &&
+    b.type === 'airpad' && padLoad(b) < PAD_CAP);
+}
+
+// resolve an aircraft's home pad; adopts a new one (and slot) if the old died
+function findPadFor(u) {
+  let home = state.buildings.find(b => b.id === u.homeId && b.hp > 0 && b.done && b.type === 'airpad');
+  if (home) return home;
+  home = nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'airpad' &&
+    b.hp > 0 && b.done && padLoad(b) < PAD_CAP);
+  if (home) { u.homeId = home.id; u.slot = freeSlot(home); }
+  return home;
+}
+
 function updateUnit(u, dt) {
+  if (u.garrisoned) return; // stationed inside a structure; it fights for us
   u.cooldown = Math.max(0, u.cooldown - dt);
   const o = u.order;
   const stats = UNIT_TYPES[u.type];
+
+  // stationed aircraft lift off the moment they get a real order
+  if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
 
   // out of ammo: break off and return to the airfield
   if (stats.maxAmmo && u.ammo <= 0 && o.type !== 'rearm') {
@@ -687,6 +886,12 @@ function updateUnit(u, dt) {
 
   switch (o.type) {
     case 'idle':
+      if (stats.pad && u.landed) {
+        // parked on the pad: top off ammo, hold position (no auto-scramble)
+        if (u.ammo < stats.maxAmmo) u.ammo = Math.min(stats.maxAmmo, u.ammo + stats.maxAmmo * dt / 4);
+        break;
+      }
+      if (stats.pad && findPadFor(u)) { u.order = { type: 'rearm' }; break; }
       if (stats.role === 'combat') autoAcquire(u);
       break;
 
@@ -716,12 +921,13 @@ function updateUnit(u, dt) {
         if (next) orderHarvest(u, next); else u.order = { type: 'idle' };
         break;
       }
-      if (u.carrying >= HARVEST_AMOUNT) { u.order = { type: 'return', patchId: patch.id }; break; }
+      const carry = UNIT_TYPES[u.type].carry || HARVEST_AMOUNT; // rigs and diggers haul more
+      if (u.carrying >= carry) { u.order = { type: 'return', patchId: patch.id }; break; }
       if (moveToward(u, patch.x, patch.y, dt, 16)) {
         u.mineTimer += dt;
         if (u.mineTimer >= HARVEST_TIME) {
           u.mineTimer = 0;
-          const take = Math.min(HARVEST_AMOUNT, patch.amount);
+          const take = Math.min(carry, patch.amount);
           patch.amount -= take;
           u.carrying = take;
           u.order = { type: 'return', patchId: patch.id };
@@ -731,24 +937,36 @@ function updateUnit(u, dt) {
     }
 
     case 'rearm': {
-      // fly home, land on the pad, reload, lift off again
+      // fly home and settle onto our pad slot; reloading happens while parked
       u.landed = false;
-      let home = state.buildings.find(b => b.id === u.homeId && b.hp > 0 && b.done && b.type === 'airpad');
-      if (!home) {
-        home = nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'airpad' && b.hp > 0 && b.done);
-        if (home) u.homeId = home.id;
-      }
+      const home = findPadFor(u);
       if (!home) { u.order = { type: 'idle' }; break; } // no airfield left — stranded
-      const slotX = home.x + ((u.id % 3) - 1) * 24;
-      const slotY = home.y + ((u.id % 2) ? 13 : -9);
-      if (moveToward(u, slotX, slotY, dt, 5)) {
+      if (u.slot === undefined) u.slot = freeSlot(home);
+      const [ox, oy] = PAD_SLOT_POS[u.slot % PAD_CAP];
+      if (moveToward(u, home.x + ox, home.y + oy, dt, 5)) {
         u.landed = true;
-        u.ammo = Math.min(stats.maxAmmo, u.ammo + stats.maxAmmo * dt / 4); // 4s full reload
-        if (u.ammo >= stats.maxAmmo - 0.01) {
-          u.ammo = stats.maxAmmo;
-          u.landed = false;
-          u.order = { type: 'idle' };
+        u.order = { type: 'idle' };
+      }
+      break;
+    }
+
+    case 'garrison': {
+      // walk to a civilian structure and climb in
+      const b = findEntity(o.destId);
+      const slots = (b && b.kind === 'building' && b.hp > 0) ? bstatsOf(b).slots : 0;
+      if (!slots || (b.owner !== NEUTRAL && b.owner !== u.owner) || b.garrison.length >= slots) {
+        u.order = { type: 'idle' };
+        break;
+      }
+      if (moveToward(u, b.x, b.y, dt, entityRadius(b) * 0.7, b.id)) {
+        if (b.garrison.length < slots) {
+          b.garrison.push(u.id);
+          b.owner = u.owner; // the occupier claims the structure
+          u.garrisoned = b.id;
+          u.x = b.x;
+          u.y = b.y;
         }
+        u.order = { type: 'idle' };
       }
       break;
     }
@@ -760,7 +978,7 @@ function updateUnit(u, dt) {
       const entrance = nearest(u, state.buildings, b =>
         b.owner === u.owner && b.hp > 0 && b.done && (b.type === 'hq' || b.type === 'powerplant'));
       if (!entrance) { u.order = { type: 'idle' }; break; }
-      if (moveToward(u, entrance.x, entrance.y, dt, entityRadius(entrance) + 8)) {
+      if (moveToward(u, entrance.x, entrance.y, dt, entityRadius(entrance) + 8, entrance.id)) {
         u.x = dest.x + Math.sin(u.id * 2.7) * 40;
         u.y = dest.y + dest.h / 2 + 20;
         u.order = { type: 'idle' };
@@ -772,7 +990,7 @@ function updateUnit(u, dt) {
       // resistance smuggler truck hauling minerals home
       const hq = state.buildings.find(b => b.owner === u.owner && b.type === 'hq' && b.hp > 0);
       if (!hq) { u.order = { type: 'idle' }; break; }
-      if (moveToward(u, hq.x, hq.y, dt, entityRadius(hq) + 12)) {
+      if (moveToward(u, hq.x, hq.y, dt, entityRadius(hq) + 12, hq.id)) {
         state.minerals[u.owner] += 150;
         u.hp = 0;
         if (u.owner === PLAYER) eva('Supplies delivered');
@@ -784,7 +1002,7 @@ function updateUnit(u, dt) {
       const depot = depositTarget(u);
       if (!depot) { u.order = { type: 'idle' }; break; }
       const stop = entityRadius(depot) + 10;
-      if (moveToward(u, depot.x, depot.y, dt, stop)) {
+      if (moveToward(u, depot.x, depot.y, dt, stop, depot.id)) {
         state.minerals[u.owner] += u.carrying;
         u.carrying = 0;
         const patch = state.patches.find(p => p.id === o.patchId && p.amount > 0);
@@ -798,10 +1016,12 @@ function updateUnit(u, dt) {
     }
   }
 
-  // separation only within the same layer (ground vs ground, air vs air)
+  // separation only within the same layer (ground vs ground, air vs air);
+  // aircraft parked on a pad hold their slot
+  if (u.landed) return;
   const myFlying = !!stats.flying;
   for (const other of state.units) {
-    if (other === u || other.hp <= 0) continue;
+    if (other === u || other.hp <= 0 || other.garrisoned) continue;
     if (!!UNIT_TYPES[other.type].flying !== myFlying) continue;
     const d = dist(u, other);
     const minD = stats.r + UNIT_TYPES[other.type].r;
@@ -815,23 +1035,51 @@ function updateUnit(u, dt) {
 
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
-  const trainers = state.buildings.filter(b =>
+  let trainers = state.buildings.filter(b =>
     b.owner === owner && b.hp > 0 && b.done && b.type === ut.builtAt && b.queue.length < 5);
+  if (ut.pad) trainers = trainers.filter(b => padLoad(b) < PAD_CAP); // needs a free pad slot
   if (!trainers.length) return false;
   if (state.minerals[owner] < ut.cost) return false;
-  trainers.sort((a, b) => a.queue.length - b.queue.length);
+  trainers.sort((a, b) => ut.pad ? padLoad(a) - padLoad(b) : a.queue.length - b.queue.length);
   state.minerals[owner] -= ut.cost;
   trainers[0].queue.push({ type: unitType, t: 0, duration: ut.buildTime });
   return true;
 }
 
 function updateBuilding(b, dt) {
-  const bt = BUILDING_TYPES[b.type];
+  const bt = bstatsOf(b);
   const power = powerOf(b.owner);
 
   // damaged buildings smolder
   if (b.hp < b.maxHp * 0.5 && Math.random() < 0.04) {
     Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.7, b.y - b.h / 2, 3);
+  }
+
+  // garrisoned civilian structures fight for their occupier
+  if (b.garrison && b.garrison.length && b.owner !== NEUTRAL) {
+    b.cooldown = Math.max(0, b.cooldown - dt);
+    if (b.cooldown <= 0) {
+      const squad = b.garrison.map(id => state.units.find(u => u.id === id && u.hp > 0)).filter(Boolean);
+      const anyAA = squad.some(u => hitsAir(UNIT_TYPES[u.type]));
+      const foe = nearest(b, enemiesOf(b.owner), e => !e.disguised &&
+        dist(b, e) <= GARRISON_RANGE + entityRadius(e) &&
+        (anyAA || !(e.kind === 'unit' && UNIT_TYPES[e.type].flying)));
+      if (foe) {
+        b.cooldown = GARRISON_COOLDOWN;
+        const foeAir = foe.kind === 'unit' && UNIT_TYPES[foe.type].flying;
+        const dmg = squad.reduce((s, u) => {
+          const ut = UNIT_TYPES[u.type];
+          return (foeAir && !hitsAir(ut)) ? s : s + (ut.dmg || 0);
+        }, 0) * GARRISON_DMG_SCALE;
+        if (dmg > 0) {
+          dealDamage(b, foe, dmg, {});
+          b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+          Particles.shot(b.x + Math.cos(b.turret) * (b.w / 2), b.y + Math.sin(b.turret) * (b.h / 2),
+            foe.x, foe.y, 'bullet');
+          if (tileState(b.x, b.y) === 2) sfx('shot');
+        }
+      }
+    }
   }
 
   // towers shoot (unless the grid is down)
@@ -870,6 +1118,22 @@ function updateBuilding(b, dt) {
               !UNIT_TYPES[un.type].flying && !hit.has(un.id) && dist(prev, un) <= 85);
           }
           if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) sfx('laser');
+        }
+      }
+    } else if (wkind === 'missile') {
+      // patriot battery: launches a visible homing missile
+      if (b.cooldown <= 0) {
+        const foe = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
+          !un.disguised && !un.garrisoned && canTarget(bt, un) &&
+          dist(b, un) <= bt.atkRange + entityRadius(un));
+        if (foe) {
+          b.cooldown = bt.cooldown;
+          b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+          state.projectiles.push({
+            kind: 'missile', x: b.x, y: b.y, targetId: foe.id,
+            owner: b.owner, stats: bt, angle: b.turret, speed: 320, life: 4,
+          });
+          if (tileState(b.x, b.y) === 2) sfx('shot');
         }
       }
     } else if (wkind === 'beam') {
@@ -911,9 +1175,10 @@ function updateBuilding(b, dt) {
   if (job.t >= job.duration) {
     b.queue.shift();
     const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 30, b.y + b.h / 2 + 22);
-    if (b.type === 'airpad') u.homeId = b.id; // aircraft remember their airfield
-    if (b.owner === PLAYER) eva('Unit ready');
     const ut = UNIT_TYPES[job.type];
+    if (b.type === 'airpad') u.homeId = b.id; // aircraft remember their airfield
+    if (ut.pad) u.slot = freeSlot(b);         // claim a parking slot on it
+    if (b.owner === PLAYER) eva('Unit ready');
     if (b.rally) {
       const rp = state.patches.find(p => p.amount > 0 && dist(p, b.rally) < 40);
       if (ut.role === 'worker' && rp) orderHarvest(u, rp);
@@ -926,67 +1191,72 @@ function updateBuilding(b, dt) {
   }
 }
 
-function aiPickSpot(type) {
+function aiPickSpot(owner, type) {
   // search rings around every grid anchor (HQ + power plants) until a spot fits
-  const anchors = state.buildings.filter(b => b.owner === ENEMY && b.hp > 0 && b.done &&
+  const anchors = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done &&
     (b.type === 'hq' || b.type === 'powerplant'));
   if (!anchors.length) return null;
   const hq = anchors.find(b => b.type === 'hq') || anchors[0];
-  const f = facOf(ENEMY);
+  const f = facOf(owner);
   // towers scan toward the map center first; support structures scan away from it
   const centerAngle = Math.atan2(WORLD_H / 2 - hq.y, WORLD_W / 2 - hq.x);
   const startAngle = (type === f.tower || type === f.aaTower) ? centerAngle : centerAngle + Math.PI;
   for (const anchor of anchors) {
-    for (const rad of [110, 150, 190, 230, 270]) {
+    for (const rad of [110, 150, 190, 230, 270, 320, 380]) {
       for (let i = 0; i < 12; i++) {
         const a = startAngle + i * (Math.PI * 2 / 12);
         const x = anchor.x + Math.cos(a) * rad;
         const y = anchor.y + Math.sin(a) * rad;
-        if (!placementBlocked(type, x, y) && withinBuildRadius(ENEMY, x, y)) return { x, y };
+        if (!placementBlocked(owner, type, x, y) && withinBuildRadius(owner, x, y)) return { x, y };
       }
     }
   }
   return null;
 }
 
-function aiDesiredStructure(counts, power) {
-  const f = facOf(ENEMY);
-  if (power.used + 30 > power.cap && !atStructCap(ENEMY, 'powerplant')) return 'powerplant';
-  // walk the build order; each repeat of a type raises its desired count
-  const order = ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', f.tower, f.aaTower];
+function aiDesiredStructure(owner, counts, power) {
+  const f = facOf(owner);
+  if (power.used + 30 > power.cap && !atStructCap(owner, 'powerplant')) return 'powerplant';
+  // walk the build order; each repeat of a type raises its desired count.
+  // income factions (no miners) weave in extra power structures — those ARE
+  // their economy
+  const order = f.economy.workers === 0
+    ? ['barracks', 'powerplant', f.tower, 'powerplant', 'factory', f.aaTower, 'powerplant', 'airpad', 'powerplant', 'barracks', f.tower, 'powerplant', f.aaTower]
+    : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', f.tower, f.aaTower];
   const want = {};
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
-    if ((counts[t] || 0) < want[t] && !atStructCap(ENEMY, t)) return t;
+    if ((counts[t] || 0) < want[t] && !atStructCap(owner, t)) return t;
   }
   return null;
 }
 
-function updateAI(dt) {
+function updateAI(owner, dt) {
+  const ai = ais[owner];
   ai.time += dt;
-  tickConstruction(ENEMY, dt);
+  tickConstruction(owner, dt);
   ai.thinkTimer -= dt;
   if (ai.thinkTimer > 0) return;
   ai.thinkTimer = 1.0;
 
-  const f = facOf(ENEMY);
-  const myUnits = state.units.filter(u => u.owner === ENEMY && u.hp > 0);
+  const f = facOf(owner);
+  const myUnits = state.units.filter(u => u.owner === owner && u.hp > 0);
   const workers = myUnits.filter(u => UNIT_TYPES[u.type].role === 'worker');
   const army = myUnits.filter(u => UNIT_TYPES[u.type].role === 'combat');
-  const hq = state.buildings.find(b => b.owner === ENEMY && b.type === 'hq' && b.hp > 0);
+  const hq = state.buildings.find(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
   if (!hq) return;
 
   const counts = {};
   for (const b of state.buildings) {
-    if (b.owner === ENEMY && b.hp > 0) counts[b.type] = (counts[b.type] || 0) + 1;
+    if (b.owner === owner && b.hp > 0) counts[b.type] = (counts[b.type] || 0) + 1;
   }
-  const power = powerOf(ENEMY);
+  const power = powerOf(owner);
 
   // place finished construction
-  const c = state.construction[ENEMY];
+  const c = state.construction[owner];
   if (c && c.ready) {
-    const spot = aiPickSpot(c.type);
-    if (spot) tryPlace(ENEMY, spot.x, spot.y);
+    const spot = aiPickSpot(owner, c.type);
+    if (spot) tryPlace(owner, spot.x, spot.y);
   }
 
   // idle workers mine
@@ -998,15 +1268,16 @@ function updateAI(dt) {
   }
 
   // start next structure; reserve its cost so unit spam can't starve it
-  const desired = !state.construction[ENEMY] ? aiDesiredStructure(counts, power) : null;
-  if (desired && workers.length >= 3 && state.minerals[ENEMY] >= BUILDING_TYPES[desired].cost) {
-    startConstruction(ENEMY, desired);
+  const desired = !state.construction[owner] ? aiDesiredStructure(owner, counts, power) : null;
+  if (desired && (!f.worker || workers.length >= 3) && state.minerals[owner] >= bstats(owner, desired).cost) {
+    startConstruction(owner, desired);
   }
-  const reserve = (!state.construction[ENEMY] && desired) ? BUILDING_TYPES[desired].cost : 0;
+  const reserve = (!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0;
 
-  // workers
-  if (workers.length < 6 && state.minerals[ENEMY] >= UNIT_TYPES[f.worker].cost + reserve) {
-    trainUnit(ENEMY, f.worker);
+  // workers (income factions have none to train)
+  if (f.worker && workers.length < f.economy.workers &&
+      state.minerals[owner] >= UNIT_TYPES[f.worker].cost + reserve) {
+    trainUnit(owner, f.worker);
   }
 
   // train toward a target composition: pick the most-lacking type and save for
@@ -1019,7 +1290,7 @@ function updateAI(dt) {
     const byType = {};
     for (const u of army) byType[u.type] = (byType[u.type] || 0) + 1;
     for (const b of state.buildings) {
-      if (b.owner === ENEMY && b.hp > 0) {
+      if (b.owner === owner && b.hp > 0) {
         for (const j of b.queue) byType[j.type] = (byType[j.type] || 0) + 1;
       }
     }
@@ -1030,11 +1301,11 @@ function updateAI(dt) {
       const deficit = w / totalW - (byType[t] || 0) / (totalArmy || 1);
       if (deficit > worst) { worst = deficit; pick = t; }
     }
-    if (pick && state.minerals[ENEMY] >= UNIT_TYPES[pick].cost + reserve) trainUnit(ENEMY, pick);
+    if (pick && state.minerals[owner] >= UNIT_TYPES[pick].cost + reserve) trainUnit(owner, pick);
   }
 
   // defense (disguised reptilian infantry don't register as hostile)
-  const threat = nearest(hq, state.units.filter(u => u.owner === PLAYER && u.hp > 0), u => !u.disguised && dist(hq, u) < 450);
+  const threat = nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned), u => !u.disguised && dist(hq, u) < 450);
   if (threat) {
     for (const s of army) {
       if (canTarget(UNIT_TYPES[s.type], threat)) orderAttack(s, threat);
@@ -1042,11 +1313,11 @@ function updateAI(dt) {
     return;
   }
 
-  // attack waves
+  // attack waves: free-for-all — march on whoever's base is closest
   const idleArmy = army.filter(s => s.order.type === 'idle');
   if (ai.time > AI_GRACE_PERIOD && idleArmy.length >= ai.attackWaveSize) {
-    const target = nearest(hq, state.buildings.filter(b => b.owner === PLAYER && b.hp > 0))
-      || nearest(hq, state.units.filter(u => u.owner === PLAYER && u.hp > 0));
+    const target = nearest(hq, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 && b.type !== 'sleepercell'))
+      || nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.disguised && !u.garrisoned));
     if (target) {
       for (const s of idleArmy) orderAttackMove(s, target.x, target.y);
       ai.attackWaveSize = Math.min(12, ai.attackWaveSize + 1);
@@ -1063,12 +1334,12 @@ function screenToWorld(e) {
 }
 
 function selectAt(x, y) {
-  const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && dist(u, { x, y }) <= UNIT_TYPES[u.type].r + 4);
+  const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && dist(u, { x, y }) <= UNIT_TYPES[u.type].r + 4);
   const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   // no own entity under the cursor: inspect a visible enemy instead
   // (disguised infiltrators are excluded — clicking would blow their cover)
-  const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !un.disguised &&
+  const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !un.disguised && !un.garrisoned &&
     visibleToPlayer(un) && dist(un, { x, y }) <= UNIT_TYPES[un.type].r + 4);
   const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== PLAYER && bd.hp > 0 &&
     visibleToPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
@@ -1105,6 +1376,18 @@ function issueCommand(x, y) {
     }
   }
 
+  // right-click a neutral (or own-held) civilian structure: infantry garrison it
+  const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots &&
+    (b.owner === NEUTRAL || b.owner === PLAYER) && visibleToPlayer(b) &&
+    Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
+  if (gb) {
+    let any = false;
+    for (const u of units) {
+      if (canGarrison(u)) { u.order = { type: 'garrison', destId: gb.id }; any = true; }
+    }
+    if (any) { sfx('click'); return; }
+  }
+
   const foe = enemiesOf(PLAYER).find(e => visibleToPlayer(e) &&
     (e.kind === 'unit' ? dist(e, pt) <= UNIT_TYPES[e.type].r + 6
                        : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
@@ -1129,12 +1412,30 @@ function minimapPan(e) {
   clampCam();
 }
 
+function evacuate(b) {
+  let i = 0;
+  const n = Math.max(1, b.garrison.length);
+  for (const id of b.garrison) {
+    const u = state.units.find(x => x.id === id && x.hp > 0);
+    if (!u) continue;
+    const a = (i++ / n) * Math.PI * 2;
+    u.garrisoned = null;
+    u.x = b.x + Math.cos(a) * (entityRadius(b) + 14);
+    u.y = b.y + Math.sin(a) * (entityRadius(b) + 14);
+    u.order = { type: 'idle' };
+  }
+  b.garrison = [];
+  b.owner = NEUTRAL; // reverts to a civilian structure
+  sfx('click');
+  refreshPanel();
+}
+
 function sidebarStructureClick(type) {
   const c = state.construction[PLAYER];
   if (c && c.ready && c.type === type) { placing = type; refreshPanel(); return; }
   if (c) { eva('Unable to comply, building in progress'); return; }
   if (atStructCap(PLAYER, type)) { eva('Build limit reached'); return; }
-  if (state.minerals[PLAYER] < BUILDING_TYPES[type].cost) { eva('Insufficient funds'); return; }
+  if (state.minerals[PLAYER] < bstats(PLAYER, type).cost) { eva('Insufficient funds'); return; }
   startConstruction(PLAYER, type);
   sfx('click');
   refreshSidebar();
@@ -1144,6 +1445,7 @@ function sidebarUnitClick(type) {
   const ut = UNIT_TYPES[type];
   const hasTrainer = state.buildings.some(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
   if (!hasTrainer) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.builtAt] || ut.builtAt}`); return; }
+  if (ut.pad && !padSlotsFree(PLAYER)) { eva('Airfields at capacity'); return; }
   if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
   if (trainUnit(PLAYER, type)) sfx('click');
   refreshSidebar();
@@ -1170,9 +1472,10 @@ function buildSidebar() {
 
   const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad'];
   for (const s of structs) {
-    makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || s, BUILDING_TYPES[s].cost, () => sidebarStructureClick(s));
+    makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || s, bstats(PLAYER, s).cost, () => sidebarStructureClick(s));
   }
-  const unitList = [f.worker, f.infantry, f.aa, f.extras[0], f.vehicle, f.extras[1], ...f.air, f.extras[2]];
+  // worker-less factions have no worker cameo — their buildings pay the bills
+  const unitList = [f.worker, f.infantry, f.aa, f.extras[0], f.vehicle, f.extras[1], ...f.air, f.extras[2]].filter(Boolean);
   for (const u of unitList) {
     makeCameo(gridUnits, 'u:' + u, UNIT_TYPES[u].name, UNIT_TYPES[u].cost, () => sidebarUnitClick(u));
   }
@@ -1240,7 +1543,7 @@ function refreshSidebar() {
       ui.btn.classList.toggle('ready', !!(isThis && c.ready));
       ui.btn.classList.toggle('disabled', !!(c && !isThis) || (capped && !isThis));
       ui.prog.style.height = isThis && !c.ready ? (c.t / c.duration * 100) + '%' : '0%';
-      const cap = BUILDING_TYPES[type].cap;
+      const cap = bstats(PLAYER, type).cap;
       ui.costEl.textContent = isThis && c.ready ? 'PLACE'
         : capped ? 'MAX'
         : '$' + ui.baseCost + (cap ? ` (${countStruct(PLAYER, type)}/${cap})` : '');
@@ -1259,13 +1562,31 @@ function refreshSidebar() {
 
 function startGame(faction) {
   document.getElementById('faction-select').classList.add('hidden');
-  // the AI plays a random faction from a different family
+  const size = MAP_SIZES[selectedSize];
+  const numEnemies = clamp(selectedOpponents, 1, size.maxPlayers - 1);
+  OWNERS = Array.from({ length: numEnemies + 1 }, (_, o) => o);
+
+  // the AIs play random factions from families other than yours
   const others = Object.keys(FACTIONS).filter(k => FACTIONS[k].family !== FACTIONS[faction].family);
-  const enemy = others[Math.floor(Math.random() * others.length)];
-  state.factions[ENEMY] = enemy;
-  setupWorld(faction);
+  state.factions[PLAYER] = faction;
+  for (const owner of OWNERS) {
+    state.construction[owner] = null;
+    state.sig[owner] = { cd: 0, timer: 0, used: false };
+    state.infiltrator[owner] = null;
+    state.eco[owner] = 0;
+    if (owner !== PLAYER) {
+      state.factions[owner] = others[Math.floor(Math.random() * others.length)];
+      ais[owner] = { attackWaveSize: 5, thinkTimer: Math.random(), time: 0 };
+    }
+    // worker-less factions get a head start while their income ramps up
+    state.minerals[owner] = 300 + (facOf(owner).economy.start || 0);
+  }
+
+  setupWorld(generateMap(selectedSize, OWNERS.length, selectedSetting === 'random' ? null : selectedSetting));
+  const vs = OWNERS.filter(o => o !== PLAYER)
+    .map(o => `${facOf(o).emoji} ${facOf(o).name}`).join('  +  ');
   document.getElementById('faction-label').textContent =
-    `${FACTIONS[faction].emoji} ${FACTIONS[faction].name}  vs  ${FACTIONS[enemy].emoji} ${FACTIONS[enemy].name}`;
+    `${FACTIONS[faction].emoji} ${FACTIONS[faction].name}  vs  ${vs}`;
   buildSidebar();
   started = true;
   refreshPanel();
@@ -1295,6 +1616,13 @@ function refreshPanel() {
   if (selection.length === 0) { elSelInfo.textContent = 'Nothing selected'; return; }
 
   const first = selection[0];
+  if (selection.length === 1 && first.owner === NEUTRAL) {
+    const bt = bstatsOf(first);
+    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+      (bt.slots ? ` — right-click with infantry to garrison (${bt.slots} slots)` : '') +
+      (bt.income ? ` — pays +${bt.income} minerals / 10s while held` : '');
+    return;
+  }
   if (selection.length === 1 && first.owner !== PLAYER) {
     // enemy intel card
     elSelInfo.style.color = '#ff9f8f';
@@ -1314,16 +1642,29 @@ function refreshPanel() {
       if (t.bldgBonus) parts.push(`${t.bldgBonus}× vs buildings`);
       elSelInfo.textContent = parts.join('  |  ');
     } else {
-      const bt = BUILDING_TYPES[first.type];
+      const bt = bstatsOf(first);
       const parts = [`☠ ${buildingName(first)} (${fName})`, `HP ${Math.ceil(first.hp)}/${bt.hp}`];
       if (bt.dmg) parts.push(`DMG ${bt.dmg} every ${bt.cooldown}s`, `Range ${bt.atkRange}`, bt.targets === 'air' ? 'Anti-air only' : 'Ground only');
       if (bt.power > 0) parts.push(`+${bt.power} power`);
+      if (bt.income) parts.push(`+${bt.income} minerals / 10s`);
       elSelInfo.textContent = parts.join('  |  ');
     }
     return;
   }
   if (selection.length === 1 && first.kind === 'building') {
-    const bt = BUILDING_TYPES[first.type];
+    const bt = bstatsOf(first);
+    if (bt.slots) {
+      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+        ` — garrison ${first.garrison.length}/${bt.slots}` +
+        (bt.income ? ` — +${bt.income} minerals / 10s` : '');
+      if (first.garrison.length) {
+        const btn = document.createElement('button');
+        btn.textContent = `Evacuate (${first.garrison.length})`;
+        btn.onclick = () => evacuate(first);
+        elActions.appendChild(btn);
+      }
+      return;
+    }
     elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
       (first.queue.length ? ` — training (${first.queue.length} queued)` : '') +
       ' — right-click to set rally point';
@@ -1353,7 +1694,7 @@ function draw() {
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
 
-  ctx.drawImage(groundCanvas, 0, 0);
+  ctx.drawImage(groundCanvas, 0, 0, WORLD_W, WORLD_H);
 
   for (const p of state.patches) {
     if (p.amount <= 0 || tileState(p.x, p.y) === 0) continue;
@@ -1369,7 +1710,7 @@ function draw() {
   // buildings
   for (const b of state.buildings) {
     if (b.hp <= 0 || !visibleToPlayer(b)) continue;
-    const bt = BUILDING_TYPES[b.type];
+    const bt = bstatsOf(b);
     ctx.save();
     ctx.translate(b.x, b.y);
     Art.building(b.type, ctx, state.time + (b.id % 89) * 0.71, {
@@ -1431,6 +1772,16 @@ function draw() {
         ctx.closePath(); ctx.fill();
       }
     }
+    // occupancy pips for garrisoned structures
+    if (b.garrison && b.garrison.length) {
+      for (let i = 0; i < b.garrison.length; i++) {
+        ctx.fillStyle = COLORS[b.owner];
+        ctx.fillRect(b.x - b.garrison.length * 4 + i * 8 + 1, b.y - b.h / 2 - 16, 6, 5);
+        ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(b.x - b.garrison.length * 4 + i * 8 + 1, b.y - b.h / 2 - 16, 6, 5);
+      }
+    }
     drawBar(b.x, b.y - b.h / 2 - 8, b.w, b.hp / b.maxHp);
 
     if (b.queue.length) {
@@ -1444,12 +1795,12 @@ function draw() {
   // ground units, then air units on top
   for (const flyingPass of [false, true]) {
     for (const u of state.units) {
-      if (u.hp <= 0 || !visibleToPlayer(u)) continue;
+      if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
       const t = UNIT_TYPES[u.type];
       if (!!t.flying !== flyingPass) continue;
 
       // reptilian skin suit: enemy infantry render in YOUR color until they attack
-      const drawCol = (u.disguised && u.owner === ENEMY) ? COLORS[PLAYER] : COLORS[u.owner];
+      const drawCol = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
       const grounded = !!u.landed; // rearming on the pad
       const bob = (t.flying && !grounded) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
       ctx.save();
@@ -1514,6 +1865,21 @@ function draw() {
 
   // projectiles in flight (with ground shadow)
   for (const p of state.projectiles) {
+    if (p.kind === 'missile') {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.angle);
+      ctx.fillStyle = '#e8edf2';
+      ctx.fillRect(-4, -1.4, 8, 2.8);
+      ctx.fillStyle = '#8b939e'; // tail fins
+      ctx.fillRect(-4.5, -3, 2, 6);
+      ctx.fillStyle = '#c0392b'; // warhead
+      ctx.beginPath(); ctx.moveTo(4, -1.4); ctx.lineTo(7, 0); ctx.lineTo(4, 1.4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = `rgba(255,${170 + Math.floor(Math.random() * 60)},70,0.9)`; // exhaust
+      ctx.beginPath(); ctx.moveTo(-4.5, -1.1); ctx.lineTo(-8 - Math.random() * 3, 0); ctx.lineTo(-4.5, 1.1); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      continue;
+    }
     const f = p.t / p.dur;
     const gx = p.sx + (p.tx - p.sx) * f, gy = p.sy + (p.ty - p.sy) * f;
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
@@ -1579,16 +1945,12 @@ function draw() {
 
   Particles.draw(ctx);
 
-  // fog
-  fogCtx.clearRect(0, 0, FW, FH);
-  for (let ty = 0; ty < FH; ty++) {
-    for (let tx = 0; tx < FW; tx++) {
-      const v = vis[ty * FW + tx];
-      if (v === 2) continue;
-      fogCtx.fillStyle = v === 0 ? 'rgba(0,0,0,0.95)' : 'rgba(0,0,0,0.5)';
-      fogCtx.fillRect(tx, ty, 1, 1);
-    }
+  // fog — written as raw pixels (black with per-tile alpha)
+  const fd = new Uint32Array(fogImg.data.buffer);
+  for (let i = 0; i < vis.length; i++) {
+    fd[i] = vis[i] === 2 ? 0 : vis[i] === 1 ? 0x80000000 : 0xF2000000;
   }
+  fogCtx.putImageData(fogImg, 0, 0);
   ctx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, WORLD_W, WORLD_H);
 
   if (mouse.sel) {
@@ -1599,8 +1961,8 @@ function draw() {
   }
 
   if (placing) {
-    const t = BUILDING_TYPES[placing];
-    const ok = !placementBlocked(placing, mouse.x, mouse.y) && withinBuildRadius(PLAYER, mouse.x, mouse.y);
+    const t = bstats(PLAYER, placing);
+    const ok = !placementBlocked(PLAYER, placing, mouse.x, mouse.y) && withinBuildRadius(PLAYER, mouse.x, mouse.y);
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = ok ? '#4da3ff' : '#ff5f5f';
     ctx.fillRect(mouse.x - t.w / 2, mouse.y - t.h / 2, t.w, t.h);
@@ -1656,7 +2018,7 @@ function drawMinimap() {
 
   const sx = mmCanvas.width / WORLD_W, sy = mmCanvas.height / WORLD_H;
   for (const o of TERRAIN) {
-    mmCtx.fillStyle = o.type === 'water' ? '#1d3a4a' : '#4a4f56';
+    mmCtx.fillStyle = o.type === 'water' ? '#1d3a4a' : o.type === 'forest' ? '#243d1c' : '#4a4f56';
     mmCtx.beginPath();
     mmCtx.arc(o.x * sx, o.y * sy, o.r * sx, 0, Math.PI * 2);
     mmCtx.fill();
@@ -1672,24 +2034,17 @@ function drawMinimap() {
     mmCtx.fillRect(b.x * sx - 3, b.y * sy - 3, 6, 6);
   }
   for (const u of state.units) {
-    if (u.hp <= 0 || !visibleToPlayer(u)) continue;
-    mmCtx.fillStyle = (u.disguised && u.owner === ENEMY) ? COLORS[PLAYER] : COLORS[u.owner];
+    if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
+    mmCtx.fillStyle = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
     mmCtx.fillRect(u.x * sx - 1, u.y * sy - 1, 2, 2);
   }
-  const tw = mmCanvas.width / FW, th = mmCanvas.height / FH;
-  for (let ty = 0; ty < FH; ty++) {
-    for (let tx = 0; tx < FW; tx++) {
-      const v = vis[ty * FW + tx];
-      if (v === 2) continue;
-      mmCtx.fillStyle = v === 0 ? 'rgba(0,0,0,0.9)' : 'rgba(0,0,0,0.4)';
-      mmCtx.fillRect(tx * tw, ty * th, tw + 0.5, th + 0.5);
-    }
-  }
+  // fog overlay: reuse the main fog canvas, stretched onto the minimap
+  mmCtx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, mmCanvas.width, mmCanvas.height);
   // radar intel passives pierce the fog: flat sees enemy air, hollow sees enemy ground
   const pf = state.factions[PLAYER];
   if (pf === 'flat' || pf === 'hollow') {
     for (const u of state.units) {
-      if (u.owner !== ENEMY || u.hp <= 0 || u.disguised) continue;
+      if (u.owner === PLAYER || u.hp <= 0 || u.disguised) continue;
       const fly = !!UNIT_TYPES[u.type].flying;
       if ((pf === 'flat' && fly) || (pf === 'hollow' && !fly)) {
         mmCtx.fillStyle = '#ffb45f';
@@ -1704,7 +2059,7 @@ function drawMinimap() {
 
 function checkGameOver() {
   const playerHq = state.buildings.some(b => b.owner === PLAYER && b.type === 'hq' && b.hp > 0);
-  const enemyHq = state.buildings.some(b => b.owner === ENEMY && b.type === 'hq' && b.hp > 0);
+  const enemyHq = state.buildings.some(b => b.owner !== PLAYER && b.type === 'hq' && b.hp > 0);
   if (playerHq && enemyHq) return;
   state.over = true;
   const el = document.getElementById('overlay-text');
@@ -1730,7 +2085,7 @@ function frame(now) {
     for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
     for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
     tickConstruction(PLAYER, dt);
-    updateAI(dt);
+    for (const o of OWNERS) if (o !== PLAYER) updateAI(o, dt);
     updateAbilities(dt);
     updateProjectiles(dt);
     updateZones(dt);
@@ -1745,6 +2100,13 @@ function frame(now) {
         Particles.boom(b.x, b.y, 1.7);
         if (tileState(b.x, b.y) === 2) sfx('boom');
         if (b.owner === PLAYER) eva('Structure lost');
+        // a collapsing structure buries its garrison
+        if (b.garrison) {
+          for (const id of b.garrison) {
+            const u = state.units.find(x => x.id === id);
+            if (u) u.hp = 0;
+          }
+        }
       }
     }
     for (const u of state.units) {
@@ -1784,13 +2146,46 @@ window.addEventListener('resize', resizeCanvas);
 resizeCanvas();
 
 const groundCanvas = document.createElement('canvas');
-groundCanvas.width = WORLD_W;
-groundCanvas.height = WORLD_H;
-(function renderGround() {
+let mapDecor = []; // ground decals from mapgen (plazas, crop fields)
+
+// rounded-rect path helper for ground decals
+function rr2(g, x, y, w, h, r) {
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+
+// irregular blob outline for a terrain obstacle, jittered by its seed
+// (collision stays the plain circle — the blob only overshoots by ~15%)
+function blobPath(g, o, scale = 1) {
+  const pts = 12;
+  g.beginPath();
+  for (let i = 0; i < pts; i++) {
+    const a = (i / pts) * Math.PI * 2;
+    const rr = o.r * scale * (0.84 + 0.3 * prand(o.seed * 13 + i));
+    const x = o.x + Math.cos(a) * rr, y = o.y + Math.sin(a) * rr;
+    i ? g.lineTo(x, y) : g.moveTo(x, y);
+  }
+  g.closePath();
+}
+
+function renderGround() {
+  // huge worlds render the ground at reduced resolution to cap memory;
+  // draw() stretches it back to world size
+  const gs = Math.min(1, 3600 / WORLD_W);
+  groundCanvas.width = Math.round(WORLD_W * gs);
+  groundCanvas.height = Math.round(WORLD_H * gs);
   const g = groundCanvas.getContext('2d');
+  g.save();
+  g.scale(gs, gs);
   g.fillStyle = '#31402c';
   g.fillRect(0, 0, WORLD_W, WORLD_H);
-  for (let i = 0; i < 900; i++) {
+  const nDetail = Math.round(WORLD_W * WORLD_H / 3100);
+  for (let i = 0; i < nDetail; i++) {
     const gx = (i * 7919) % WORLD_W;
     const gy = (i * 104729) % WORLD_H;
     const s = 14 + (i * 31) % 40;
@@ -1803,28 +2198,115 @@ groundCanvas.height = WORLD_H;
   g.lineWidth = 1;
   for (let x = 0; x <= WORLD_W; x += 100) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, WORLD_H); g.stroke(); }
   for (let y = 0; y <= WORLD_H; y += 100) { g.beginPath(); g.moveTo(0, y); g.lineTo(WORLD_W, y); g.stroke(); }
-  for (const o of TERRAIN) {
-    if (o.type === 'water') {
-      g.fillStyle = '#16303c';
-      g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#234a5c'; g.lineWidth = 2; g.stroke();
-      g.strokeStyle = 'rgba(110,165,195,0.3)';
+
+  // ground decals under settlements: paved plazas and crop fields
+  for (const d of mapDecor) {
+    if (d.kind === 'plaza') {
+      g.fillStyle = '#3a3d42';
+      rr2(g, d.x - d.w / 2, d.y - d.h / 2, d.w, d.h, 10);
+      g.fill();
+      g.strokeStyle = '#2b2d31';
+      g.lineWidth = 2;
+      g.stroke();
+      // pavement cracks + faded lane paint
+      g.strokeStyle = 'rgba(255,255,255,0.07)';
       g.lineWidth = 1.5;
-      for (let i = 0; i < 3; i++) {
+      for (let i = 1; i < Math.floor(d.w / 118); i++) {
+        const lx = d.x - d.w / 2 + i * 118;
+        g.beginPath(); g.moveTo(lx, d.y - d.h / 2 + 8); g.lineTo(lx, d.y + d.h / 2 - 8); g.stroke();
+      }
+      g.strokeStyle = 'rgba(0,0,0,0.25)';
+      g.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const cxr = d.x + (prand(d.seed + i) - 0.5) * d.w * 0.8;
+        const cyr = d.y + (prand(d.seed + i + 9) - 0.5) * d.h * 0.8;
         g.beginPath();
-        g.arc(o.x - 18 + i * 18, o.y - 12 + i * 14, o.r * 0.25, 0.3, 2.6);
+        g.moveTo(cxr, cyr);
+        g.lineTo(cxr + (prand(d.seed + i + 3) - 0.5) * 26, cyr + (prand(d.seed + i + 6) - 0.5) * 26);
         g.stroke();
       }
-    } else {
-      g.fillStyle = '#454b53';
-      g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
-      g.fillStyle = '#565d67';
-      g.beginPath(); g.arc(o.x - o.r * 0.3, o.y - o.r * 0.25, o.r * 0.5, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = '#2c3036'; g.lineWidth = 2;
-      g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.stroke();
+    } else if (d.kind === 'field') {
+      g.save();
+      g.translate(d.x, d.y);
+      g.rotate((prand(d.seed) - 0.5) * 0.5);
+      g.fillStyle = '#665f36';
+      g.fillRect(-d.w / 2, -d.h / 2, d.w, d.h);
+      g.strokeStyle = '#4c4728';
+      g.lineWidth = 2;
+      g.strokeRect(-d.w / 2, -d.h / 2, d.w, d.h);
+      // crop rows
+      for (let ry = -d.h / 2 + 5; ry < d.h / 2 - 3; ry += 9) {
+        g.strokeStyle = (Math.round(ry / 9) % 2) ? 'rgba(140,150,70,0.55)' : 'rgba(70,66,38,0.55)';
+        g.lineWidth = 3.5;
+        g.beginPath(); g.moveTo(-d.w / 2 + 5, ry); g.lineTo(d.w / 2 - 5, ry); g.stroke();
+      }
+      g.restore();
     }
   }
-})();
+
+  for (const o of TERRAIN) {
+    if (o.type === 'water') {
+      // sandy shore, deep body, wave arcs
+      g.fillStyle = '#3d4a35';
+      blobPath(g, o, 1.14); g.fill();
+      g.fillStyle = '#16303c';
+      blobPath(g, o); g.fill();
+      g.strokeStyle = '#234a5c'; g.lineWidth = 2; g.stroke();
+      g.fillStyle = '#1d3d4c';
+      blobPath(g, o, 0.6); g.fill();
+      g.strokeStyle = 'rgba(110,165,195,0.3)';
+      g.lineWidth = 1.5;
+      const nWaves = Math.max(2, Math.round(o.r / 30));
+      for (let i = 0; i < nWaves; i++) {
+        const wx = o.x + (prand(o.seed + i * 7) - 0.5) * o.r * 1.1;
+        const wy = o.y + (prand(o.seed + i * 7 + 3) - 0.5) * o.r * 0.9;
+        g.beginPath();
+        g.arc(wx, wy, 6 + prand(o.seed + i) * 8, 0.3, 2.6);
+        g.stroke();
+      }
+    } else if (o.type === 'rock') {
+      // shaded mesa with a few boulders on top
+      g.fillStyle = 'rgba(0,0,0,0.25)';
+      blobPath(g, { ...o, x: o.x + 4, y: o.y + 5 }); g.fill();
+      g.fillStyle = '#454b53';
+      blobPath(g, o); g.fill();
+      g.strokeStyle = '#2c3036'; g.lineWidth = 2; g.stroke();
+      g.fillStyle = '#565d67';
+      blobPath(g, { ...o, x: o.x - o.r * 0.18, y: o.y - o.r * 0.18, seed: o.seed + 5 }, 0.62); g.fill();
+      const nRocks = Math.max(2, Math.round(o.r / 22));
+      for (let i = 0; i < nRocks; i++) {
+        const a = prand(o.seed + i * 11) * Math.PI * 2;
+        const rd = prand(o.seed + i * 11 + 1) * o.r * 0.6;
+        const br = 4 + prand(o.seed + i * 11 + 2) * 7;
+        const bx = o.x + Math.cos(a) * rd, by = o.y + Math.sin(a) * rd;
+        g.fillStyle = i % 2 ? '#5f6771' : '#3a3f46';
+        g.beginPath(); g.arc(bx, by, br, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.beginPath(); g.arc(bx - br * 0.3, by - br * 0.3, br * 0.45, 0, Math.PI * 2); g.fill();
+      }
+    } else if (o.type === 'forest') {
+      // undergrowth blob covered in tree canopies
+      g.fillStyle = '#26361f';
+      blobPath(g, o, 1.08); g.fill();
+      g.fillStyle = '#1e2c19';
+      blobPath(g, o, 0.85); g.fill();
+      const nTrees = Math.max(6, Math.round(o.r * o.r / 220));
+      for (let i = 0; i < nTrees; i++) {
+        const a = prand(o.seed + i * 17) * Math.PI * 2;
+        const rd = Math.sqrt(prand(o.seed + i * 17 + 1)) * o.r * 0.88;
+        const tr = 5 + prand(o.seed + i * 17 + 2) * 6;
+        const tx = o.x + Math.cos(a) * rd, ty = o.y + Math.sin(a) * rd;
+        g.fillStyle = 'rgba(0,0,0,0.3)';
+        g.beginPath(); g.arc(tx + 2, ty + 2.5, tr, 0, Math.PI * 2); g.fill();
+        g.fillStyle = i % 3 === 0 ? '#3c5c2e' : i % 3 === 1 ? '#2f4d26' : '#46683a';
+        g.beginPath(); g.arc(tx, ty, tr, 0, Math.PI * 2); g.fill();
+        g.fillStyle = 'rgba(190,230,150,0.25)';
+        g.beginPath(); g.arc(tx - tr * 0.3, ty - tr * 0.35, tr * 0.45, 0, Math.PI * 2); g.fill();
+      }
+    }
+  }
+  g.restore();
+}
 
 // ---------- input wiring ----------
 
@@ -1858,7 +2340,7 @@ canvas.addEventListener('mousedown', e => {
       abilityTargeting = null;
       if (mode === 'zone') castWeather(PLAYER, p.x, p.y);
       if (mode === 'unit') {
-        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && dist(u, p) <= UNIT_TYPES[u.type].r + 8);
+        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && dist(u, p) <= UNIT_TYPES[u.type].r + 8);
         if (target) castClone(PLAYER, target);
       }
       refreshPanel();
@@ -1933,7 +2415,7 @@ window.addEventListener('mouseup', e => {
     selectAt(x1, y1);
   } else {
     selection = state.units.filter(u =>
-      u.owner === PLAYER && u.hp > 0 && u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2);
+      u.owner === PLAYER && u.hp > 0 && !u.garrisoned && u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2);
   }
   refreshPanel();
 });
@@ -1965,7 +2447,7 @@ window.addEventListener('keydown', e => {
       groups[e.key] = selection.slice();
       e.preventDefault();
     } else if (groups[e.key]) {
-      selection = groups[e.key].filter(en => en.hp > 0);
+      selection = groups[e.key].filter(en => en.hp > 0 && !en.garrisoned);
       refreshPanel();
     }
   }
@@ -1987,6 +2469,56 @@ const elActions = document.getElementById('actions');
 const elSupply = document.getElementById('supply');
 
 // ---------- faction select + main loop ----------
+
+let selectedSize = 'medium';
+let selectedOpponents = 1;
+let selectedSetting = 'random';
+
+(function buildSetupControls() {
+  const sizeWrap = document.getElementById('size-buttons');
+  const oppWrap = document.getElementById('opp-buttons');
+  const settingWrap = document.getElementById('setting-buttons');
+  const sizeBtns = {};
+  const settingBtns = {};
+
+  for (const [key, label] of [['random', 'Random'], ...Object.entries(MAP_SETTINGS).map(([k, s]) => [k, s.name])]) {
+    const b = document.createElement('button');
+    b.className = 'opt-btn' + (key === selectedSetting ? ' sel' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      selectedSetting = key;
+      for (const [k2, b2] of Object.entries(settingBtns)) b2.classList.toggle('sel', k2 === key);
+    });
+    settingBtns[key] = b;
+    settingWrap.appendChild(b);
+  }
+
+  function refresh() {
+    const max = MAP_SIZES[selectedSize].maxPlayers - 1;
+    selectedOpponents = Math.min(selectedOpponents, max);
+    for (const [key, btn] of Object.entries(sizeBtns)) {
+      btn.classList.toggle('sel', key === selectedSize);
+    }
+    oppWrap.innerHTML = '';
+    for (let n = 1; n <= max; n++) {
+      const b = document.createElement('button');
+      b.className = 'opt-btn' + (n === selectedOpponents ? ' sel' : '');
+      b.textContent = n;
+      b.addEventListener('click', () => { selectedOpponents = n; refresh(); });
+      oppWrap.appendChild(b);
+    }
+  }
+
+  for (const [key, s] of Object.entries(MAP_SIZES)) {
+    const b = document.createElement('button');
+    b.className = 'opt-btn';
+    b.textContent = s.name;
+    b.addEventListener('click', () => { selectedSize = key; refresh(); });
+    sizeBtns[key] = b;
+    sizeWrap.appendChild(b);
+  }
+  refresh();
+})();
 
 (function buildFactionSelect() {
   const wrap = document.getElementById('family-groups');
