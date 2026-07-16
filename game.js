@@ -1,235 +1,13 @@
 // ============================================================
-// Flat Earth vs Globalists — a Red Alert-flavored mini RTS
-// Sidebar construction, power grid, fog of war, air units,
-// EVA announcer, synthesized sound effects.
+// game.js — engine: state, orders, combat, AI, input, UI, render.
+// Game data (factions/units/buildings) lives in data.js;
+// unit/building art and particle effects live in art.js.
 // ============================================================
-
-const WORLD_W = 2000;
-const WORLD_H = 1400;
-const BUILD_RADIUS = 280;   // structures must be placed near an existing one
-const AI_GRACE_PERIOD = 150;
-const HARVEST_AMOUNT = 6;
-const HARVEST_TIME = 3.5;
-
-// impassable terrain: ground units steer around it, air flies over,
-// nothing can be built on it
-const TERRAIN = [
-  { x: 1000, y: 560,  r: 110, type: 'water' }, // central lake — forces flanks
-  { x: 640,  y: 420,  r: 80,  type: 'rock' },
-  { x: 1360, y: 980,  r: 80,  type: 'rock' },
-  { x: 500,  y: 1000, r: 70,  type: 'water' },
-  { x: 1500, y: 400,  r: 70,  type: 'water' },
-  { x: 1000, y: 950,  r: 60,  type: 'rock' },
-  { x: 780,  y: 1250, r: 55,  type: 'rock' },
-  { x: 1220, y: 150,  r: 55,  type: 'rock' },
-];
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 const mmCanvas = document.getElementById('minimap');
 const mmCtx = mmCanvas.getContext('2d');
-
-const PLAYER = 0;
-const ENEMY = 1;
-const COLORS = { [PLAYER]: '#4da3ff', [ENEMY]: '#ff5f5f' };
-const COLORS_DARK = { [PLAYER]: '#2b6cb0', [ENEMY]: '#b03434' };
-
-// ---------- factions & rosters ----------
-
-const FACTIONS = {
-  flat: {
-    name: 'Flat Earthers', family: 'FLAT EARTH', emoji: '🥞',
-    desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth.',
-    worker: 'believer', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
-    air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
-    extras: ['preacher', 'catapult', 'cropduster'],
-    powers: {
-      passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
-      sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
-    },
-    buildingNames: {
-      hq: 'Bunker of Truth', powerplant: 'Diesel Shack', barracks: 'Recruitment Tent',
-      factory: 'Truck Garage', airpad: 'Balloon Dock',
-      watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
-    },
-  },
-  resistance: {
-    name: 'The Resistance', family: 'FLAT EARTH', emoji: '📡',
-    desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts.',
-    worker: 'believer', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
-    air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
-    extras: ['preacher', 'catapult', 'cropduster'],
-    powers: {
-      passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
-      sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
-    },
-    buildingNames: {
-      hq: 'Pirate Radio Bunker', powerplant: 'Diesel Shack', barracks: 'Safehouse',
-      factory: 'Chop Shop', airpad: 'Balloon Dock',
-      watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
-      sleepercell: 'Sleeper Cell',
-    },
-  },
-  glob: {
-    name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit. Elite Agents, Black SUVs, Black Drones, and the Black Helicopter that rules ground and sky.',
-    worker: 'operative', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
-    air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'gunship'],
-    powers: {
-      passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
-      sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
-    },
-    buildingNames: {
-      hq: 'World HQ', powerplant: 'Fusion Plant', barracks: 'Command Center',
-      factory: 'Motor Pool', airpad: 'Drone Bay',
-      tower5g: '5G Tower', samsite: 'Interceptor Battery',
-    },
-  },
-  deep: {
-    name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Men in Black hit hard; Surveillance Vans see everything, from very far away.',
-    worker: 'operative', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
-    air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'gunship'],
-    powers: {
-      passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
-      sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
-    },
-    buildingNames: {
-      hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
-      factory: 'Motor Pool', airpad: 'Drone Bay',
-      tower5g: '5G Tower', samsite: 'Interceptor Battery',
-    },
-  },
-  hollow: {
-    name: 'Hollow Earthers', family: 'HOLLOW EARTH', emoji: '🕳️',
-    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, Cave Bat swarms, and free-flowing geothermal power.',
-    worker: 'digger', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
-    air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
-    extras: ['sapper', 'magma', 'ptero'],
-    powers: {
-      passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
-      sig: { name: 'Tunnel Network', desc: 'Right-click your HQ or a power plant: selected ground units travel there underground.', kind: 'info' },
-    },
-    buildingNames: {
-      hq: 'Inner Sanctum', powerplant: 'Geothermal Vent', barracks: 'Burrow',
-      factory: 'Drill Works', airpad: 'Cavern Roost',
-      stalagmite: 'Stalagmite Spitter', geyser: 'Geyser Cannon',
-    },
-  },
-  grey: {
-    name: 'The Greys', family: 'ALIENS', emoji: '👽',
-    desc: 'You will be probed. Abductors, towering Tripod Striders, and the Flying Saucer — supreme in the air and cruel to the ground.',
-    worker: 'probe', infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
-    air: ['orb', 'saucer'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber'],
-    powers: {
-      passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
-      sig: { name: 'Cloning Vats', desc: 'Target one of your units: an exact copy emerges from your barracks.', kind: 'unit', cd: 90 },
-    },
-    buildingNames: {
-      hq: 'Mothership Anchor', powerplant: 'Zero-Point Core', barracks: 'Cloning Pod',
-      factory: 'Assembler', airpad: 'Saucer Pad',
-      pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
-    },
-  },
-  reptilian: {
-    name: 'The Reptilians', family: 'ALIENS', emoji: '🦎',
-    desc: 'They walk among us — and bite. Melee Reptoid Warriors, the armored Basilisk Crawler, and fire-breathing Sky Drakes.',
-    worker: 'probe', infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
-    air: ['orb', 'drake'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber'],
-    powers: {
-      passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
-      sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
-    },
-    buildingNames: {
-      hq: 'Nest Citadel', powerplant: 'Zero-Point Core', barracks: 'Hatchery',
-      factory: 'Assembler', airpad: 'Roost Spire',
-      pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
-    },
-  },
-};
-
-// targets: 'ground' | 'air' | 'both' (default 'ground' for anything armed)
-const UNIT_TYPES = {
-  // workers
-  believer:  { name: 'Believer',        role: 'worker', builtAt: 'hq', hp: 40, speed: 85, dmg: 3, atkRange: 22, cooldown: 1.0, sight: 170, cost: 50, r: 8, buildTime: 4 },
-  operative: { name: 'Field Operative', role: 'worker', builtAt: 'hq', hp: 40, speed: 85, dmg: 3, atkRange: 22, cooldown: 1.0, sight: 170, cost: 50, r: 8, buildTime: 4 },
-  digger:    { name: 'Mole Digger',     role: 'worker', builtAt: 'hq', hp: 50, speed: 80, dmg: 4, atkRange: 22, cooldown: 1.0, sight: 160, cost: 50, r: 8, buildTime: 4 },
-  probe:     { name: 'Harvest Probe',   role: 'worker', builtAt: 'hq', hp: 35, speed: 95, dmg: 2, atkRange: 22, cooldown: 1.0, sight: 190, cost: 50, r: 8, buildTime: 4 },
-  // basic infantry (balance pass: damage cut ~25-30% so massed infantry
-  // doesn't out-value vehicles and towers)
-  militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5 },
-  partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4 },
-  agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6 },
-  mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7 },
-  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5 },
-  greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
-  raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
-  // anti-air infantry: full damage vs air, dmgVsGround when shooting ground
-  laserguy: { name: 'Laser Pointer Guy', role: 'combat', builtAt: 'barracks', hp: 65, speed: 75, dmg: 9,  dmgVsGround: 4, atkRange: 175, cooldown: 0.6,  sight: 250, cost: 60, r: 9, buildTime: 6, targets: 'both' },
-  jammer:   { name: 'Signal Jammer',     role: 'combat', builtAt: 'barracks', hp: 80, speed: 70, dmg: 11, dmgVsGround: 5, atkRange: 185, cooldown: 0.7,  sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
-  slinger:  { name: 'Crystal Slinger',   role: 'combat', builtAt: 'barracks', hp: 70, speed: 72, dmg: 10, dmgVsGround: 4, atkRange: 180, cooldown: 0.65, sight: 250, cost: 65, r: 9, buildTime: 6, targets: 'both' },
-  beamer:   { name: 'Beam Walker',       role: 'combat', builtAt: 'barracks', hp: 75, speed: 74, dmg: 10, dmgVsGround: 5, atkRange: 180, cooldown: 0.65, sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
-  // specialist infantry
-  preacher: { name: 'Street Preacher',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 70, dmg: 6,  atkRange: 90,  cooldown: 1.0, sight: 200, cost: 55, r: 9,  buildTime: 6, bldgBonus: 3 },
-  riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 6,  atkRange: 60,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7 },
-  sapper:   { name: 'Tunnel Sapper',      role: 'combat', builtAt: 'barracks', hp: 90,  speed: 80, dmg: 8,  atkRange: 25,  cooldown: 1.0, sight: 190, cost: 65, r: 9,  buildTime: 6, bldgBonus: 4 },
-  hybrid:   { name: 'Hybrid Infiltrator', role: 'combat', builtAt: 'barracks', hp: 55,  speed: 95, dmg: 14, atkRange: 110, cooldown: 0.7, sight: 240, cost: 70, r: 9,  buildTime: 6 },
-  // artillery (minRange: can't fire when rushed)
-  catapult:      { name: 'Flatbed Catapult', role: 'combat', builtAt: 'factory', hp: 140, speed: 45, dmg: 40, atkRange: 280, minRange: 100, cooldown: 3.2, sight: 300, cost: 160, r: 13, buildTime: 11, bldgBonus: 1.5, shape: 'square' },
-  haarp:         { name: 'HAARP Truck',      role: 'combat', builtAt: 'factory', hp: 150, speed: 50, dmg: 45, atkRange: 300, minRange: 120, cooldown: 3.5, sight: 320, cost: 180, r: 13, buildTime: 12, shape: 'square' },
-  magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 38, atkRange: 270, minRange: 100, cooldown: 3.0, sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square' },
-  mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 42, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square' },
-  // attack aircraft
-  cropduster: { name: 'Crop Duster',    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 18, atkRange: 70,  cooldown: 1.0, sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri' },
-  gunship:    { name: 'Night Gunship',  role: 'combat', builtAt: 'airpad', hp: 220, speed: 85,  dmg: 20, atkRange: 150, cooldown: 1.2, sight: 280, cost: 210, r: 12, buildTime: 13, flying: true, shape: 'tri' },
-  ptero:      { name: 'Pterodactyl',    role: 'combat', builtAt: 'airpad', hp: 170, speed: 120, dmg: 17, atkRange: 60,  cooldown: 0.9, sight: 270, cost: 160, r: 11, buildTime: 11, flying: true, shape: 'tri' },
-  biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 30, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp' },
-  // vehicles
-  truck:     { name: 'Truck of Truth',   role: 'combat', builtAt: 'factory', hp: 280, speed: 58,  dmg: 22, atkRange: 30,  cooldown: 1.1,  sight: 200, cost: 120, r: 13, buildTime: 9,  bldgBonus: 2,   shape: 'square' },
-  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 170, speed: 105, dmg: 12, atkRange: 105, cooldown: 0.55, sight: 220, cost: 90,  r: 12, buildTime: 7,  shape: 'square' },
-  suv:       { name: 'Black SUV',        role: 'combat', builtAt: 'factory', hp: 200, speed: 95,  dmg: 13, atkRange: 110, cooldown: 0.6,  sight: 220, cost: 110, r: 12, buildTime: 8,  shape: 'square' },
-  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square' },
-  drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square' },
-  tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1.0,  sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square' },
-  basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 22, atkRange: 34,  cooldown: 1.1,  sight: 200, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square' },
-  // air
-  wballoon: { name: 'Weather Balloon',  role: 'scout',  builtAt: 'airpad', hp: 60,  speed: 90,  dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 360, cost: 40,  r: 9,  buildTime: 6,  flying: true, shape: 'blimp' },
-  balloon:  { name: 'Balloon of Truth', role: 'combat', builtAt: 'airpad', hp: 420, speed: 40,  dmg: 45, atkRange: 36,  cooldown: 2.2,  sight: 240, cost: 200, r: 15, buildTime: 14, flying: true, bldgBonus: 1.5, shape: 'blimp' },
-  drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'airpad', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
-  heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'airpad', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
-  cavebat:  { name: 'Cave Bat Swarm',   role: 'combat', builtAt: 'airpad', hp: 45,  speed: 120, dmg: 4,  atkRange: 60,  cooldown: 0.5,  sight: 300, cost: 45,  r: 8,  buildTime: 5,  flying: true, shape: 'tri' },
-  gyro:     { name: 'Gyrocopter',       role: 'combat', builtAt: 'airpad', hp: 130, speed: 100, dmg: 11, atkRange: 125, cooldown: 0.7,  sight: 260, cost: 150, r: 10, buildTime: 10, flying: true, targets: 'both', shape: 'tri' },
-  orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp' },
-  saucer:   { name: 'Flying Saucer',    role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer' },
-  drake:    { name: 'Sky Drake',        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri' },
-  // faction-power units (never trainable)
-  smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
-  phantom:  { name: 'Unknown Contact', role: 'scout', hp: 20,  speed: 60, dmg: 0, atkRange: 0, cooldown: 1, sight: 40,  cost: 0, r: 9,  buildTime: 0 },
-};
-
-const BUILDING_TYPES = {
-  hq:         { hp: 800, w: 84, h: 84, cost: 0,   buildTime: 0,  sight: 280, power: +60 },
-  powerplant: { hp: 320, w: 56, h: 56, cost: 80,  buildTime: 10, sight: 160, power: +100, cap: 6 },
-  barracks:   { hp: 450, w: 64, h: 64, cost: 100, buildTime: 12, sight: 200, power: -30,  cap: 3 },
-  factory:    { hp: 500, w: 74, h: 62, cost: 150, buildTime: 16, sight: 200, power: -40,  cap: 2 },
-  airpad:     { hp: 420, w: 66, h: 66, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 2 },
-  // ground-defense towers
-  watchtower: { hp: 300, w: 40, h: 40, cost: 75,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 10, atkRange: 175, cooldown: 0.7,  targets: 'ground' },
-  tower5g:    { hp: 340, w: 40, h: 40, cost: 100, buildTime: 12, sight: 280, power: -30, cap: 5, dmg: 14, atkRange: 215, cooldown: 0.9,  targets: 'ground' },
-  stalagmite: { hp: 320, w: 40, h: 40, cost: 80,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 11, atkRange: 180, cooldown: 0.7,  targets: 'ground' },
-  pylon:      { hp: 340, w: 40, h: 40, cost: 105, buildTime: 12, sight: 260, power: -30, cap: 5, dmg: 15, atkRange: 200, cooldown: 0.85, targets: 'ground' },
-  // anti-air towers
-  laserpointer: { hp: 280, w: 38, h: 38, cost: 90,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 14, atkRange: 230, cooldown: 0.6,  targets: 'air' },
-  samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 18, atkRange: 260, cooldown: 0.8,  targets: 'air' },
-  geyser:       { hp: 300, w: 38, h: 38, cost: 95,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 16, atkRange: 240, cooldown: 0.75, targets: 'air' },
-  tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 17, atkRange: 250, cooldown: 0.8,  targets: 'air' },
-  // resistance passive: hidden observation posts (never buildable)
-  sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
-};
 
 // ---------- game state ----------
 
@@ -242,8 +20,8 @@ const state = {
   units: [],
   buildings: [],
   patches: [],
-  flashes: [],
-  zones: [],   // temporary area effects, e.g. weather modification
+  projectiles: [], // lobbed rocks, dropped bombs
+  zones: [],       // temporary area effects: rain, storm, fire, toxin
   sig: { [PLAYER]: { cd: 0, timer: 0, used: false }, [ENEMY]: { cd: 0, timer: 0, used: false } },
   infiltrator: { [PLAYER]: null, [ENEMY]: null }, // reptilian sleeper worker ids
   time: 0,
@@ -252,24 +30,43 @@ const state = {
 
 const cam = { x: 0, y: 0, zoom: 1 };
 const keys = {};
-const mouse = { x: 0, y: 0, sx: 0, sy: 0, inside: false, sel: null };
+const mouse = { x: 0, y: 0, sel: null };
 let selection = [];
-let placing = null;
-let attackMoveArmed = false;
+let placing = null;          // building type being placed
+let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
-let panDrag = null;
-let mmDown = false;
-const groups = {};
+let panDrag = null;          // middle- or right-mouse camera drag
+let mmDown = false;          // dragging on minimap
+const groups = {};           // control groups 1-5
+let lastUnderAttack = -1e9;
 
+const ai = { attackWaveSize: 5, thinkTimer: 0, time: 0 };
+const cameoButtons = {}; // sidebar buttons: key -> {btn, costEl, prog, badge, baseCost, baseLabel}
+
+// small shared helpers
 const facOf = owner => FACTIONS[state.factions[owner]];
 const buildingName = b => facOf(b.owner).buildingNames[b.type] || b.type;
+const oppOf = owner => owner === PLAYER ? ENEMY : PLAYER;
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const hitsAir = stats => stats.targets === 'air' || stats.targets === 'both';
 
-// ---------- audio: EVA announcer + synth sfx ----------
+// ---------- audio state (functions below) ----------
 
 let muted = false;
 let audioCtx = null;
 const evaLast = {};
 let sfxCount = 0, sfxWindow = 0;
+
+// ---------- fog of war state ----------
+
+const FW = WORLD_W / FOG_TILE, FH = WORLD_H / FOG_TILE;
+const vis = new Uint8Array(FW * FH); // 0 unexplored, 1 explored, 2 visible
+const fogCanvas = document.createElement('canvas');
+fogCanvas.width = FW;
+fogCanvas.height = FH;
+const fogCtx = fogCanvas.getContext('2d');
+
 
 function ensureAudio() {
   if (!audioCtx) {
@@ -277,7 +74,6 @@ function ensureAudio() {
   }
   if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
 }
-document.addEventListener('pointerdown', ensureAudio, { once: false });
 
 function eva(text) {
   if (muted || !window.speechSynthesis) return;
@@ -340,12 +136,6 @@ function setMuted(m) {
   document.getElementById('mute-btn').textContent = muted ? '🔇' : '🔊';
   if (muted && window.speechSynthesis) speechSynthesis.cancel();
 }
-document.getElementById('mute-btn').addEventListener('click', () => setMuted(!muted));
-
-// ---------- helpers ----------
-
-const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 function nearest(from, list, filter) {
   let best = null, bd = Infinity;
@@ -366,17 +156,12 @@ function entityRadius(e) {
   return e.w ? Math.max(e.w, e.h) / 2 : UNIT_TYPES[e.type].r;
 }
 
-// can something with these weapon stats hit this target?
 function canTarget(stats, target) {
   if (!stats.dmg) return false;
   const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
   const t = stats.targets || 'ground';
   return isAir ? (t === 'air' || t === 'both') : (t === 'ground' || t === 'both');
 }
-
-const hitsAir = stats => stats.targets === 'air' || stats.targets === 'both';
-
-// ---------- power ----------
 
 function powerOf(owner) {
   let cap = 0, used = 0;
@@ -387,15 +172,6 @@ function powerOf(owner) {
   }
   return { cap, used, low: used > cap };
 }
-
-// ---------- fog of war ----------
-
-const FOG_TILE = 50;
-const FW = WORLD_W / FOG_TILE, FH = WORLD_H / FOG_TILE;
-const vis = new Uint8Array(FW * FH);
-const fogCanvas = document.createElement('canvas');
-fogCanvas.width = FW; fogCanvas.height = FH;
-const fogCtx = fogCanvas.getContext('2d');
 
 function tileState(x, y) {
   const tx = clamp(Math.floor(x / FOG_TILE), 0, FW - 1);
@@ -432,8 +208,6 @@ function visibleToPlayer(e) {
   return e.kind === 'building' ? t >= 1 : t === 2;
 }
 
-// ---------- entity creation ----------
-
 function makeUnit(owner, type, x, y) {
   const t = UNIT_TYPES[type];
   const u = {
@@ -441,6 +215,8 @@ function makeUnit(owner, type, x, y) {
     x, y, hp: t.hp, maxHp: t.hp,
     order: { type: 'idle' },
     carrying: 0, mineTimer: 0, cooldown: 0,
+    facing: Math.atan2(WORLD_H / 2 - y, WORLD_W / 2 - x), travel: 0,
+    ammo: t.maxAmmo || 0,
   };
   // reptilian skin suit: barracks infantry pass as friendly until they attack
   if (state.factions[owner] === 'reptilian' && t.builtAt === 'barracks' && t.role === 'combat') {
@@ -465,8 +241,6 @@ function makeBuilding(owner, type, x, y) {
 function makePatch(x, y, amount = 900) {
   state.patches.push({ id: nextId++, kind: 'patch', x, y, amount });
 }
-
-// ---------- world setup ----------
 
 function setupWorld(playerFaction) {
   state.factions[PLAYER] = playerFaction; // enemy faction is set by startGame
@@ -516,8 +290,6 @@ function centerCameraOnHome() {
   clampCam();
 }
 
-// ---------- camera ----------
-
 function minZoom() {
   return Math.max(canvas.width / WORLD_W, canvas.height / WORLD_H, 0.5);
 }
@@ -537,10 +309,6 @@ function resizeCanvas() {
   document.getElementById('sidebar').style.height = canvas.height + 'px';
   clampCam();
 }
-window.addEventListener('resize', resizeCanvas);
-resizeCanvas();
-
-// ---------- construction (RA2 sidebar style) ----------
 
 function countStruct(owner, type) {
   return state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.type === type).length;
@@ -570,8 +338,6 @@ function placementBlocked(type, x, y) {
     || TERRAIN.some(o => dist(o, { x, y }) < o.r + Math.max(t.w, t.h) / 2 + 6);
 }
 
-// expansion is anchored to the power grid: structures must sit near the HQ or
-// a power plant, so extending the base means extending the grid
 function withinBuildRadius(owner, x, y) {
   return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done &&
     (b.type === 'hq' || b.type === 'powerplant') && dist(b, { x, y }) <= BUILD_RADIUS);
@@ -596,12 +362,8 @@ function tickConstruction(owner, dt) {
   }
 }
 
-// ---------- faction powers ----------
-
-const oppOf = owner => owner === PLAYER ? ENEMY : PLAYER;
-
 function castWeather(owner, x, y) {
-  state.zones.push({ x, y, r: 150, until: state.time + 15, caster: owner });
+  state.zones.push({ x, y, r: 150, until: state.time + 15, caster: owner, kind: 'rain' });
   state.sig[owner].cd = FACTIONS[state.factions[owner]].powers.sig.cd;
   if (owner === PLAYER) eva('Weather modification deployed');
 }
@@ -703,30 +465,30 @@ function updateAbilities(dt) {
   }
 }
 
-// ---------- orders ----------
-
 function orderMove(u, x, y) { u.order = { type: 'move', x, y }; }
+
 function orderAttack(u, target) { u.order = { type: 'attack', targetId: target.id }; }
+
 function orderAttackMove(u, x, y) { u.order = { type: 'attackmove', x, y }; }
+
 function orderHarvest(u, patch) { u.order = { type: 'harvest', patchId: patch.id }; u.mineTimer = 0; }
 
 function findEntity(id) {
   return state.units.find(u => u.id === id) || state.buildings.find(b => b.id === id);
 }
 
-// ---------- unit update ----------
-
 function moveToward(u, tx, ty, dt, stopDist = 2) {
   const d = Math.hypot(tx - u.x, ty - u.y);
   if (d <= stopDist) return true;
   const t = UNIT_TYPES[u.type];
   let speed = t.speed;
-  // weather modification: enemy zones slow ground units
+  // rain/storm zones slow ground units; a tractor beam slows anything it holds
   if (!t.flying) {
     for (const z of state.zones) {
-      if (z.caster !== u.owner && dist(z, u) <= z.r) { speed *= 0.6; break; }
+      if ((z.kind === 'rain' || z.kind === 'storm') && z.caster !== u.owner && dist(z, u) <= z.r) { speed *= 0.6; break; }
     }
   }
+  if (u.slowUntil && u.slowUntil > state.time) speed *= 0.55;
   const step = Math.min(speed * dt, d);
   let nx = u.x + (tx - u.x) / d * step;
   let ny = u.y + (ty - u.y) / d * step;
@@ -747,17 +509,25 @@ function moveToward(u, tx, ty, dt, stopDist = 2) {
       }
     }
   }
+  const px = u.x, py = u.y;
   u.x = clamp(nx, 10, WORLD_W - 10);
   u.y = clamp(ny, 10, WORLD_H - 10);
+  const mdx = u.x - px, mdy = u.y - py;
+  if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
+    u.facing = Math.atan2(mdy, mdx);
+    u.travel += Math.hypot(mdx, mdy);
+  }
   return false;
 }
-
-let lastUnderAttack = -1e9;
 
 function dealDamage(attacker, target, dmg, stats) {
   // grey superior metallurgy: buildings ignore anti-building bonuses
   if (target.kind === 'building' && stats.bldgBonus && state.factions[target.owner] !== 'grey') {
     dmg *= stats.bldgBonus;
+  }
+  // armored units (riot shields, tripod plating) shrug off part of everything
+  if (target.kind === 'unit' && UNIT_TYPES[target.type].armor) {
+    dmg *= 1 - UNIT_TYPES[target.type].armor;
   }
   target.hp -= dmg;
   if (target.owner === PLAYER) {
@@ -765,6 +535,83 @@ function dealDamage(attacker, target, dmg, stats) {
     if (now - lastUnderAttack > 20000) {
       lastUnderAttack = now;
       eva('Our base is under attack');
+    }
+  }
+}
+
+function splashDamage(cx, cy, radius, dmg, owner, stats, hitAir = false) {
+  const pt = { x: cx, y: cy };
+  for (const u of state.units) {
+    if (u.owner === owner || u.hp <= 0) continue;
+    if (!hitAir && UNIT_TYPES[u.type].flying) continue;
+    const d = dist(u, pt);
+    if (d <= radius + UNIT_TYPES[u.type].r) {
+      dealDamage(null, u, dmg * (1 - 0.5 * Math.min(1, d / radius)), stats);
+    }
+  }
+  for (const b of state.buildings) {
+    if (b.owner === owner || b.hp <= 0) continue;
+    const d = dist(b, pt);
+    if (d <= radius + entityRadius(b)) {
+      dealDamage(null, b, dmg * (1 - 0.5 * Math.min(1, d / radius)), stats);
+    }
+  }
+}
+
+function spawnProjectile(kind, x, y, tx, ty, owner, stats) {
+  const d = Math.hypot(tx - x, ty - y);
+  state.projectiles.push({
+    kind, sx: x, sy: y, x, y, tx, ty, owner, stats,
+    t: 0, dur: kind === 'bomb' ? 0.55 : Math.max(0.35, d / 260),
+    arc: kind === 'bomb' ? 26 : clamp(d * 0.18, 18, 55),
+  });
+}
+
+function updateProjectiles(dt) {
+  for (const p of state.projectiles) {
+    p.t += dt;
+    if (p.t >= p.dur) {
+      p.done = true;
+      const s = p.stats;
+      splashDamage(p.tx, p.ty, s.splash || 36, s.dmg, p.owner, s);
+      Particles.boom(p.tx, p.ty, p.kind === 'bomb' ? 1.1 : 0.85);
+      if (tileState(p.tx, p.ty) === 2) sfx('boom');
+      if (s.groundEffect) {
+        state.zones.push({
+          x: p.tx, y: p.ty, r: s.groundEffect.r, until: state.time + s.groundEffect.dur,
+          caster: p.owner, kind: s.groundEffect.kind, dps: s.groundEffect.dps,
+        });
+      }
+    } else {
+      const f = p.t / p.dur;
+      p.x = p.sx + (p.tx - p.sx) * f;
+      p.y = p.sy + (p.ty - p.sy) * f - Math.sin(Math.PI * f) * p.arc;
+    }
+  }
+  state.projectiles = state.projectiles.filter(p => !p.done);
+}
+
+function updateZones(dt) {
+  for (const z of state.zones) {
+    if (z.kind === 'storm') {
+      z.tick = (z.tick || 0.1) - dt;
+      if (z.tick <= 0) {
+        z.tick = 0.55;
+        const a = Math.random() * Math.PI * 2, rad = Math.random() * z.r;
+        const bx = z.x + Math.cos(a) * rad, by = z.y + Math.sin(a) * rad;
+        Particles.bolt(bx + 12, by - 46, bx, by);
+        splashDamage(bx, by, 24, z.dmg || 15, z.caster, {}, true); // the storm doesn't care what flies
+        if (tileState(bx, by) === 2) sfx('boom');
+      }
+    } else if (z.kind === 'fire' || z.kind === 'toxin') {
+      z.tick = (z.tick || 0) - dt;
+      if (z.tick <= 0) {
+        z.tick = 0.4;
+        for (const u of state.units) {
+          if (u.owner === z.caster || u.hp <= 0 || UNIT_TYPES[u.type].flying) continue;
+          if (dist(u, z) <= z.r + UNIT_TYPES[u.type].r) u.hp -= (z.dps || 5) * 0.4;
+        }
+      }
     }
   }
 }
@@ -777,23 +624,47 @@ function tryAttack(u, target, dt) {
     moveToward(u, target.x, target.y, dt, range - 4);
     return;
   }
+  u.facing = Math.atan2(target.y - u.y, target.x - u.x);
   if (t.minRange && d < t.minRange) return; // artillery: too close to fire
+  if (t.maxAmmo && u.ammo <= 0) { u.order = { type: 'rearm' }; return; } // winchester — RTB
   if (u.cooldown <= 0) {
     const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
     const dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
     u.disguised = false; // skin suit drops the moment they open fire
-    dealDamage(u, target, dmg, t);
     u.cooldown = t.cooldown;
-    state.flashes.push({ x1: u.x, y1: u.y, x2: target.x, y2: target.y, t: 0.09, owner: u.owner });
-    if (tileState(u.x, u.y) === 2 || tileState(target.x, target.y) === 2) {
-      sfx(state.factions[u.owner] === 'glob' ? 'laser' : 'shot');
+    if (t.maxAmmo) u.ammo--;
+    const a = u.facing;
+    const visible = tileState(u.x, u.y) === 2 || tileState(target.x, target.y) === 2;
+    const wkind = t.weapon || 'gun';
+
+    if (wkind === 'bomb' || wkind === 'lob') {
+      // physical projectile: aimed at where the target IS — it can be dodged
+      spawnProjectile(wkind === 'bomb' ? 'bomb' : (t.projectile || 'rock'),
+        u.x, u.y, target.x, target.y, u.owner, t);
+      if (visible) sfx('shot');
+    } else if (wkind === 'storm') {
+      state.zones.push({ x: target.x, y: target.y, r: 60, until: state.time + 3, caster: u.owner, kind: 'storm', dmg: t.dmg });
+      if (visible) sfx('laser');
+    } else {
+      dealDamage(u, target, dmg, t);
+      if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
+      Particles.shot(u.x + Math.cos(a) * (t.r + 2), u.y + Math.sin(a) * (t.r + 2),
+        target.x, target.y, WEAPON_STYLE[state.factions[u.owner]]);
+      if (wkind === 'spray' && t.groundEffect && !isAir) {
+        state.zones.push({
+          x: target.x, y: target.y, r: t.groundEffect.r, until: state.time + t.groundEffect.dur,
+          caster: u.owner, kind: t.groundEffect.kind, dps: t.groundEffect.dps,
+        });
+      }
+      if (visible) sfx(state.factions[u.owner] === 'glob' ? 'laser' : 'shot');
+      if (target.hp <= 0 && u.order.type === 'attack') u.order = { type: 'idle' };
     }
-    if (target.hp <= 0 && u.order.type === 'attack') u.order = { type: 'idle' };
   }
 }
 
 function autoAcquire(u) {
   const t = UNIT_TYPES[u.type];
+  if (t.maxAmmo && u.ammo <= 0) return; // nothing left to shoot with
   const foe = nearest(u, enemiesOf(u.owner), e =>
     !e.disguised && canTarget(t, e) && dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
   if (foe) orderAttack(u, foe);
@@ -807,6 +678,12 @@ function updateUnit(u, dt) {
   u.cooldown = Math.max(0, u.cooldown - dt);
   const o = u.order;
   const stats = UNIT_TYPES[u.type];
+
+  // out of ammo: break off and return to the airfield
+  if (stats.maxAmmo && u.ammo <= 0 && o.type !== 'rearm') {
+    u.order = { type: 'rearm' };
+    return;
+  }
 
   switch (o.type) {
     case 'idle':
@@ -848,6 +725,29 @@ function updateUnit(u, dt) {
           patch.amount -= take;
           u.carrying = take;
           u.order = { type: 'return', patchId: patch.id };
+        }
+      }
+      break;
+    }
+
+    case 'rearm': {
+      // fly home, land on the pad, reload, lift off again
+      u.landed = false;
+      let home = state.buildings.find(b => b.id === u.homeId && b.hp > 0 && b.done && b.type === 'airpad');
+      if (!home) {
+        home = nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'airpad' && b.hp > 0 && b.done);
+        if (home) u.homeId = home.id;
+      }
+      if (!home) { u.order = { type: 'idle' }; break; } // no airfield left — stranded
+      const slotX = home.x + ((u.id % 3) - 1) * 24;
+      const slotY = home.y + ((u.id % 2) ? 13 : -9);
+      if (moveToward(u, slotX, slotY, dt, 5)) {
+        u.landed = true;
+        u.ammo = Math.min(stats.maxAmmo, u.ammo + stats.maxAmmo * dt / 4); // 4s full reload
+        if (u.ammo >= stats.maxAmmo - 0.01) {
+          u.ammo = stats.maxAmmo;
+          u.landed = false;
+          u.order = { type: 'idle' };
         }
       }
       break;
@@ -913,8 +813,6 @@ function updateUnit(u, dt) {
   }
 }
 
-// ---------- buildings: towers + production ----------
-
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
   const trainers = state.buildings.filter(b =>
@@ -931,15 +829,75 @@ function updateBuilding(b, dt) {
   const bt = BUILDING_TYPES[b.type];
   const power = powerOf(b.owner);
 
+  // damaged buildings smolder
+  if (b.hp < b.maxHp * 0.5 && Math.random() < 0.04) {
+    Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.7, b.y - b.h / 2, 3);
+  }
+
   // towers shoot (unless the grid is down)
   if (bt.dmg && !power.low) {
     b.cooldown = Math.max(0, b.cooldown - dt);
-    if (b.cooldown <= 0) {
+    const wkind = bt.weapon || 'gun';
+
+    if (wkind === 'pulse') {
+      // radiation field: hurts EVERY enemy ground unit in radius
+      if (b.cooldown <= 0) {
+        const victims = state.units.filter(u => u.owner !== b.owner && u.hp > 0 && !u.disguised &&
+          !UNIT_TYPES[u.type].flying && dist(b, u) <= bt.atkRange + UNIT_TYPES[u.type].r);
+        if (victims.length) {
+          b.cooldown = bt.cooldown;
+          for (const v of victims) dealDamage(b, v, bt.dmg, bt);
+          Particles.pulse(b.x, b.y, bt.atkRange, [140, 208, 255]);
+          if (tileState(b.x, b.y) === 2) sfx('laser');
+        }
+      }
+    } else if (wkind === 'chain') {
+      // arcs to up to 2 extra targets at 60% falloff per hop
+      if (b.cooldown <= 0) {
+        const foe = nearest(b, enemiesOf(b.owner), e => !e.disguised && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+        if (foe) {
+          b.cooldown = bt.cooldown;
+          b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+          const hit = new Set();
+          let prev = b, cur = foe, dmg = bt.dmg;
+          for (let hop = 0; hop < 3 && cur; hop++) {
+            Particles.bolt(prev.x, prev.y, cur.x, cur.y, [201, 167, 255]);
+            dealDamage(b, cur, dmg, bt);
+            hit.add(cur.id);
+            dmg *= 0.6;
+            prev = cur;
+            cur = nearest(prev, state.units, un => un.owner !== b.owner && un.hp > 0 && !un.disguised &&
+              !UNIT_TYPES[un.type].flying && !hit.has(un.id) && dist(prev, un) <= 85);
+          }
+          if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) sfx('laser');
+        }
+      }
+    } else if (wkind === 'beam') {
+      // continuous lock: drains and slows one aircraft
+      let tgt = b.beamId ? state.units.find(un => un.id === b.beamId && un.hp > 0) : null;
+      if (!tgt || tgt.disguised || !canTarget(bt, tgt) || dist(b, tgt) > bt.atkRange + entityRadius(tgt) + 12) {
+        tgt = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 && !un.disguised &&
+          canTarget(bt, un) && dist(b, un) <= bt.atkRange + entityRadius(un));
+      }
+      if (tgt) {
+        b.beamId = tgt.id;
+        b.turret = Math.atan2(tgt.y - b.y, tgt.x - b.x);
+        if (b.cooldown <= 0) {
+          b.cooldown = bt.cooldown;
+          dealDamage(b, tgt, bt.dmg, bt);
+          tgt.slowUntil = state.time + 0.25;
+        }
+      } else {
+        b.beamId = null;
+      }
+    } else if (b.cooldown <= 0) {
       const foe = nearest(b, enemiesOf(b.owner), e => !e.disguised && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
       if (foe) {
         dealDamage(b, foe, bt.dmg, bt);
         b.cooldown = bt.cooldown;
-        state.flashes.push({ x1: b.x, y1: b.y - b.h / 2, x2: foe.x, y2: foe.y, t: 0.09, owner: b.owner });
+        b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+        Particles.shot(b.x + Math.cos(b.turret) * 10, b.y + Math.sin(b.turret) * 10,
+          foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]]);
         if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) {
           sfx(state.factions[b.owner] === 'glob' ? 'laser' : 'shot');
         }
@@ -953,6 +911,7 @@ function updateBuilding(b, dt) {
   if (job.t >= job.duration) {
     b.queue.shift();
     const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 30, b.y + b.h / 2 + 22);
+    if (b.type === 'airpad') u.homeId = b.id; // aircraft remember their airfield
     if (b.owner === PLAYER) eva('Unit ready');
     const ut = UNIT_TYPES[job.type];
     if (b.rally) {
@@ -967,26 +926,25 @@ function updateBuilding(b, dt) {
   }
 }
 
-// ---------- enemy AI ----------
-
-const ai = { attackWaveSize: 5, thinkTimer: 0, time: 0, infantryCount: 0 };
-
 function aiPickSpot(type) {
-  const hq = state.buildings.find(b => b.owner === ENEMY && b.type === 'hq' && b.hp > 0);
-  if (!hq) return null;
-  const towardCenter = { x: WORLD_W / 2 - hq.x, y: WORLD_H / 2 - hq.y };
-  const len = Math.hypot(towardCenter.x, towardCenter.y);
-  const dir = { x: towardCenter.x / len, y: towardCenter.y / len };
-  let base;
+  // search rings around every grid anchor (HQ + power plants) until a spot fits
+  const anchors = state.buildings.filter(b => b.owner === ENEMY && b.hp > 0 && b.done &&
+    (b.type === 'hq' || b.type === 'powerplant'));
+  if (!anchors.length) return null;
+  const hq = anchors.find(b => b.type === 'hq') || anchors[0];
   const f = facOf(ENEMY);
-  if (type === 'powerplant') base = { x: hq.x - dir.x * 180, y: hq.y - dir.y * 180 };
-  else if (type === f.tower || type === f.aaTower) base = { x: hq.x + dir.x * 240, y: hq.y + dir.y * 240 };
-  else base = { x: hq.x - 160, y: hq.y + 140 };
-
-  for (let k = 0; k < 14; k++) {
-    const x = base.x + Math.cos(k * 2.4) * (k * 26);
-    const y = base.y + Math.sin(k * 2.4) * (k * 26);
-    if (!placementBlocked(type, x, y) && withinBuildRadius(ENEMY, x, y)) return { x, y };
+  // towers scan toward the map center first; support structures scan away from it
+  const centerAngle = Math.atan2(WORLD_H / 2 - hq.y, WORLD_W / 2 - hq.x);
+  const startAngle = (type === f.tower || type === f.aaTower) ? centerAngle : centerAngle + Math.PI;
+  for (const anchor of anchors) {
+    for (const rad of [110, 150, 190, 230, 270]) {
+      for (let i = 0; i < 12; i++) {
+        const a = startAngle + i * (Math.PI * 2 / 12);
+        const x = anchor.x + Math.cos(a) * rad;
+        const y = anchor.y + Math.sin(a) * rad;
+        if (!placementBlocked(type, x, y) && withinBuildRadius(ENEMY, x, y)) return { x, y };
+      }
+    }
   }
   return null;
 }
@@ -1096,10 +1054,6 @@ function updateAI(dt) {
   }
 }
 
-// ---------- input ----------
-
-canvas.addEventListener('contextmenu', e => e.preventDefault());
-
 function screenToWorld(e) {
   const r = canvas.getBoundingClientRect();
   return {
@@ -1108,113 +1062,28 @@ function screenToWorld(e) {
   };
 }
 
-canvas.addEventListener('wheel', e => {
-  e.preventDefault();
-  if (!started) return;
-  const before = screenToWorld(e);
-  cam.zoom = clamp(cam.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), minZoom(), 2);
-  const r = canvas.getBoundingClientRect();
-  cam.x = before.x - (e.clientX - r.left) / cam.zoom;
-  cam.y = before.y - (e.clientY - r.top) / cam.zoom;
-  clampCam();
-}, { passive: false });
+function selectAt(x, y) {
+  const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && dist(u, { x, y }) <= UNIT_TYPES[u.type].r + 4);
+  const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
+    Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
+  // no own entity under the cursor: inspect a visible enemy instead
+  // (disguised infiltrators are excluded — clicking would blow their cover)
+  const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !un.disguised &&
+    visibleToPlayer(un) && dist(un, { x, y }) <= UNIT_TYPES[un.type].r + 4);
+  const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== PLAYER && bd.hp > 0 &&
+    visibleToPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
+  selection = u ? [u] : b ? [b] : eu ? [eu] : eb ? [eb] : [];
+}
 
-canvas.addEventListener('mousedown', e => {
-  if (!started) return;
-  const p = screenToWorld(e);
-  if (e.button === 1) {
-    e.preventDefault();
-    panDrag = { sx: e.clientX, sy: e.clientY, camX: cam.x, camY: cam.y };
+function rightCommand(x, y) {
+  // rally point when a single production building is selected
+  if (selection.length === 1 && selection[0].kind === 'building' && selection[0].owner === PLAYER) {
+    selection[0].rally = { x, y };
+    sfx('click');
     return;
   }
-  if (e.button === 0) {
-    if (abilityTargeting) {
-      const mode = abilityTargeting;
-      abilityTargeting = null;
-      if (mode === 'zone') castWeather(PLAYER, p.x, p.y);
-      if (mode === 'unit') {
-        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && dist(u, p) <= UNIT_TYPES[u.type].r + 8);
-        if (target) castClone(PLAYER, target);
-      }
-      refreshPanel();
-      refreshSidebar();
-      return;
-    }
-    if (placing) {
-      if (tryPlace(PLAYER, p.x, p.y)) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
-      return;
-    }
-    if (attackMoveArmed) {
-      attackMoveArmed = false;
-      for (const u of selection) {
-        if (u.kind === 'unit' && u.owner === PLAYER && UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y);
-      }
-      refreshPanel();
-      return;
-    }
-    mouse.sel = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
-  } else if (e.button === 2) {
-    placing = null;
-    attackMoveArmed = false;
-    // rally point when a single production building is selected
-    if (selection.length === 1 && selection[0].kind === 'building' && selection[0].owner === PLAYER) {
-      selection[0].rally = { x: p.x, y: p.y };
-      sfx('click');
-      return;
-    }
-    issueCommand(p.x, p.y);
-  }
-});
-
-canvas.addEventListener('mousemove', e => {
-  const p = screenToWorld(e);
-  mouse.x = p.x; mouse.y = p.y;
-  const r = canvas.getBoundingClientRect();
-  mouse.sx = e.clientX - r.left; mouse.sy = e.clientY - r.top;
-  mouse.inside = true;
-  if (mouse.sel) { mouse.sel.x2 = p.x; mouse.sel.y2 = p.y; }
-});
-
-canvas.addEventListener('mouseleave', () => { mouse.inside = false; });
-
-window.addEventListener('mousemove', e => {
-  if (panDrag) {
-    cam.x = panDrag.camX - (e.clientX - panDrag.sx) / cam.zoom;
-    cam.y = panDrag.camY - (e.clientY - panDrag.sy) / cam.zoom;
-    clampCam();
-  }
-});
-
-window.addEventListener('mouseup', e => {
-  if (e.button === 1) { panDrag = null; return; }
-  if (e.button !== 0) return;
-  mmDown = false;
-  if (!mouse.sel) return;
-  const s = mouse.sel;
-  const p = screenToWorld(e);
-  s.x2 = p.x; s.y2 = p.y;
-  mouse.sel = null;
-  const x1 = Math.min(s.x1, s.x2), x2 = Math.max(s.x1, s.x2);
-  const y1 = Math.min(s.y1, s.y2), y2 = Math.max(s.y1, s.y2);
-  const isClick = (x2 - x1 < 6 && y2 - y1 < 6);
-
-  if (isClick) {
-    const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && dist(u, { x: x1, y: y1 }) <= UNIT_TYPES[u.type].r + 4);
-    const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
-      Math.abs(b.x - x1) <= b.w / 2 && Math.abs(b.y - y1) <= b.h / 2);
-    // no own entity under the cursor: inspect a visible enemy instead
-    // (disguised infiltrators are excluded — clicking would blow their cover)
-    const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !un.disguised &&
-      visibleToPlayer(un) && dist(un, { x: x1, y: y1 }) <= UNIT_TYPES[un.type].r + 4);
-    const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== PLAYER && bd.hp > 0 &&
-      visibleToPlayer(bd) && Math.abs(bd.x - x1) <= bd.w / 2 && Math.abs(bd.y - y1) <= bd.h / 2);
-    selection = u ? [u] : b ? [b] : eu ? [eu] : eb ? [eb] : [];
-  } else {
-    selection = state.units.filter(u =>
-      u.owner === PLAYER && u.hp > 0 && u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2);
-  }
-  refreshPanel();
-});
+  issueCommand(x, y);
+}
 
 function issueCommand(x, y) {
   const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER);
@@ -1251,41 +1120,6 @@ function issueCommand(x, y) {
   });
 }
 
-const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER', f: 'factory', d: 'airpad' };
-
-window.addEventListener('keydown', e => {
-  keys[e.key.toLowerCase()] = true;
-  if (!started) return;
-  const k = e.key.toLowerCase();
-
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; refreshPanel(); }
-  if (k === 'h') centerCameraOnHome();
-  if (k === 'm') setMuted(!muted);
-
-  if (STRUCT_HOTKEYS[k]) {
-    let type = STRUCT_HOTKEYS[k];
-    if (type === 'TOWER') type = facOf(PLAYER).tower;
-    if (type === 'AATOWER') type = facOf(PLAYER).aaTower;
-    sidebarStructureClick(type);
-  }
-
-  if (k === 'a' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
-    attackMoveArmed = true;
-    refreshPanel();
-  }
-
-  if (/^[1-5]$/.test(e.key)) {
-    if (e.ctrlKey) {
-      groups[e.key] = selection.slice();
-      e.preventDefault();
-    } else if (groups[e.key]) {
-      selection = groups[e.key].filter(en => en.hp > 0);
-      refreshPanel();
-    }
-  }
-});
-window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
-
 function minimapPan(e) {
   const r = mmCanvas.getBoundingClientRect();
   const wx = (e.clientX - r.left) / r.width * WORLD_W;
@@ -1294,17 +1128,6 @@ function minimapPan(e) {
   cam.y = wy - canvas.height / cam.zoom / 2;
   clampCam();
 }
-mmCanvas.addEventListener('mousedown', e => { if (e.button === 0) { mmDown = true; minimapPan(e); } });
-mmCanvas.addEventListener('mousemove', e => { if (mmDown) minimapPan(e); });
-
-// ---------- sidebar ----------
-
-const elCredits = document.getElementById('credits');
-const elPowerFill = document.getElementById('powerfill');
-const elPowerText = document.getElementById('powertext');
-const gridStructures = document.getElementById('grid-structures');
-const gridUnits = document.getElementById('grid-units');
-const cameoButtons = {}; // key -> {btn, name, cost, progress, badge, kind}
 
 function sidebarStructureClick(type) {
   const c = state.construction[PLAYER];
@@ -1434,30 +1257,6 @@ function refreshSidebar() {
   }
 }
 
-// ---------- faction select ----------
-
-(function buildFactionSelect() {
-  const wrap = document.getElementById('family-groups');
-  const families = [...new Set(Object.values(FACTIONS).map(f => f.family))];
-  for (const fam of families) {
-    const col = document.createElement('div');
-    col.className = 'family';
-    const h = document.createElement('div');
-    h.className = 'family-title';
-    h.textContent = fam;
-    col.appendChild(h);
-    for (const [key, f] of Object.entries(FACTIONS)) {
-      if (f.family !== fam) continue;
-      const btn = document.createElement('button');
-      btn.className = 'card';
-      btn.innerHTML = `<span class="card-title">${f.emoji} ${f.name}</span><span class="card-desc">${f.desc}</span>`;
-      btn.addEventListener('click', () => startGame(key));
-      col.appendChild(btn);
-    }
-    wrap.appendChild(col);
-  }
-})();
-
 function startGame(faction) {
   document.getElementById('faction-select').classList.add('hidden');
   // the AI plays a random faction from a different family
@@ -1473,12 +1272,6 @@ function startGame(faction) {
   refreshSidebar();
   eva('Battle control online');
 }
-
-// ---------- bottom panel ----------
-
-const elSelInfo = document.getElementById('selinfo');
-const elActions = document.getElementById('actions');
-const elSupply = document.getElementById('supply');
 
 function refreshPanel() {
   elActions.innerHTML = '';
@@ -1537,7 +1330,13 @@ function refreshPanel() {
   } else {
     const counts = {};
     for (const s of selection) counts[UNIT_TYPES[s.type].name] = (counts[UNIT_TYPES[s.type].name] || 0) + 1;
-    elSelInfo.textContent = 'Selected: ' + Object.entries(counts).map(([n, c]) => `${c}× ${n}`).join(', ');
+    let info = 'Selected: ' + Object.entries(counts).map(([n, c]) => `${c}× ${n}`).join(', ');
+    if (selection.length === 1 && selection[0].kind === 'unit') {
+      const uu = selection[0], ut = UNIT_TYPES[uu.type];
+      info += ` — ${Math.ceil(uu.hp)}/${ut.hp} HP`;
+      if (ut.maxAmmo) info += ` — Ammo ${Math.floor(uu.ammo)}/${ut.maxAmmo}${uu.order.type === 'rearm' ? ' (rearming)' : ''}`;
+    }
+    elSelInfo.textContent = info;
     if (selection.some(s => UNIT_TYPES[s.type].role === 'combat')) {
       const btn = document.createElement('button');
       btn.textContent = 'Attack-Move [A]';
@@ -1547,8 +1346,6 @@ function refreshPanel() {
   }
 }
 
-// ---------- rendering ----------
-
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!started) return;
@@ -1556,39 +1353,7 @@ function draw() {
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
 
-  ctx.fillStyle = '#182018';
-  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
-  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
-  ctx.lineWidth = 1;
-  for (let gx = 0; gx <= WORLD_W; gx += 100) {
-    ctx.beginPath(); ctx.moveTo(gx, 0); ctx.lineTo(gx, WORLD_H); ctx.stroke();
-  }
-  for (let gy = 0; gy <= WORLD_H; gy += 100) {
-    ctx.beginPath(); ctx.moveTo(0, gy); ctx.lineTo(WORLD_W, gy); ctx.stroke();
-  }
-
-  // terrain
-  for (const o of TERRAIN) {
-    if (o.type === 'water') {
-      ctx.fillStyle = '#122630';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#1d3a4a'; ctx.lineWidth = 2; ctx.stroke();
-      ctx.strokeStyle = 'rgba(90,140,170,0.3)';
-      ctx.lineWidth = 1.5;
-      for (let i = 0; i < 3; i++) {
-        ctx.beginPath();
-        ctx.arc(o.x - 18 + i * 18, o.y - 12 + i * 14, o.r * 0.25, 0.3, 2.6);
-        ctx.stroke();
-      }
-    } else {
-      ctx.fillStyle = '#3a3f46';
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = '#474d56';
-      ctx.beginPath(); ctx.arc(o.x - o.r * 0.3, o.y - o.r * 0.25, o.r * 0.5, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#262a30'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2); ctx.stroke();
-    }
-  }
+  ctx.drawImage(groundCanvas, 0, 0);
 
   for (const p of state.patches) {
     if (p.amount <= 0 || tileState(p.x, p.y) === 0) continue;
@@ -1605,19 +1370,28 @@ function draw() {
   for (const b of state.buildings) {
     if (b.hp <= 0 || !visibleToPlayer(b)) continue;
     const bt = BUILDING_TYPES[b.type];
-    ctx.fillStyle = COLORS_DARK[b.owner];
-    ctx.fillRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
-    ctx.strokeStyle = COLORS[b.owner];
-    ctx.lineWidth = 2;
-    ctx.strokeRect(b.x - b.w / 2, b.y - b.h / 2, b.w, b.h);
+    ctx.save();
+    ctx.translate(b.x, b.y);
+    Art.building(b.type, ctx, state.time + (b.id % 89) * 0.71, {
+      w: b.w, h: b.h, color: COLORS[b.owner], on: !powerOf(b.owner).low,
+      fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
+    });
+    ctx.restore();
 
-    if (bt.dmg) {
-      ctx.fillStyle = powerOf(b.owner).low ? '#666' : '#fff';
-      ctx.beginPath();
-      ctx.arc(b.x, b.y - b.h / 2, 5, 0, Math.PI * 2);
-      ctx.fill();
+    if (bt.dmg && bt.weapon !== 'pulse') {
+      const on = !powerOf(b.owner).low;
+      const ta = b.turret !== undefined ? b.turret : Math.atan2(WORLD_H / 2 - b.y, WORLD_W / 2 - b.x);
+      ctx.save();
+      ctx.translate(b.x, b.y);
+      ctx.fillStyle = on ? '#c6ccd4' : '#666';
+      ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+      ctx.rotate(ta);
+      ctx.strokeStyle = on ? '#e8edf2' : '#777';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(bt.targets === 'air' ? 10 : 12, 0); ctx.stroke();
+      ctx.restore();
       if (bt.targets === 'air') {
-        ctx.strokeStyle = powerOf(b.owner).low ? '#666' : '#fff';
+        ctx.strokeStyle = on ? '#fff' : '#666';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
         ctx.moveTo(b.x - 4, b.y - b.h / 2 - 7);
@@ -1626,20 +1400,14 @@ function draw() {
         ctx.stroke();
       }
     }
-    if (bt.power > 0 && b.type !== 'hq') {
-      ctx.fillStyle = '#ffd75f';
-      ctx.font = 'bold 12px sans-serif';
-      ctx.textAlign = 'center';
-      ctx.fillText('⚡', b.x, b.y - b.h / 2 + 12);
-    }
-    ctx.fillStyle = '#fff';
-    ctx.font = 'bold 10px sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText(buildingName(b), b.x, b.y + 4);
-
     if (selection.includes(b)) {
       ctx.strokeStyle = b.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
+      ctx.lineWidth = 2;
       ctx.strokeRect(b.x - b.w / 2 - 3, b.y - b.h / 2 - 3, b.w + 6, b.h + 6);
+      ctx.fillStyle = '#fff';
+      ctx.font = 'bold 10px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText(buildingName(b), b.x, b.y + b.h / 2 + 18);
       if (bt.atkRange) {
         ctx.strokeStyle = 'rgba(127,255,159,0.25)';
         ctx.beginPath();
@@ -1680,77 +1448,25 @@ function draw() {
       const t = UNIT_TYPES[u.type];
       if (!!t.flying !== flyingPass) continue;
 
-      if (t.flying) {
-        ctx.fillStyle = 'rgba(0,0,0,0.3)';
-        ctx.beginPath();
-        ctx.ellipse(u.x + 10, u.y + 16, t.r * 0.9, t.r * 0.45, 0, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
+      // reptilian skin suit: enemy infantry render in YOUR color until they attack
+      const drawCol = (u.disguised && u.owner === ENEMY) ? COLORS[PLAYER] : COLORS[u.owner];
+      const grounded = !!u.landed; // rearming on the pad
+      const bob = (t.flying && !grounded) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
+      ctx.save();
+      ctx.translate(u.x, u.y + bob);
       // your own gaslight phantoms look ghostly to you; enemy ones look real
       if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
-      // reptilian skin suit: enemy infantry render in YOUR color until they attack
-      ctx.fillStyle = (u.disguised && u.owner === ENEMY) ? COLORS[PLAYER] : COLORS[u.owner];
-      if (t.shape === 'square') {
-        ctx.fillRect(u.x - t.r, u.y - t.r, t.r * 2, t.r * 2);
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5;
-        ctx.strokeRect(u.x - t.r, u.y - t.r, t.r * 2, t.r * 2);
-      } else if (t.shape === 'tri') {
-        ctx.beginPath();
-        ctx.moveTo(u.x, u.y - t.r - 2);
-        ctx.lineTo(u.x + t.r, u.y + t.r);
-        ctx.lineTo(u.x - t.r, u.y + t.r);
-        ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1; ctx.stroke();
-      } else if (t.shape === 'blimp') {
-        ctx.beginPath();
-        ctx.ellipse(u.x, u.y, t.r * 1.3, t.r * 0.8, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.7)';
-        ctx.fillRect(u.x - 2, u.y + t.r * 0.8, 4, 4);
-      } else if (t.shape === 'saucer') {
-        ctx.beginPath();
-        ctx.ellipse(u.x, u.y + 2, t.r * 1.4, t.r * 0.55, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke();
-        ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.beginPath();
-        ctx.arc(u.x, u.y - 3, t.r * 0.5, Math.PI, 0);
-        ctx.fill();
-      } else {
-        ctx.beginPath();
-        ctx.arc(u.x, u.y, t.r, 0, Math.PI * 2);
-        ctx.fill();
-        if (t.role === 'combat') { ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.5; ctx.stroke(); }
-      }
-
-      // role glyphs so unit types read at a glance
-      if (t.role === 'worker') {
-        ctx.fillStyle = 'rgba(0,0,0,0.55)';
-        ctx.fillRect(u.x - 2.5, u.y - 2.5, 5, 5);
-      } else if (t.builtAt === 'barracks') {
-        ctx.strokeStyle = 'rgba(255,255,255,0.9)';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        if (hitsAir(t)) {
-          // anti-air: upward arrow
-          ctx.moveTo(u.x, u.y + 4); ctx.lineTo(u.x, u.y - 4);
-          ctx.moveTo(u.x - 3, u.y - 1); ctx.lineTo(u.x, u.y - 4); ctx.lineTo(u.x + 3, u.y - 1);
-        } else {
-          // basic infantry: rifle line
-          ctx.moveTo(u.x - t.r + 2, u.y); ctx.lineTo(u.x + t.r + 3, u.y - 3);
-        }
-        ctx.stroke();
-      } else if (t.flying && hitsAir(t)) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(u.x - 3, u.y - t.r - 4);
-        ctx.lineTo(u.x, u.y - t.r - 8);
-        ctx.lineTo(u.x + 3, u.y - t.r - 4);
-        ctx.stroke();
-      }
+      if (t.flying && !grounded) Art.shadow(ctx, t.r * 0.9, t.r * 0.45, 8, 13 - bob);
+      else Art.shadow(ctx, t.r * 1.15, t.r * 0.75, 0, 1.5);
+      Art.teamGlow(ctx, t.r + 8, drawCol);
+      ctx.rotate(u.facing || 0);
+      Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
+        color: drawCol,
+        moving: u.order.type !== 'idle',
+        firing: u.cooldown > t.cooldown - 0.15,
+        dist: u.travel,
+      });
+      ctx.restore();
       if (u.carrying > 0) {
         ctx.fillStyle = '#3fd7d0';
         ctx.fillRect(u.x - 3, u.y - t.r - 7, 6, 5);
@@ -1763,33 +1479,105 @@ function draw() {
         ctx.stroke();
       }
       if (u.hp < u.maxHp) drawBar(u.x, u.y - t.r - 12, t.r * 2.4, u.hp / u.maxHp);
+      if (t.maxAmmo && (u.ammo < t.maxAmmo || selection.includes(u))) {
+        const w = t.r * 2.2;
+        ctx.fillStyle = 'rgba(0,0,0,0.6)';
+        ctx.fillRect(u.x - w / 2, u.y + t.r + 5, w, 3);
+        ctx.fillStyle = '#ffd75f';
+        ctx.fillRect(u.x - w / 2, u.y + t.r + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
+      }
       ctx.globalAlpha = 1;
     }
   }
 
-  // weather modification zones
-  for (const z of state.zones) {
-    ctx.fillStyle = 'rgba(80,130,190,0.15)';
-    ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(120,170,230,0.5)'; ctx.lineWidth = 1.5;
-    ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.stroke();
-    ctx.strokeStyle = 'rgba(160,200,245,0.55)'; ctx.lineWidth = 1;
-    for (let i = 0; i < 14; i++) {
-      const rx = z.x + Math.sin(i * 2.4) * z.r * 0.8;
-      const ry = z.y + Math.cos(i * 1.9) * z.r * 0.65 + ((state.time * 130 + i * 37) % 44) - 22;
-      ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 9); ctx.stroke();
+  // tractor beams: tower -> locked aircraft
+  for (const b of state.buildings) {
+    if (!b.beamId || b.hp <= 0) continue;
+    const tgt = state.units.find(un => un.id === b.beamId && un.hp > 0);
+    if (!tgt || !visibleToPlayer(tgt)) continue;
+    const bg = ctx.createLinearGradient(b.x, b.y, tgt.x, tgt.y);
+    bg.addColorStop(0, 'rgba(125,255,214,0.85)');
+    bg.addColorStop(1, 'rgba(125,255,214,0.25)');
+    ctx.strokeStyle = bg;
+    ctx.lineWidth = 2 + Math.sin(state.time * 14) * 0.8;
+    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke();
+    // pull ripples travelling down the beam
+    const dx = tgt.x - b.x, dy = tgt.y - b.y;
+    for (let i = 0; i < 3; i++) {
+      const f = ((state.time * 0.9 + i / 3) % 1);
+      ctx.fillStyle = `rgba(200,255,240,${0.7 * (1 - f)})`;
+      ctx.beginPath();
+      ctx.arc(tgt.x - dx * f, tgt.y - dy * f, 2.2, 0, Math.PI * 2);
+      ctx.fill();
     }
   }
 
-  for (const f of state.flashes) {
-    if (tileState(f.x1, f.y1) !== 2 && tileState(f.x2, f.y2) !== 2) continue;
-    ctx.strokeStyle = f.owner === PLAYER ? 'rgba(140,200,255,0.9)' : 'rgba(255,160,140,0.9)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(f.x1, f.y1);
-    ctx.lineTo(f.x2, f.y2);
-    ctx.stroke();
+  // projectiles in flight (with ground shadow)
+  for (const p of state.projectiles) {
+    const f = p.t / p.dur;
+    const gx = p.sx + (p.tx - p.sx) * f, gy = p.sy + (p.ty - p.sy) * f;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(gx, gy, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+    if (p.kind === 'rock') {
+      ctx.fillStyle = '#8a7f6e';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3.6, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = '#5c5347'; ctx.lineWidth = 1; ctx.stroke();
+    } else if (p.kind === 'magma') {
+      ctx.fillStyle = '#ff8a3c';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = 'rgba(255,220,120,0.9)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2); ctx.fill();
+    } else if (p.kind === 'plasma') {
+      ctx.fillStyle = 'rgba(125,255,214,0.9)';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#e8fff8';
+      ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI * 2); ctx.fill();
+    } else { // bomb
+      ctx.fillStyle = '#2b2f36';
+      ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.6, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#4a515c';
+      ctx.fillRect(p.x - 2.4, p.y - 5, 4.8, 2);
+    }
   }
+
+  // area-effect zones
+  for (const z of state.zones) {
+    const kind = z.kind || 'rain';
+    if (kind === 'rain' || kind === 'storm') {
+      ctx.fillStyle = kind === 'storm' ? 'rgba(60,80,130,0.22)' : 'rgba(80,130,190,0.15)';
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,170,230,0.5)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(160,200,245,0.55)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 14; i++) {
+        const rx = z.x + Math.sin(i * 2.4) * z.r * 0.8;
+        const ry = z.y + Math.cos(i * 1.9) * z.r * 0.65 + ((state.time * 130 + i * 37) % 44) - 22;
+        ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 9); ctx.stroke();
+      }
+    } else if (kind === 'fire') {
+      ctx.fillStyle = 'rgba(255,120,40,0.18)';
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      for (let i = 0; i < 7; i++) {
+        const fl = 0.5 + 0.5 * Math.sin(state.time * 9 + i * 2.3);
+        ctx.fillStyle = `rgba(255,${140 + Math.floor(fl * 70)},60,${0.35 + fl * 0.45})`;
+        ctx.beginPath();
+        ctx.arc(z.x + Math.sin(i * 2.7) * z.r * 0.6, z.y + Math.cos(i * 1.7) * z.r * 0.6, 2 + fl * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else if (kind === 'toxin') {
+      ctx.fillStyle = 'rgba(130,200,80,0.16)';
+      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      for (let i = 0; i < 5; i++) {
+        ctx.fillStyle = 'rgba(160,220,110,0.22)';
+        ctx.beginPath();
+        ctx.arc(z.x + Math.sin(i * 2.1 + state.time * 0.7) * z.r * 0.5,
+          z.y + Math.cos(i * 1.3 + state.time * 0.5) * z.r * 0.5, 5 + i, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+  }
+
+  Particles.draw(ctx);
 
   // fog
   fogCtx.clearRect(0, 0, FW, FH);
@@ -1914,8 +1702,6 @@ function drawMinimap() {
   mmCtx.strokeRect(cam.x * sx, cam.y * sy, canvas.width / cam.zoom * sx, canvas.height / cam.zoom * sy);
 }
 
-// ---------- main loop ----------
-
 function checkGameOver() {
   const playerHq = state.buildings.some(b => b.owner === PLAYER && b.type === 'hq' && b.hp > 0);
   const enemyHq = state.buildings.some(b => b.owner === ENEMY && b.type === 'hq' && b.hp > 0);
@@ -1928,10 +1714,6 @@ function checkGameOver() {
   eva(playerHq ? 'Mission accomplished' : 'Battle control terminated');
 }
 
-let lastTime = performance.now();
-let panelTimer = 0;
-let wasLowPower = false;
-
 function frame(now) {
   const dt = Math.min(0.05, (now - lastTime) / 1000);
   lastTime = now;
@@ -1942,13 +1724,6 @@ function frame(now) {
     if (keys['arrowright']) cam.x += pan;
     if (keys['arrowup']) cam.y -= pan;
     if (keys['arrowdown']) cam.y += pan;
-    if (mouse.inside && !panDrag) {
-      const M = 26;
-      if (mouse.sx < M) cam.x -= pan;
-      if (mouse.sx > canvas.width - M) cam.x += pan;
-      if (mouse.sy < M) cam.y -= pan;
-      if (mouse.sy > canvas.height - M) cam.y += pan;
-    }
     clampCam();
 
     state.time += dt;
@@ -1957,22 +1732,29 @@ function frame(now) {
     tickConstruction(PLAYER, dt);
     updateAI(dt);
     updateAbilities(dt);
+    updateProjectiles(dt);
+    updateZones(dt);
     for (const u of state.units) {
       if (u.expires && state.time > u.expires) u.hp = 0; // phantoms fade
     }
     updateFog();
 
-    // destroyed-building effects
+    // destruction effects
     for (const b of state.buildings) {
       if (b.hp <= 0) {
+        Particles.boom(b.x, b.y, 1.7);
         if (tileState(b.x, b.y) === 2) sfx('boom');
         if (b.owner === PLAYER) eva('Structure lost');
       }
     }
+    for (const u of state.units) {
+      if (u.hp <= 0 && u.type !== 'phantom') {
+        Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
+      }
+    }
     state.units = state.units.filter(u => u.hp > 0);
     state.buildings = state.buildings.filter(b => b.hp > 0);
-    for (const f of state.flashes) f.t -= dt;
-    state.flashes = state.flashes.filter(f => f.t > 0);
+    Particles.update(dt);
 
     const beforeLen = selection.length;
     selection = selection.filter(e => e.hp > 0);
@@ -1989,11 +1771,247 @@ function frame(now) {
     elSupply.textContent = `Workers: ${w}  Army: ${mine.length - w}`;
 
     panelTimer += dt;
-    if (panelTimer > 0.25) { panelTimer = 0; refreshSidebar(); }
+    if (panelTimer > 0.25) { panelTimer = 0; refreshSidebar(); refreshPanel(); }
   }
 
   draw();
   requestAnimationFrame(frame);
 }
+
+// ---------- boot: canvas sizing + prerendered ground ----------
+
+window.addEventListener('resize', resizeCanvas);
+resizeCanvas();
+
+const groundCanvas = document.createElement('canvas');
+groundCanvas.width = WORLD_W;
+groundCanvas.height = WORLD_H;
+(function renderGround() {
+  const g = groundCanvas.getContext('2d');
+  g.fillStyle = '#31402c';
+  g.fillRect(0, 0, WORLD_W, WORLD_H);
+  for (let i = 0; i < 900; i++) {
+    const gx = (i * 7919) % WORLD_W;
+    const gy = (i * 104729) % WORLD_H;
+    const s = 14 + (i * 31) % 40;
+    g.fillStyle = (i % 3 === 0) ? 'rgba(66,86,58,0.35)' : 'rgba(40,52,36,0.35)';
+    g.beginPath();
+    g.ellipse(gx, gy, s, s * 0.6, (i % 7) * 0.5, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.strokeStyle = 'rgba(255,255,255,0.04)';
+  g.lineWidth = 1;
+  for (let x = 0; x <= WORLD_W; x += 100) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, WORLD_H); g.stroke(); }
+  for (let y = 0; y <= WORLD_H; y += 100) { g.beginPath(); g.moveTo(0, y); g.lineTo(WORLD_W, y); g.stroke(); }
+  for (const o of TERRAIN) {
+    if (o.type === 'water') {
+      g.fillStyle = '#16303c';
+      g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#234a5c'; g.lineWidth = 2; g.stroke();
+      g.strokeStyle = 'rgba(110,165,195,0.3)';
+      g.lineWidth = 1.5;
+      for (let i = 0; i < 3; i++) {
+        g.beginPath();
+        g.arc(o.x - 18 + i * 18, o.y - 12 + i * 14, o.r * 0.25, 0.3, 2.6);
+        g.stroke();
+      }
+    } else {
+      g.fillStyle = '#454b53';
+      g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.fill();
+      g.fillStyle = '#565d67';
+      g.beginPath(); g.arc(o.x - o.r * 0.3, o.y - o.r * 0.25, o.r * 0.5, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = '#2c3036'; g.lineWidth = 2;
+      g.beginPath(); g.arc(o.x, o.y, o.r, 0, Math.PI * 2); g.stroke();
+    }
+  }
+})();
+
+// ---------- input wiring ----------
+
+document.addEventListener('pointerdown', ensureAudio, { once: false });
+document.getElementById('mute-btn').addEventListener('click', () => setMuted(!muted));
+
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (!started) return;
+  const before = screenToWorld(e);
+  cam.zoom = clamp(cam.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), minZoom(), 2);
+  const r = canvas.getBoundingClientRect();
+  cam.x = before.x - (e.clientX - r.left) / cam.zoom;
+  cam.y = before.y - (e.clientY - r.top) / cam.zoom;
+  clampCam();
+}, { passive: false });
+
+canvas.addEventListener('mousedown', e => {
+  if (!started) return;
+  const p = screenToWorld(e);
+  if (e.button === 1) {
+    e.preventDefault();
+    panDrag = { sx: e.clientX, sy: e.clientY, camX: cam.x, camY: cam.y };
+    return;
+  }
+  if (e.button === 0) {
+    if (abilityTargeting) {
+      const mode = abilityTargeting;
+      abilityTargeting = null;
+      if (mode === 'zone') castWeather(PLAYER, p.x, p.y);
+      if (mode === 'unit') {
+        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && dist(u, p) <= UNIT_TYPES[u.type].r + 8);
+        if (target) castClone(PLAYER, target);
+      }
+      refreshPanel();
+      refreshSidebar();
+      return;
+    }
+    if (placing) {
+      if (tryPlace(PLAYER, p.x, p.y)) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
+      return;
+    }
+    if (attackMoveArmed) {
+      attackMoveArmed = false;
+      for (const u of selection) {
+        if (u.kind === 'unit' && u.owner === PLAYER && UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y);
+      }
+      refreshPanel();
+      return;
+    }
+    mouse.sel = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+  } else if (e.button === 2) {
+    if (placing || attackMoveArmed || abilityTargeting) {
+      placing = null;
+      attackMoveArmed = false;
+      abilityTargeting = null;
+      refreshPanel();
+      return;
+    }
+    // right-drag pans the map; a right-click with no movement commands on release
+    panDrag = { sx: e.clientX, sy: e.clientY, camX: cam.x, camY: cam.y, right: true, moved: false, wx: p.x, wy: p.y };
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  const p = screenToWorld(e);
+  mouse.x = p.x;
+  mouse.y = p.y;
+  if (mouse.sel) { mouse.sel.x2 = p.x; mouse.sel.y2 = p.y; }
+});
+
+window.addEventListener('mousemove', e => {
+  if (panDrag) {
+    cam.x = panDrag.camX - (e.clientX - panDrag.sx) / cam.zoom;
+    cam.y = panDrag.camY - (e.clientY - panDrag.sy) / cam.zoom;
+    if (Math.abs(e.clientX - panDrag.sx) + Math.abs(e.clientY - panDrag.sy) > 5) panDrag.moved = true;
+    clampCam();
+  }
+});
+
+window.addEventListener('mouseup', e => {
+  if (e.button === 1) { panDrag = null; return; }
+  if (e.button === 2) {
+    // releasing a right-drag: if the mouse never really moved, it was a command
+    if (panDrag && panDrag.right) {
+      const wasClick = !panDrag.moved;
+      const wx = panDrag.wx, wy = panDrag.wy;
+      panDrag = null;
+      if (wasClick) rightCommand(wx, wy);
+    }
+    return;
+  }
+  if (e.button !== 0) return;
+  mmDown = false;
+  if (!mouse.sel) return;
+  const s = mouse.sel;
+  const p = screenToWorld(e);
+  s.x2 = p.x;
+  s.y2 = p.y;
+  mouse.sel = null;
+  const x1 = Math.min(s.x1, s.x2), x2 = Math.max(s.x1, s.x2);
+  const y1 = Math.min(s.y1, s.y2), y2 = Math.max(s.y1, s.y2);
+  if (x2 - x1 < 6 && y2 - y1 < 6) {
+    selectAt(x1, y1);
+  } else {
+    selection = state.units.filter(u =>
+      u.owner === PLAYER && u.hp > 0 && u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2);
+  }
+  refreshPanel();
+});
+
+window.addEventListener('keydown', e => {
+  keys[e.key.toLowerCase()] = true;
+  if (!started) return;
+  const k = e.key.toLowerCase();
+
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; refreshPanel(); }
+  if (k === 'h') centerCameraOnHome();
+  if (k === 'm') setMuted(!muted);
+
+  if (STRUCT_HOTKEYS[k]) {
+    let type = STRUCT_HOTKEYS[k];
+    if (type === 'TOWER') type = facOf(PLAYER).tower;
+    if (type === 'AATOWER') type = facOf(PLAYER).aaTower;
+    sidebarStructureClick(type);
+  }
+
+  if (k === 'a' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
+    attackMoveArmed = true;
+    refreshPanel();
+  }
+
+  // control groups
+  if (/^[1-5]$/.test(e.key)) {
+    if (e.ctrlKey) {
+      groups[e.key] = selection.slice();
+      e.preventDefault();
+    } else if (groups[e.key]) {
+      selection = groups[e.key].filter(en => en.hp > 0);
+      refreshPanel();
+    }
+  }
+});
+window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
+
+mmCanvas.addEventListener('mousedown', e => { if (e.button === 0) { mmDown = true; minimapPan(e); } });
+mmCanvas.addEventListener('mousemove', e => { if (mmDown) minimapPan(e); });
+
+// ---------- HUD elements ----------
+
+const elCredits = document.getElementById('credits');
+const elPowerFill = document.getElementById('powerfill');
+const elPowerText = document.getElementById('powertext');
+const gridStructures = document.getElementById('grid-structures');
+const gridUnits = document.getElementById('grid-units');
+const elSelInfo = document.getElementById('selinfo');
+const elActions = document.getElementById('actions');
+const elSupply = document.getElementById('supply');
+
+// ---------- faction select + main loop ----------
+
+(function buildFactionSelect() {
+  const wrap = document.getElementById('family-groups');
+  const families = [...new Set(Object.values(FACTIONS).map(f => f.family))];
+  for (const fam of families) {
+    const col = document.createElement('div');
+    col.className = 'family';
+    const h = document.createElement('div');
+    h.className = 'family-title';
+    h.textContent = fam;
+    col.appendChild(h);
+    for (const [key, f] of Object.entries(FACTIONS)) {
+      if (f.family !== fam) continue;
+      const btn = document.createElement('button');
+      btn.className = 'card';
+      btn.innerHTML = `<span class="card-title">${f.emoji} ${f.name}</span><span class="card-desc">${f.desc}</span>`;
+      btn.addEventListener('click', () => startGame(key));
+      col.appendChild(btn);
+    }
+    wrap.appendChild(col);
+  }
+})();
+
+let lastTime = performance.now();
+let panelTimer = 0;
+let wasLowPower = false;
 
 requestAnimationFrame(frame);

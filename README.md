@@ -10,6 +10,15 @@ node serve.js
 
 Then open http://localhost:8377 and choose your truth.
 
+## Code layout
+
+| File | Contents |
+|---|---|
+| `data.js` | All game data: constants, terrain, factions, unit/building stats. Balance changes go here. |
+| `art.js` | Unit & building drawings (top-down animated vector) + particle effects. |
+| `game.js` | Engine: state, orders, combat, AI, input, sidebar UI, rendering. |
+| `mockup.html/js` | Standalone art style demo. |
+
 ## Factions
 
 Seven factions in four families, each with its own roster, passive trait, and signature power:
