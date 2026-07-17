@@ -2101,14 +2101,18 @@ function refreshPanel() {
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   if (!started) return;
+  // void beyond the ground diamond reads as unexplored blackness
+  ctx.fillStyle = '#05070a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.save();
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
-  // phase-1 scaffold: project the whole world pass onto the iso ground plane
+  // ground is prerendered already-projected; blit it in iso space
+  ctx.drawImage(groundCanvas, -WORLD_H, 0, isoSpanW(), isoSpanH());
+
+  // phase-1 scaffold: project the rest of the world pass onto the ground plane
   ctx.save();
   isoShear(ctx);
-
-  ctx.drawImage(groundCanvas, 0, 0, WORLD_W, WORLD_H);
 
   for (const p of state.patches) {
     if (p.amount <= 0 || tileState(p.x, p.y) === 0) continue;
@@ -2648,14 +2652,23 @@ function blobPath(g, o, scale = 1) {
 }
 
 function renderGround() {
-  // huge worlds render the ground at reduced resolution to cap memory;
-  // draw() stretches it back to world size
-  const gs = Math.min(1, 3600 / WORLD_W);
-  groundCanvas.width = Math.round(WORLD_W * gs);
-  groundCanvas.height = Math.round(WORLD_H * gs);
+  // the ground is prerendered THROUGH the iso projection: the canvas covers
+  // the projected diamond's bounding box, and all the flat world-space
+  // drawing below lands on it via the shear transform. Huge worlds render
+  // at reduced resolution to cap memory; draw() stretches it back.
+  const gs = Math.min(1, 6400 / isoSpanW());
+  groundCanvas.width = Math.round(isoSpanW() * gs);
+  groundCanvas.height = Math.round(isoSpanH() * gs);
   const g = groundCanvas.getContext('2d');
   g.save();
   g.scale(gs, gs);
+  g.translate(WORLD_H, 0); // diamond west corner has ix = -WORLD_H
+  isoShear(g);
+  // clip to the world rect: the old flat canvas clipped overshooting detail
+  // (edge ellipses, shore blobs) at its edges; the iso canvas is bigger
+  g.beginPath();
+  g.rect(0, 0, WORLD_W, WORLD_H);
+  g.clip();
   g.fillStyle = '#31402c';
   g.fillRect(0, 0, WORLD_W, WORLD_H);
   const nDetail = Math.round(WORLD_W * WORLD_H / 3100);
