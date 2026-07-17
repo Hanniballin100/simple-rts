@@ -1221,30 +1221,55 @@
   // fam: 'flat' | 'glob' | 'hollow' | 'alien'
   // Height illusion: every structure = cast shadow + dark walls + lit roof.
 
-  // a raised block â€” the core top-down "this is a 3D structure" primitive
-  // extruded box, RA2-style top-down-oblique: the roof sits on a visible
-  // south-facing facade (lift tall), light from the top-left, shadow cast
-  // down-right onto the ground
+  // TRUE-ISO PRIMITIVES. Building art runs inside a local sheared ground
+  // frame (world axes projected 2:1), where the world direction (+1,+1)
+  // maps to straight DOWN on screen. A volume is therefore drawn as its
+  // roof at the authored coords plus walls extruded along (+ext,+ext) to
+  // the ground — so every roof detail authored on top stays in place, and
+  // (like the old fake facades) the visual base sits a touch south of the
+  // logical footprint. Light comes from the NE, RA2-style: SE-facing walls
+  // lit, SW-facing walls dark.
+
+  // a raised box: diamond roof + SE and SW walls with vertical screen edges
   function block(ctx, x, y, w, h, r, col, lift = 4) {
-    // facade height scales with the block's mass: big structures get RA2-tall
+    // wall height scales with the block's mass: big structures get RA2-tall
     // walls, small roof details stay low boxes
     const sizeBoost = Math.min(2, Math.sqrt(w * h) / 30);
     const ext = Math.max(4, lift * 1.8 * sizeBoost + 2);
+    // ground shadow: the footprint, skewed a little further south-west
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    rr(ctx, x + lift * 1.1 + ext * 0.25, y + lift * 0.5 + 2.5, w, h + ext, r);
+    rr(ctx, x + ext - lift * 0.4, y + ext + lift * 0.9, w, h, r);
     ctx.fill();
-    // the wall the roof sits on — darkens toward the ground
-    const wg = ctx.createLinearGradient(0, y + h - r, 0, y + h + ext);
-    wg.addColorStop(0, shade(col, -0.26));
-    wg.addColorStop(1, shade(col, -0.55));
-    ctx.fillStyle = wg;
-    rr(ctx, x, y, w, h + ext, r);
+    // SE wall (faces screen lower-right — the LIT wall)
+    const seg = ctx.createLinearGradient(x + w, y + h / 2, x + w + ext, y + h / 2 + ext);
+    seg.addColorStop(0, shade(col, -0.08));
+    seg.addColorStop(1, shade(col, -0.34));
+    ctx.fillStyle = seg;
+    ctx.beginPath();
+    ctx.moveTo(x + w, y + r * 0.3);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + w + ext, y + h + ext);
+    ctx.lineTo(x + w + ext, y + ext + r * 0.3);
+    ctx.closePath();
     ctx.fill();
     ctx.strokeStyle = shade(col, -0.6);
     ctx.lineWidth = 1;
     ctx.stroke();
-    // roof, lit from the top-left
-    const g = ctx.createLinearGradient(x, y, x + w * 0.7, y + h);
+    // SW wall (faces screen lower-left — in shade)
+    const swg = ctx.createLinearGradient(x + w / 2, y + h, x + w / 2 + ext, y + h + ext);
+    swg.addColorStop(0, shade(col, -0.32));
+    swg.addColorStop(1, shade(col, -0.56));
+    ctx.fillStyle = swg;
+    ctx.beginPath();
+    ctx.moveTo(x + r * 0.3, y + h);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + w + ext, y + h + ext);
+    ctx.lineTo(x + ext + r * 0.3, y + h + ext);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    // roof, lit from the NE (bright toward the east corner)
+    const g = ctx.createLinearGradient(x + w, y, x, y + h);
     g.addColorStop(0, shade(col, 0.22));
     g.addColorStop(1, shade(col, -0.12));
     ctx.fillStyle = g;
@@ -1253,34 +1278,38 @@
     ctx.strokeStyle = shade(col, -0.55);
     ctx.lineWidth = 1;
     ctx.stroke();
+    // highlight along the lit NE roof edges
     ctx.strokeStyle = 'rgba(255,255,255,0.22)';
     ctx.beginPath();
-    ctx.moveTo(x + 1.2, y + h - r);
-    ctx.lineTo(x + 1.2, y + 1.2);
-    ctx.lineTo(x + w - r, y + 1.2);
+    ctx.moveTo(x + r, y + 1.2);
+    ctx.lineTo(x + w - 1.2, y + 1.2);
+    ctx.lineTo(x + w - 1.2, y + h - r);
     ctx.stroke();
   }
 
-  // a raised cylinder: top disc on a visible curved side wall
+  // a raised cylinder: top disc + a wall swept down to its ground circle
   function drum3d(ctx, x, y, rad, col, lift = 3) {
     const ext = Math.max(3.5, lift * 1.4 + rad * 0.35);
+    const gx = x + ext, gy = y + ext;      // ground-contact center
+    const k = rad / Math.SQRT2;            // silhouette tangent offset
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.beginPath(); ctx.ellipse(x + lift * 1.1, y + ext + 2, rad, rad * 0.96, 0, 0, TAU); ctx.fill();
-    // side wall: darkest at the silhouette edges, like a lit cylinder
-    const wg = ctx.createLinearGradient(x - rad, 0, x + rad, 0);
+    ctx.beginPath(); ctx.arc(gx - lift * 0.4, gy + lift * 0.9, rad * 1.02, 0, TAU); ctx.fill();
+    // side wall: hull between the top and ground circles, brightest facing NE
+    const wg = ctx.createLinearGradient(x - k, y + k, x + k, y - k);
     wg.addColorStop(0, shade(col, -0.55));
-    wg.addColorStop(0.45, shade(col, -0.22));
-    wg.addColorStop(1, shade(col, -0.6));
+    wg.addColorStop(0.6, shade(col, -0.16));
+    wg.addColorStop(1, shade(col, -0.42));
     ctx.fillStyle = wg;
     ctx.beginPath();
-    ctx.moveTo(x - rad, y);
-    ctx.lineTo(x - rad, y + ext);
-    ctx.arc(x, y + ext, rad, Math.PI, 0, true);
-    ctx.lineTo(x + rad, y);
+    ctx.moveTo(x + k, y - k);
+    ctx.lineTo(gx + k, gy - k);
+    ctx.arc(gx, gy, rad, -Math.PI / 4, Math.PI * 3 / 4, false); // ground far cap
+    ctx.lineTo(x - k, y + k);
+    ctx.arc(x, y, rad, Math.PI * 3 / 4, -Math.PI / 4, false);   // back under the top disc
     ctx.closePath();
     ctx.fill();
-    // top disc, lit from the top-left
-    const g = ctx.createRadialGradient(x - rad * 0.4, y - rad * 0.4, rad * 0.15, x, y, rad);
+    // top disc, lit from the NE
+    const g = ctx.createRadialGradient(x + rad * 0.35, y - rad * 0.35, rad * 0.15, x, y, rad);
     g.addColorStop(0, shade(col, 0.3));
     g.addColorStop(1, shade(col, -0.15));
     ctx.fillStyle = g;
@@ -1330,15 +1359,23 @@
     }
   }
 
-  // raised circular tower platform: drop shadow + dark under-skirt + a deck
-  // lit from the top-left — sells the elevation that flat fills never did
+  // raised circular tower platform: a short cylinder — deck disc at the
+  // authored origin, skirt wall swept down to the ground circle
   function towerDeck(ctx, r, topCol, skirtCol) {
+    const v = 5.5;                // platform height
+    const k = r / Math.SQRT2;
     ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    ctx.beginPath(); ctx.ellipse(3.5, 5.5, r + 1.5, r * 0.9, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(v - 1, v + 3, r * 1.04, 0, TAU); ctx.fill();
     ctx.fillStyle = skirtCol;
-    ctx.beginPath(); ctx.arc(0, 4, r, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.rect(-r, 0, r * 2, 4); ctx.fill();
-    const g = ctx.createRadialGradient(-r * 0.35, -r * 0.45, r * 0.15, 0, 0, r);
+    ctx.beginPath();
+    ctx.moveTo(k, -k);
+    ctx.lineTo(v + k, v - k);
+    ctx.arc(v, v, r, -Math.PI / 4, Math.PI * 3 / 4, false);
+    ctx.lineTo(-k, k);
+    ctx.arc(0, 0, r, Math.PI * 3 / 4, -Math.PI / 4, false);
+    ctx.closePath();
+    ctx.fill();
+    const g = ctx.createRadialGradient(r * 0.3, -r * 0.4, r * 0.15, 0, 0, r);
     g.addColorStop(0, shade(topCol, 0.14));
     g.addColorStop(1, shade(topCol, -0.10));
     ctx.fillStyle = g;
