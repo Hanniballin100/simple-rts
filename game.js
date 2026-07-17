@@ -2320,7 +2320,10 @@ function drawBuildingIso(b) {
         ctx.strokeRect(ix - b.garrison.length * 4 + i * 8 + 1, topY - 16, 6, 5);
       }
     }
-    drawBar(ix, topY - 8, (b.w + b.h) / 2, b.hp / b.maxHp);
+    // bar only when hurt or selected — a skyline of full green bars is noise
+    if (b.hp < b.maxHp || selection.includes(b)) {
+      drawBar(ix, topY - 8, (b.w + b.h) / 2, b.hp / b.maxHp);
+    }
 
     if (b.queue.length) {
       const bw = (b.w + b.h) / 2, qy = iy + (b.w + b.h) / 4 + 3;

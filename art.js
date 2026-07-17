@@ -2943,104 +2943,130 @@
     // variant keyed off world position so settlements aren't clone rows
     const v = Math.abs(Math.floor(((o.wx || 0) * 7 + (o.wy || 0) * 13))) % 3;
     const w = o.w, h = o.h;
-    // yard + shadow
+    // yard
     ctx.fillStyle = 'rgba(110,100,70,0.28)';
     rr(ctx, -w / 2, -h / 2, w, h, 5); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    rr(ctx, -w / 2 + 7, -h / 2 + 8, w - 9, h - 11, 3); ctx.fill();
-    // roof with ridge line, lit north slope
-    const roof = ['#7a4a3a', '#5d6470', '#6b5a45'][v];
-    ctx.fillStyle = roof;
-    rr(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    rr(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, (h - 8) / 2, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.moveTo(-w / 2 + 5, 0); ctx.lineTo(w / 2 - 5, 0); ctx.stroke();
-    // shingle seams
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)';
-    ctx.lineWidth = 0.7;
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath(); ctx.moveTo(i * 8, -h / 2 + 5); ctx.lineTo(i * 8, h / 2 - 5); ctx.stroke();
-    }
-    // chimney + porch
-    ctx.fillStyle = '#5a4f45';
-    ctx.fillRect(w / 2 - 15, -h / 2 + 8, 6.5, 6.5);
-    ctx.strokeStyle = '#38322b'; ctx.lineWidth = 1;
-    ctx.strokeRect(w / 2 - 15, -h / 2 + 8, 6.5, 6.5);
-    ctx.fillStyle = ['#8a7a63', '#7d7480', '#75816c'][v];
-    ctx.fillRect(-7, h / 2 - 8, 14, 8);
-    ctx.fillStyle = '#2c2620';
-    ctx.fillRect(-3, h / 2 - 7, 6, 7);
+    const wallCol = ['#8a7a63', '#7d7480', '#75816c'][v];
+    const roofCol = ['#7a4a3a', '#5d6470', '#6b5a45'][v];
+    const bx = -w / 2 + 5, by = -h / 2 + 7, bw = w - 10, bh = h - 15;
+    gabled(ctx, bx, by, bw, bh, 8, 7, wallCol, roofCol);
+    // front door + window on the SE gable end
+    doorway(ctx, bx, by, bw, bh, 8, 'se', { w: 5.5, h: 6.5, off: 3 });
+    doorway(ctx, bx, by, bw, bh, 8, 'se', { w: 5, h: 4, off: -5, col: 'rgba(58,90,138,0.85)' });
+    // brick chimney poking through the lit roof slope
+    billboard(ctx, bx + bw * 0.3, by + bh * 0.5, () => {
+      ctx.fillStyle = '#5a4f45';
+      ctx.fillRect(-2.4, -21, 4.8, 10);
+      ctx.strokeStyle = '#38322b';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(-2.4, -21, 4.8, 10);
+      ctx.fillStyle = '#38322b';
+      ctx.fillRect(-3, -22.3, 6, 1.8);
+    });
+    // porch stoop at the SW face
+    isoBox(ctx, bx + bw / 2 - 6, by + bh, 12, 5, 2.5, shade(wallCol, -0.12), { noShadow: true });
   };
   B.apartment = (ctx, t, o) => {
     const w = o.w, h = o.h;
     const v = Math.abs(Math.floor(((o.wx || 0) * 11 + (o.wy || 0) * 5))) % 2;
-    // deep shadow for a tall building
-    ctx.fillStyle = 'rgba(0,0,0,0.35)';
-    rr(ctx, -w / 2 + 8, -h / 2 + 9, w - 9, h - 11, 3); ctx.fill();
-    // flat roof with parapet
     const body = v ? '#6e6a72' : '#7a736a';
-    ctx.fillStyle = body;
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, (w - 6) / 2, h - 6, 3); ctx.fill();
-    // rooftop clutter: stairwell box, AC units, vents
+    // one tall block, three window storeys, lobby door on the SW street side
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 24, body, {
+      win: { rows: 3, paneH: 4.2, inset: 3.5, litRate: 1, seed: v * 3 + 1 },
+      doorSW: { w: 9, h: 8 },
+    });
+    // parapet
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1.6;
+    rr(ctx, rt[0] + 1, rt[1] + 1, w - 8, h - 8, 2);
+    ctx.stroke();
+    // rooftop clutter: stairwell box, AC units, water tank
     ctx.fillStyle = '#4d4a52';
-    ctx.fillRect(-w / 2 + 9, -h / 2 + 9, 13, 10);
-    ctx.strokeStyle = '#33313a'; ctx.lineWidth = 1;
-    ctx.strokeRect(-w / 2 + 9, -h / 2 + 9, 13, 10);
+    ctx.fillRect(rt[0] + 6, rt[1] + 6, 13, 10);
+    ctx.strokeStyle = '#33313a';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rt[0] + 6, rt[1] + 6, 13, 10);
     for (let i = 0; i < 3; i++) {
-      const ax = w / 2 - 15, ay = -h / 2 + 12 + i * 12;
+      const ax = rt[0] + w - 21, ay = rt[1] + 9 + i * 12;
       ctx.fillStyle = '#8b939e';
       ctx.fillRect(ax, ay, 8, 8);
       ctx.strokeStyle = '#5d646d';
       ctx.strokeRect(ax, ay, 8, 8);
       ctx.beginPath(); ctx.arc(ax + 4, ay + 4, 2.6, 0, TAU); ctx.stroke();
     }
-    ctx.fillStyle = '#3a3740';
-    for (let i = 0; i < 4; i++) ctx.fillRect(-8 + (i % 2) * 9, 2 + Math.floor(i / 2) * 9, 5, 5);
-    // rooftop water tank
-    drum3d(ctx, -6, h / 2 - 14, 6, '#5a5148', 3);
-    blinker(ctx, t, w / 2 - 8, -h / 2 + 8, '#ff5f5f', 2);
+    // water tank standing on the roof
+    billboard(ctx, rt[0] + 12, rt[1] + h - 18, () => {
+      ctx.strokeStyle = '#3e3830';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      ctx.moveTo(-4, 0); ctx.lineTo(-3, -4);
+      ctx.moveTo(4, 0); ctx.lineTo(3, -4);
+      ctx.stroke();
+      const tg = ctx.createLinearGradient(-5, 0, 5, 0);
+      tg.addColorStop(0, '#6b6156');
+      tg.addColorStop(0.5, '#8a7f71');
+      tg.addColorStop(1, '#544b41');
+      ctx.fillStyle = tg;
+      ctx.fillRect(-5, -13, 10, 9);
+      ctx.beginPath();
+      ctx.moveTo(-5, -13); ctx.lineTo(0, -16.5); ctx.lineTo(5, -13);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#3e3830';
+      ctx.lineWidth = 0.8;
+      ctx.strokeRect(-5, -13, 10, 9);
+    });
+    blinker(ctx, t, rt[0] + w - 9, rt[1] + 4, '#ff5f5f', 2);
   };
   B.barn = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    // dirt yard + shadow
+    // dirt yard
     ctx.fillStyle = 'rgba(120,100,60,0.3)';
-    ctx.beginPath(); ctx.ellipse(0, 2, w * 0.62, h * 0.6, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    rr(ctx, -w / 2 + 7, -h / 2 + 8, w - 9, h - 11, 3); ctx.fill();
-    // faded red gabled roof, ridge along the long axis
-    ctx.fillStyle = '#8a4438';
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.13)';
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, (h - 6) / 2, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(40,20,16,0.5)';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(-w / 2 + 4, 0); ctx.lineTo(w / 2 - 4, 0); ctx.stroke();
-    // plank seams
-    ctx.strokeStyle = 'rgba(0,0,0,0.18)';
+    ctx.beginPath(); ctx.ellipse(0, 2, w * 0.62, h * 0.5, 0, 0, TAU); ctx.fill();
+    // faded red barn: tall gabled body, ridge along the long axis
+    const bx = -w / 2 + 5, by = -h / 2 + 7, bw = w - 10, bh = h - 15;
+    gabled(ctx, bx, by, bw, bh, 9, 9, '#8a4438', '#96544a');
+    // plank seams on the shaded SW wall
+    ctx.strokeStyle = 'rgba(40,20,16,0.35)';
     ctx.lineWidth = 0.8;
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath(); ctx.moveTo(i * 11, -h / 2 + 4); ctx.lineTo(i * 11, h / 2 - 4); ctx.stroke();
+    for (let i = 1; i < 5; i++) {
+      const sx = bx + i * bw / 5;
+      ctx.beginPath();
+      ctx.moveTo(sx - 4.5, by + bh - 4.5);
+      ctx.lineTo(sx, by + bh);
+      ctx.stroke();
     }
-    // white door cross at the gable end
+    // big cross-braced doors on the SE gable end
+    doorway(ctx, bx, by, bw, bh, 9, 'se', { w: 9, h: 8, col: '#2e1f1a' });
     ctx.strokeStyle = '#e8e4da';
-    ctx.lineWidth = 1.6;
-    ctx.strokeRect(w / 2 - 12, -6, 9, 12);
+    ctx.lineWidth = 1.3;
+    const X = bx + bw, s0 = by + bh / 2 - 4.5;
     ctx.beginPath();
-    ctx.moveTo(w / 2 - 12, -6); ctx.lineTo(w / 2 - 3, 6);
-    ctx.moveTo(w / 2 - 3, -6); ctx.lineTo(w / 2 - 12, 6);
+    ctx.moveTo(X + 1.5, s0 + 1.5); ctx.lineTo(X + 8.5, s0 + 9 + 8.5);
+    ctx.moveTo(X + 1.5, s0 + 9 + 1.5); ctx.lineTo(X + 8.5, s0 + 8.5);
     ctx.stroke();
-    // hay bales by the wall
-    ctx.fillStyle = '#b89b4a';
-    ctx.beginPath(); ctx.arc(-w / 2 - 6, 6, 5, 0, TAU); ctx.fill();
-    ctx.beginPath(); ctx.arc(-w / 2 - 5, -5, 4.2, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#8f7838'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(-w / 2 - 6, 6, 2.6, 0, TAU); ctx.stroke();
+    // hayloft opening up in the gable
+    ctx.fillStyle = '#3b2a22';
+    ctx.beginPath();
+    ctx.moveTo(X - 11, by + bh / 2 - 2 - 11);
+    ctx.lineTo(X - 11, by + bh / 2 + 2 - 11);
+    ctx.lineTo(X - 14.5, by + bh / 2 + 2 - 14.5);
+    ctx.lineTo(X - 14.5, by + bh / 2 - 2 - 14.5);
+    ctx.closePath();
+    ctx.fill();
+    // hay bales in the yard out front (round bales standing upright)
+    for (const [hx2, hy2, hr] of [[bx + 8, by + bh + 9, 4.6], [bx + 19, by + bh + 11, 3.8]]) {
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.ellipse(hx2 + 1.5, hy2 + 1.5, hr * 1.1, hr * 0.55, 0, 0, TAU); ctx.fill();
+      billboard(ctx, hx2, hy2, () => {
+        ctx.fillStyle = '#b89b4a';
+        ctx.beginPath(); ctx.arc(0, -hr, hr, 0, TAU); ctx.fill();
+        ctx.strokeStyle = '#8f7838';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(0, -hr, hr * 0.55, 0, TAU); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, -hr, hr, 0, TAU); ctx.stroke();
+      });
+    }
   };
   B.derrick = (ctx, t, o) => {
     // oil-stained pad
@@ -3049,191 +3075,264 @@
     ctx.fillStyle = '#4a443c';
     rr(ctx, -o.w / 2 + 5, -o.h / 2 + 7, o.w - 10, o.h - 13, 3); ctx.fill();
     ctx.strokeStyle = '#2e2a24'; ctx.lineWidth = 1; ctx.stroke();
-    // lattice tower leaning up-left for height
-    ctx.strokeStyle = '#8b7f5e';
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(-9, 9); ctx.lineTo(-3, -15);
-    ctx.moveTo(5, 9); ctx.lineTo(-1, -15);
-    ctx.stroke();
-    ctx.lineWidth = 0.8;
-    for (let i = 1; i <= 3; i++) {
-      const f = i / 4;
+    // upright lattice derrick with a crown block
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(-2, 1, 12, 5.5, 0, 0, TAU); ctx.fill();
+    billboard(ctx, -4, -2, () => {
+      const H = 32;
+      lattice(ctx, H, 18, 4.5, '#8b7f5e', 4);
+      // crown platform + sheave
+      ctx.fillStyle = '#6e6248';
+      ctx.fillRect(-4, -H - 2, 8, 2.6);
+      ctx.strokeStyle = '#4a4232';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, -H - 4, 2, 0, TAU); ctx.stroke();
+      // drill line down the middle
+      ctx.strokeStyle = 'rgba(40,36,26,0.7)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(0, -H - 2); ctx.lineTo(0, 0); ctx.stroke();
+      if (Math.sin(t * 2) > 0.2) {
+        ctx.fillStyle = '#ffd75f';
+        ctx.beginPath(); ctx.arc(0, -H - 6, 1.5, 0, TAU); ctx.fill();
+      }
+    });
+    // nodding pumpjack on its A-frame beside the derrick
+    billboard(ctx, 12, 8, () => {
+      const nod = Math.sin(t * 2.1) * 0.22;
+      ctx.strokeStyle = '#59616c';
+      ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.moveTo(-9 + 6 * f, 9 - 24 * f);
-      ctx.lineTo(5 - 6 * f, 9 - 24 * f);
+      ctx.moveTo(-4, 0); ctx.lineTo(0, -9);
+      ctx.moveTo(4, 0); ctx.lineTo(0, -9);
       ctx.stroke();
-    }
-    // nodding pumpjack arm
-    const nod = Math.sin(t * 2.1) * 0.3;
-    ctx.save();
-    ctx.translate(4, 8);
-    ctx.rotate(nod);
-    ctx.strokeStyle = '#9a8a5f';
-    ctx.lineWidth = 2.4;
-    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(11, 0); ctx.stroke();
-    ctx.fillStyle = '#6e6248';
-    ctx.beginPath(); ctx.arc(11, 0, 3, 0, TAU); ctx.fill();
-    ctx.restore();
+      ctx.save();
+      ctx.translate(0, -9);
+      ctx.rotate(nod);
+      ctx.strokeStyle = '#9a8a5f';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath(); ctx.moveTo(-9, 0); ctx.lineTo(9, 0); ctx.stroke();
+      // horsehead + counterweight
+      ctx.fillStyle = '#6e6248';
+      ctx.beginPath();
+      ctx.moveTo(9, -3.4); ctx.lineTo(12.5, -1.5); ctx.lineTo(12.5, 2); ctx.lineTo(9, 3.4);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath(); ctx.arc(-9, 0, 3, 0, TAU); ctx.fill();
+      ctx.restore();
+    });
     drum3d(ctx, -o.w / 2 + 13, o.h / 2 - 13, 5, '#5d646d', 2);
     drum3d(ctx, -o.w / 2 + 22, o.h / 2 - 11, 4, '#4d5560', 2);
-    blinker(ctx, t, -2, -15, '#ffd75f', 2);
   };
   B.office = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    // deep shadow, then tiers stepping up-left like the glob HQ
-    ctx.fillStyle = 'rgba(0,0,0,0.4)';
-    rr(ctx, -w / 2 + 9, -h / 2 + 10, w - 10, h - 12, 3); ctx.fill();
-    block(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3, '#5d6470', 5);
-    block(ctx, -w / 2 + 8, -h / 2 + 8, w - 20, h - 20, 3, '#6a7280', 4);
-    // glass curtain streak
-    ctx.fillStyle = 'rgba(150,200,235,0.16)';
-    ctx.beginPath();
-    ctx.moveTo(-w * 0.18, h * 0.22); ctx.lineTo(-w * 0.02, -h * 0.28);
-    ctx.lineTo(w * 0.1, -h * 0.28); ctx.lineTo(-w * 0.06, h * 0.22);
-    ctx.closePath(); ctx.fill();
-    // roof furniture: elevator house, vents, dish
+    // the downtown garrison prize: two glass tiers with a lobby entrance
+    let rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 20, '#5d6470', {
+      win: { rows: 3, paneH: 3.6, inset: 2.5, litRate: 2, seed: 2, litCol: 'rgba(190,225,255,0.65)' },
+      doorSE: { w: 10, h: 8 },
+    });
+    rt = isoBox(ctx, rt[0] + 6, rt[1] + 6, w - 18, h - 18, 15, '#6a7280', {
+      win: { rows: 2, paneH: 3.6, inset: 2.5, litRate: 2, seed: 7, litCol: 'rgba(190,225,255,0.65)' },
+      noShadow: true,
+    });
+    // roof furniture: elevator house, AC pair, dish standing on the roof
     ctx.fillStyle = '#454c58';
-    ctx.fillRect(-w / 2 + 11, -h / 2 + 11, 11, 9);
-    ctx.strokeStyle = '#31363f'; ctx.lineWidth = 1;
-    ctx.strokeRect(-w / 2 + 11, -h / 2 + 11, 11, 9);
+    ctx.fillRect(rt[0] + 5, rt[1] + 5, 11, 9);
+    ctx.strokeStyle = '#31363f';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(rt[0] + 5, rt[1] + 5, 11, 9);
     ctx.fillStyle = '#8b939e';
-    for (let i = 0; i < 2; i++) ctx.fillRect(w / 2 - 20 + i * 8, -h / 2 + 13, 5, 5);
-    ctx.strokeStyle = '#9aa2ac';
-    ctx.beginPath(); ctx.arc(w / 2 - 15, h / 2 - 15, 4, 0.6, Math.PI * 1.4); ctx.stroke();
-    // window grid on the visible tier
-    ctx.fillStyle = 'rgba(20,24,30,0.5)';
-    for (let ix = 0; ix < 3; ix++) {
-      for (let iy = 0; iy < 3; iy++) ctx.fillRect(-8 + ix * 8, -4 + iy * 8, 4.5, 4.5);
-    }
-    blinker(ctx, t, 0, -h / 2 + 6, '#ff5f5f', 2.2);
+    for (let i = 0; i < 2; i++) ctx.fillRect(rt[0] + w - 32 + i * 8, rt[1] + 7, 5, 5);
+    billboard(ctx, rt[0] + w - 25, rt[1] + h - 25, () => {
+      ctx.strokeStyle = '#9aa2ac';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -5); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -6.5, 3.6, 0.5, Math.PI - 0.2); ctx.stroke();
+    });
+    blinker(ctx, t, rt[0] + (w - 18) / 2, rt[1] + 3, '#ff5f5f', 2.2);
   };
   B.shop = (ctx, t, o) => {
     const w = o.w, h = o.h;
     const v = Math.abs(Math.floor(((o.wx || 0) * 5 + (o.wy || 0) * 17))) % 3;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    rr(ctx, -w / 2 + 6, -h / 2 + 7, w - 8, h - 9, 3); ctx.fill();
-    // flat tar roof
-    ctx.fillStyle = ['#6b655c', '#5f6468', '#6e6055'][v];
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 2.5); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.09)';
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, (h - 6) / 2, 2.5); ctx.fill();
-    // striped storefront awning along the south face
+    const body = ['#6b655c', '#5f6468', '#6e6055'][v];
     const stripe = ['#b04a3a', '#3a6ab0', '#3a8a4a'][v];
-    for (let i = 0; i < Math.floor((w - 10) / 7); i++) {
+    const bx = -w / 2 + 3, by = -h / 2 + 3, bw = w - 6, bh = h - 6, V = 11;
+    const rt = isoBox(ctx, bx, by, bw, bh, V, body, {
+      doorSE: { w: 8, h: 7.5 },
+      win: { rows: 1, paneH: 4, inset: 2.5, litRate: 5, seed: v, litCol: 'rgba(255,238,170,0.6)' },
+    });
+    // striped awning leaning out over the storefront (SE wall)
+    const aw = bh - 8, s0 = by - V + 4;
+    const X = bx + bw; // SE wall roof-edge x
+    const nStripes = Math.floor(aw / 5);
+    for (let i = 0; i < nStripes; i++) {
+      const sA = s0 + i * (aw / nStripes), sB = s0 + (i + 1) * (aw / nStripes);
       ctx.fillStyle = i % 2 ? stripe : '#ded8c8';
-      ctx.fillRect(-w / 2 + 5 + i * 7, h / 2 - 7, 7, 6);
+      ctx.beginPath();
+      ctx.moveTo(X + 3, sA + 3);
+      ctx.lineTo(X + 3, sB + 3);
+      ctx.lineTo(X + 8.5, sB + 6);
+      ctx.lineTo(X + 8.5, sA + 6);
+      ctx.closePath();
+      ctx.fill();
     }
     ctx.strokeStyle = 'rgba(0,0,0,0.35)';
-    ctx.strokeRect(-w / 2 + 5, h / 2 - 7, Math.floor((w - 10) / 7) * 7, 6);
-    // rooftop sign box + AC unit
-    ctx.fillStyle = '#2e333b';
-    rr(ctx, -9, -h / 2 + 6, 18, 8, 1.5); ctx.fill();
-    ctx.fillStyle = ['#ffd75f', '#8cd0ff', '#7fff9f'][v];
-    ctx.font = 'bold 6px Arial';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(['MART', 'DINER', 'PAWN'][v], 0, -h / 2 + 10.2);
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(X + 8.5, s0 + 6);
+    ctx.lineTo(X + 8.5, s0 + aw + 6);
+    ctx.stroke();
+    // marquee sign standing on the roof edge, facing the street
+    billboard(ctx, rt[0] + bw - 4, rt[1] + bh / 2 + 4, () => {
+      ctx.fillStyle = '#2e333b';
+      rr(ctx, -10, -9, 20, 9, 1.5);
+      ctx.fill();
+      ctx.strokeStyle = '#191d23';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.fillStyle = ['#ffd75f', '#8cd0ff', '#7fff9f'][v];
+      ctx.font = 'bold 6px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(['MART', 'DINER', 'PAWN'][v], 0, -4.4);
+    });
+    // AC unit on the roof
     ctx.fillStyle = '#8b939e';
-    ctx.fillRect(w / 2 - 13, -h / 2 + 7, 6, 6);
-    ctx.strokeStyle = '#5d646d'; ctx.strokeRect(w / 2 - 13, -h / 2 + 7, 6, 6);
+    ctx.fillRect(rt[0] + 5, rt[1] + 5, 6, 6);
+    ctx.strokeStyle = '#5d646d';
+    ctx.strokeRect(rt[0] + 5, rt[1] + 5, 6, 6);
   };
   B.church = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    rr(ctx, -w / 2 + 6, -h / 2 + 8, w - 8, h - 10, 3); ctx.fill();
-    // long gabled nave, ridge down the long (vertical) axis
-    ctx.fillStyle = '#7d7468';
-    rr(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1.1; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.13)';
-    rr(ctx, -w / 2 + 4, -h / 2 + 4, (w - 8) / 2, h - 8, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(40,32,24,0.5)';
-    ctx.lineWidth = 1.3;
-    ctx.beginPath(); ctx.moveTo(0, -h / 2 + 5); ctx.lineTo(0, h / 2 - 5); ctx.stroke();
-    // shingle seams
-    ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.lineWidth = 0.7;
-    for (let i = -2; i <= 2; i++) {
-      ctx.beginPath(); ctx.moveTo(-w / 2 + 5, i * 9); ctx.lineTo(w / 2 - 5, i * 9); ctx.stroke();
+    // long gabled nave, ridge down the long axis
+    const bx = -w / 2 + 5, by = -h / 2 + 5, bw = w - 10, bh = h - 12;
+    gabled(ctx, bx, by, bw, bh, 9, 8, '#a49a88', '#7d7468', { axis: 'y' });
+    // arched stained-glass windows along the lit SE wall
+    ctx.fillStyle = 'rgba(58,90,138,0.85)';
+    const X = bx + bw;
+    for (let i = 0; i < 3; i++) {
+      const s = by + 4 + i * (bh - 12) / 2.6;
+      ctx.beginPath();
+      ctx.moveTo(X - 9 + 3, s - 9 + 3);
+      ctx.lineTo(X - 9 + 3, s + 4.5 - 9 + 3);
+      ctx.lineTo(X - 9 + 7.5, s + 4.5 - 9 + 7.5);
+      ctx.lineTo(X - 9 + 7.5, s - 9 + 7.5);
+      ctx.closePath();
+      ctx.fill();
     }
-    // steeple at the south end: white tower, dark spire cap, cross
-    ctx.fillStyle = '#e8e4da';
-    ctx.fillRect(-6, h / 2 - 16, 12, 12);
-    ctx.strokeStyle = '#a8a294'; ctx.lineWidth = 1;
-    ctx.strokeRect(-6, h / 2 - 16, 12, 12);
-    ctx.fillStyle = '#4a4440';
-    ctx.beginPath();
-    ctx.moveTo(-6, h / 2 - 16); ctx.lineTo(0, h / 2 - 22); ctx.lineTo(6, h / 2 - 16);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#f2eee2'; ctx.lineWidth = 1.4;
-    ctx.beginPath();
-    ctx.moveTo(0, h / 2 - 27); ctx.lineTo(0, h / 2 - 21);
-    ctx.moveTo(-2.4, h / 2 - 25); ctx.lineTo(2.4, h / 2 - 25);
-    ctx.stroke();
-    // stained-glass rose window at the north gable
-    ctx.fillStyle = '#3a5a8a';
-    ctx.beginPath(); ctx.arc(0, -h / 2 + 10, 3.4, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#d8d2c2'; ctx.lineWidth = 0.7; ctx.stroke();
+    // upright white steeple with a spire and cross at the street end
+    billboard(ctx, bx + bw / 2, by + bh - 2, () => {
+      ctx.fillStyle = '#e8e4da';
+      ctx.fillRect(-5.5, -26, 11, 16);
+      ctx.strokeStyle = '#a8a294';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-5.5, -26, 11, 16);
+      // belfry opening
+      ctx.fillStyle = '#4a4440';
+      rr(ctx, -2.6, -24, 5.2, 6.5, 2.4);
+      ctx.fill();
+      // spire
+      ctx.fillStyle = '#4a4440';
+      ctx.beginPath();
+      ctx.moveTo(-6.5, -26); ctx.lineTo(0, -38); ctx.lineTo(6.5, -26);
+      ctx.closePath();
+      ctx.fill();
+      // cross
+      ctx.strokeStyle = '#f2eee2';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(0, -44); ctx.lineTo(0, -37.5);
+      ctx.moveTo(-2.4, -42); ctx.lineTo(2.4, -42);
+      ctx.stroke();
+      // door at the base of the tower
+      ctx.fillStyle = '#3b332c';
+      rr(ctx, -3, -8, 6, 8, 2.6);
+      ctx.fill();
+    });
   };
   B.warehouse = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    rr(ctx, -w / 2 + 7, -h / 2 + 8, w - 9, h - 10, 3); ctx.fill();
-    // long ribbed metal roof
-    ctx.fillStyle = '#5f6a72';
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.4; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, (h - 6) / 2, 3); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.8;
-    for (let i = 1; i < Math.floor(w / 9); i++) {
-      const sx = -w / 2 + 3 + i * 9;
-      ctx.beginPath(); ctx.moveTo(sx, -h / 2 + 4); ctx.lineTo(sx, h / 2 - 4); ctx.stroke();
+    // long ribbed metal shed
+    const bx = -w / 2 + 3, by = -h / 2 + 3, bw = w - 6, bh = h - 6, V = 14;
+    const rt = isoBox(ctx, bx, by, bw, bh, V, '#5f6a72', {});
+    // roof ribs
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)';
+    ctx.lineWidth = 0.8;
+    for (let i = 1; i < Math.floor(bw / 9); i++) {
+      const sx = rt[0] + i * 9;
+      ctx.beginPath(); ctx.moveTo(sx, rt[1] + 2); ctx.lineTo(sx, rt[1] + bh - 2); ctx.stroke();
     }
-    // skylight strip
+    // skylight strip down the roof
     ctx.fillStyle = 'rgba(170,215,240,0.3)';
-    rr(ctx, -w / 2 + 10, -2.5, w - 20, 5, 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)'; ctx.lineWidth = 0.7; ctx.stroke();
-    // loading dock: two bay doors on the south side + pallets
-    ctx.fillStyle = '#3a3f45';
-    ctx.fillRect(-w / 2 + 10, h / 2 - 7, 12, 6);
-    ctx.fillRect(-w / 2 + 26, h / 2 - 7, 12, 6);
-    ctx.strokeStyle = 'rgba(220,190,80,0.6)'; ctx.lineWidth = 1;
-    ctx.strokeRect(-w / 2 + 10, h / 2 - 7, 12, 6);
-    ctx.strokeRect(-w / 2 + 26, h / 2 - 7, 12, 6);
-    ctx.fillStyle = '#8a6f42';
-    ctx.fillRect(w / 2 - 16, h / 2 - 9, 7, 5);
-    ctx.fillRect(w / 2 - 24, h / 2 - 8, 6, 4);
-    blinker(ctx, t, w / 2 - 7, -h / 2 + 7, '#ffd75f', 2.5);
+    rr(ctx, rt[0] + 7, rt[1] + bh / 2 - 2.5, bw - 14, 5, 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
+    ctx.lineWidth = 0.7;
+    ctx.stroke();
+    // loading dock: two bay doors on the SW street wall + pallets outside
+    doorway(ctx, bx, by, bw, bh, V, 'sw', { w: 12, h: 9, off: -12, col: '#3a3f45' });
+    doorway(ctx, bx, by, bw, bh, V, 'sw', { w: 12, h: 9, off: 4, col: '#3a3f45' });
+    ctx.strokeStyle = 'rgba(220,190,80,0.5)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(bx + 6, by + bh + 1.5); ctx.lineTo(bx + bw - 20, by + bh + 1.5);
+    ctx.stroke();
+    crateBox(ctx, bx + bw - 8, by + bh + 8, 6);
+    crateBox(ctx, bx + bw - 16, by + bh + 10, 5);
+    blinker(ctx, t, rt[0] + bw - 5, rt[1] + 4, '#ffd75f', 2.5);
   };
   B.gasstation = (ctx, t, o) => {
     const w = o.w, h = o.h;
     // oil-stained forecourt
     ctx.fillStyle = 'rgba(20,18,14,0.35)';
-    ctx.beginPath(); ctx.ellipse(2, 3, w * 0.55, h * 0.52, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(2, 3, w * 0.55, h * 0.42, 0, 0, TAU); ctx.fill();
     // kiosk at the west end
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    rr(ctx, -w / 2 + 6, -h / 2 + 8, 20, h - 12, 2); ctx.fill();
-    ctx.fillStyle = '#6e6558';
-    rr(ctx, -w / 2 + 4, -h / 2 + 5, 20, h - 12, 2); ctx.fill();
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1; ctx.stroke();
-    // white canopy over the pumps, red trim
-    ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    rr(ctx, -2, -h / 2 + 9, w / 2 - 4, h - 14, 2); ctx.fill();
+    isoBox(ctx, -w / 2 + 4, -h / 2 + 6, 20, h - 12, 9, '#6e6558',
+      { doorSE: { w: 6, h: 6.5 }, win: { rows: 1, paneH: 3.5, inset: 2.5, litRate: 5, litCol: 'rgba(255,238,170,0.55)' } });
+    // pump island under a white canopy on four posts
+    const cx0 = 2, cy0 = -h / 2 + 8, cw = w / 2 - 6, chh = h - 16, V = 14;
+    // pumps first (under the canopy)
+    for (const px of [cx0 + 7, cx0 + 17]) {
+      isoBox(ctx, px, cy0 + chh / 2 - 2, 5, 4, 6, '#b04a3a', { noShadow: true });
+    }
+    // corner posts
+    ctx.strokeStyle = '#8b939e';
+    ctx.lineWidth = 1.6;
+    for (const [px, py] of [[cx0, cy0], [cx0 + cw, cy0], [cx0 + cw, cy0 + chh], [cx0, cy0 + chh]]) {
+      ctx.beginPath();
+      ctx.moveTo(px, py);
+      ctx.lineTo(px - V, py - V);
+      ctx.stroke();
+    }
+    // floating canopy slab with red trim
     ctx.fillStyle = '#ded8cc';
-    rr(ctx, -4, -h / 2 + 6, w / 2 - 4, h - 14, 2); ctx.fill();
-    ctx.strokeStyle = '#b04a3a'; ctx.lineWidth = 1.6; ctx.stroke();
-    // pumps peeking out under the canopy edge
-    ctx.fillStyle = '#b04a3a';
-    ctx.fillRect(2, h / 2 - 8, 4, 5);
-    ctx.fillRect(12, h / 2 - 8, 4, 5);
-    // price sign + fuel drums
-    ctx.fillStyle = '#2e333b';
-    ctx.fillRect(w / 2 - 8, -h / 2 + 4, 6, 10);
-    ctx.fillStyle = '#ffd75f';
-    ctx.font = 'bold 5px Arial';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('GAS', w / 2 - 5, -h / 2 + 9);
+    rr(ctx, cx0 - V, cy0 - V, cw, chh, 2);
+    ctx.fill();
+    ctx.strokeStyle = '#b04a3a';
+    ctx.lineWidth = 1.8;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    rr(ctx, cx0 - V, cy0 - V, cw, chh / 2, 2);
+    ctx.fill();
+    // upright GAS totem sign by the road
+    billboard(ctx, w / 2 - 6, h / 2 - 6, () => {
+      ctx.strokeStyle = '#59616c';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -13); ctx.stroke();
+      ctx.fillStyle = '#2e333b';
+      rr(ctx, -6, -22, 12, 10, 1.5);
+      ctx.fill();
+      ctx.strokeStyle = '#191d23';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      ctx.fillStyle = '#ffd75f';
+      ctx.font = 'bold 5.5px Arial';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('GAS', 0, -18.5);
+      ctx.fillStyle = '#d8d2c2';
+      ctx.font = '4px Arial';
+      ctx.fillText('1.99', 0, -14.4);
+    });
     drum3d(ctx, -w / 2 + 9, h / 2 - 6, 4, '#8a4438', 2);
     drum3d(ctx, -w / 2 + 17, h / 2 - 5, 3.5, '#7a6f42', 2);
   };
