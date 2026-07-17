@@ -31,32 +31,37 @@
   const Particles = {
     spawn(p) { p.maxLife = p.maxLife || p.life; parts.push(p); },
 
-    shot(x1, y1, x2, y2, style = 'bullet') {
+    // z1/z2: screen-space altitudes of muzzle and impact (flying shooters
+    // and targets) — the tracer climbs or dives between them
+    shot(x1, y1, x2, y2, style = 'bullet', z1 = 0, z2 = 0) {
       const ws = WEAPON_STYLES[style] || WEAPON_STYLES.bullet;
       const d = Math.hypot(x2 - x1, y2 - y1);
       const a = Math.atan2(y2 - y1, x2 - x1);
-      this.spawn({ kind: 'flash', x: x1, y: y1, r: 3.5, life: 0.07, col: ws.color });
+      const life = Math.max(0.04, d / ws.speed);
+      this.spawn({ kind: 'flash', x: x1, y: y1, z: z1, r: 3.5, life: 0.07, col: ws.color });
       this.spawn({
-        kind: 'tracer', x: x1, y: y1,
+        kind: 'tracer', x: x1, y: y1, z: z1, vz: (z2 - z1) / life,
         vx: Math.cos(a) * ws.speed, vy: Math.sin(a) * ws.speed,
-        life: Math.max(0.04, d / ws.speed), col: ws.color,
+        life, col: ws.color,
       });
       this.spawn({
         kind: 'spark', x: x2 + (Math.random() - 0.5) * 6, y: y2 + (Math.random() - 0.5) * 6,
+        z: z2,
         vx: -Math.cos(a) * 40 + (Math.random() - 0.5) * 50,
         vy: -Math.sin(a) * 40 + (Math.random() - 0.5) * 50,
         drag: 4, life: 0.3, delay: d / ws.speed, col: ws.color,
       });
     },
 
-    smoke(x, y, r = 3) {
+    smoke(x, y, r = 3, z = 0) {
       // vz is a SCREEN-space rise: smoke climbs straight up regardless of
       // where "up" points in projected world coordinates
-      this.spawn({ kind: 'smoke', x, y, vx: (Math.random() - 0.5) * 8, vz: 12, r, grow: 9, life: 1.1 });
+      this.spawn({ kind: 'smoke', x, y, z, vx: (Math.random() - 0.5) * 8, vz: 12, r, grow: 9, life: 1.1 });
     },
 
-    bolt(x1, y1, x2, y2, col = [255, 245, 180]) {
-      this.spawn({ kind: 'bolt', x: x1, y: y1, x2, y2, life: 0.15, col });
+    // z1: screen altitude of the bolt's origin (storm strikes come from the sky)
+    bolt(x1, y1, x2, y2, col = [255, 245, 180], z1 = 0) {
+      this.spawn({ kind: 'bolt', x: x1, y: y1, z1, x2, y2, life: 0.15, col });
       this.spawn({ kind: 'flash', x: x2, y: y2, r: 5, life: 0.12, col });
     },
 
@@ -133,12 +138,13 @@
           ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${f})`;
           ctx.lineWidth = 1.8;
           ctx.beginPath();
-          ctx.moveTo(px, py);
+          const sy = py - (p.z1 || 0);
+          ctx.moveTo(px, sy);
           const qx = isoX(p.x2, p.y2), qy = isoY(p.x2, p.y2);
-          const dx = qx - px, dy = qy - py;
+          const dx = qx - px, dy = qy - sy;
           for (let i = 1; i <= 4; i++) {
             const seg = i / 5;
-            ctx.lineTo(px + dx * seg + (Math.random() - 0.5) * 9, py + dy * seg + (Math.random() - 0.5) * 9);
+            ctx.lineTo(px + dx * seg + (Math.random() - 0.5) * 9, sy + dy * seg + (Math.random() - 0.5) * 9);
           }
           ctx.lineTo(qx, qy);
           ctx.stroke();

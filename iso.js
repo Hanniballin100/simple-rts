@@ -27,6 +27,10 @@ function isoAngle(a) {
 // apply the ground-plane projection as a canvas transform
 function isoShear(ctx) { ctx.transform(1, 0.5, -1, 0.5, 0, 0); }
 
+// screen-space altitude airborne units are drawn at (their ground-plane
+// position and simulation are untouched — this is purely visual lift)
+const FLY_H = 24;
+
 // iso-space extents of the world rectangle (the ground diamond):
 // ix spans [-WORLD_H, WORLD_W], iy spans [0, (WORLD_W + WORLD_H) / 2]
 function isoSpanW() { return WORLD_W + WORLD_H; }

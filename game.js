@@ -819,7 +819,7 @@ function updateProjectiles(dt) {
         p.x += Math.cos(p.angle) * step;
         p.y += Math.sin(p.angle) * step;
         p.trail = (p.trail || 0) - dt;
-        if (p.trail <= 0) { p.trail = 0.05; Particles.smoke(p.x, p.y, 1.6); }
+        if (p.trail <= 0) { p.trail = 0.05; Particles.smoke(p.x, p.y, 1.6, FLY_H); }
       }
       continue;
     }
@@ -839,10 +839,11 @@ function updateProjectiles(dt) {
     } else {
       const f = p.t / p.dur;
       // ground-plane position; the lob arc is a SCREEN-space height (p.hgt)
-      // applied at draw time, not baked into world y
+      // applied at draw time, not baked into world y. Bombs fall from the
+      // release altitude instead of arcing up
       p.x = p.sx + (p.tx - p.sx) * f;
       p.y = p.sy + (p.ty - p.sy) * f;
-      p.hgt = Math.sin(Math.PI * f) * p.arc;
+      p.hgt = p.kind === 'bomb' ? (1 - f) * (FLY_H + 6) : Math.sin(Math.PI * f) * p.arc;
     }
   }
   state.projectiles = state.projectiles.filter(p => !p.done);
@@ -856,7 +857,7 @@ function updateZones(dt) {
         z.tick = 0.55;
         const a = Math.random() * Math.PI * 2, rad = Math.random() * z.r;
         const bx = z.x + Math.cos(a) * rad, by = z.y + Math.sin(a) * rad;
-        Particles.bolt(bx + 12, by - 46, bx, by);
+        Particles.bolt(bx + 8, by - 6, bx, by, [255, 245, 180], 55); // strike from the sky
         splashDamage(bx, by, 24, z.dmg || 15, z.caster, {}, true); // the storm doesn't care what flies
         if (tileState(bx, by) === 2) sfx('boom');
       }
@@ -946,8 +947,9 @@ function fireAt(u, target, t) {
           : [];
         for (const tgt of [target, ...extras]) {
           dealDamage(u, tgt, dmg, t);
+          const tz = (tgt.kind === 'unit' && UNIT_TYPES[tgt.type].flying && !tgt.landed) ? FLY_H : 0;
           Particles.shot(u.x + Math.cos(a + 1.5) * (t.r - 3), u.y + Math.sin(a + 1.5) * (t.r - 3),
-            tgt.x, tgt.y, 'bullet');
+            tgt.x, tgt.y, 'bullet', FLY_H, tz);
         }
         if (visible && u.burst % 3 === 0) sfx('shot');
       }
@@ -956,7 +958,8 @@ function fireAt(u, target, t) {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
       Particles.shot(u.x + Math.cos(a) * (t.r + 2), u.y + Math.sin(a) * (t.r + 2),
-        target.x, target.y, WEAPON_STYLE[state.factions[u.owner]]);
+        target.x, target.y, WEAPON_STYLE[state.factions[u.owner]],
+        (t.flying && !u.landed) ? FLY_H : 0, (isAir && !target.landed) ? FLY_H : 0);
       if (wkind === 'spray' && t.groundEffect && !isAir) {
         state.zones.push({
           x: target.x, y: target.y, r: t.groundEffect.r, until: state.time + t.groundEffect.dur,
@@ -1394,7 +1397,7 @@ function updateBuilding(b, dt) {
           dealDamage(b, foe, dmg, {});
           b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
           Particles.shot(b.x + Math.cos(b.turret) * (b.w / 2), b.y + Math.sin(b.turret) * (b.h / 2),
-            foe.x, foe.y, 'bullet');
+            foe.x, foe.y, 'bullet', 10, (foeAir && !foe.landed) ? FLY_H : 0);
           if (tileState(b.x, b.y) === 2) sfx('shot');
         }
       }
@@ -1480,7 +1483,8 @@ function updateBuilding(b, dt) {
         b.cooldown = bt.cooldown;
         b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
         Particles.shot(b.x + Math.cos(b.turret) * 10, b.y + Math.sin(b.turret) * 10,
-          foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]]);
+          foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]], 10,
+          (foe.kind === 'unit' && UNIT_TYPES[foe.type].flying && !foe.landed) ? FLY_H : 0);
         if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) {
           sfx(state.factions[b.owner] === 'glob' ? 'laser' : 'shot');
         }
@@ -1680,14 +1684,23 @@ function screenToWorld(e) {
   return isoUnproject(p.x, p.y);
 }
 
+// screen-space pick: does a ground-plane click land on the unit's DRAWN
+// sprite? (airborne craft render FLY_H above their ground position)
+function clickHitsUnit(u, wx, wy, pad = 4) {
+  const t = UNIT_TYPES[u.type];
+  const alt = (t.flying && !u.landed) ? FLY_H : 0;
+  return Math.hypot(isoX(u.x, u.y) - isoX(wx, wy),
+    isoY(u.x, u.y) - alt - isoY(wx, wy)) <= t.r * UNIT_DRAW_SCALE + pad;
+}
+
 function selectAt(x, y) {
-  const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && dist(u, { x, y }) <= UNIT_TYPES[u.type].r + 4);
+  const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, x, y, 4));
   const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   // no own entity under the cursor: inspect a visible enemy instead
   // (disguised infiltrators are excluded — clicking would blow their cover)
   const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !un.disguised && !un.garrisoned &&
-    visibleToPlayer(un) && dist(un, { x, y }) <= UNIT_TYPES[un.type].r + 4);
+    visibleToPlayer(un) && clickHitsUnit(un, x, y, 4));
   const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== PLAYER && bd.hp > 0 &&
     visibleToPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
   selection = u ? [u] : b ? [b] : eu ? [eu] : eb ? [eb] : [];
@@ -1736,7 +1749,7 @@ function issueCommand(x, y) {
   }
 
   const foe = enemiesOf(PLAYER).find(e => visibleToPlayer(e) &&
-    (e.kind === 'unit' ? dist(e, pt) <= UNIT_TYPES[e.type].r + 6
+    (e.kind === 'unit' ? clickHitsUnit(e, x, y, 6)
                        : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
   const patch = state.patches.find(p => p.amount > 0 && dist(p, pt) <= 20 && tileState(p.x, p.y) >= 1);
 
@@ -2328,14 +2341,22 @@ function drawUnitIso(u) {
   // rendered radius: sprites draw a touch larger than their collision size
   const rs = t.r * UNIT_DRAW_SCALE;
   const ix = isoX(u.x, u.y), iy = isoY(u.x, u.y);
+  // airborne craft ride a purely-visual screen altitude; sy anchors the sprite
+  const alt = (t.flying && !grounded) ? FLY_H : 0;
+  const sy = iy - alt;
   ctx.save();
-  ctx.translate(ix, iy + bob);
-  ctx.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
   // your own gaslight phantoms look ghostly to you; enemy ones look real
   if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
-  // shadows are ground-plane ellipses
-  if (t.flying && !grounded) Art.shadow(ctx, t.r * 0.9, t.r * 0.45, 8, 13 - bob);
-  else Art.shadow(ctx, t.r * 1.15, t.r * 0.6, 0, 1.5);
+  if (alt) {
+    // shadow stays on the ground while the craft flies above it
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.beginPath();
+    ctx.ellipse(ix + 5, iy + 3, rs * 0.9, rs * 0.45, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.translate(ix, sy + bob);
+  ctx.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
+  if (!alt) Art.shadow(ctx, t.r * 1.15, t.r * 0.6, 0, 1.5); // ground-plane contact shadow
   ctx.save();
   ctx.scale(1, 0.5); // squash the glow into a ground pool
   Art.teamGlow(ctx, t.r + 8, drawCol);
@@ -2351,22 +2372,22 @@ function drawUnitIso(u) {
   ctx.restore();
   if (u.carrying > 0) {
     ctx.fillStyle = '#3fd7d0';
-    ctx.fillRect(ix - 3, iy - rs - 7, 6, 5);
+    ctx.fillRect(ix - 3, sy - rs - 7, 6, 5);
   }
   if (selection.includes(u)) {
     ctx.strokeStyle = u.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.ellipse(ix, iy, rs + 5, (rs + 5) * 0.55, 0, 0, Math.PI * 2);
+    ctx.ellipse(ix, sy, rs + 5, (rs + 5) * 0.55, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
-  if (u.hp < u.maxHp) drawBar(ix, iy - rs - 12, rs * 2.4, u.hp / u.maxHp);
+  if (u.hp < u.maxHp) drawBar(ix, sy - rs - 12, rs * 2.4, u.hp / u.maxHp);
   if (t.maxAmmo && (u.ammo < t.maxAmmo || selection.includes(u))) {
     const w = rs * 2.2;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
-    ctx.fillRect(ix - w / 2, iy + rs + 5, w, 3);
+    ctx.fillRect(ix - w / 2, sy + rs + 5, w, 3);
     ctx.fillStyle = '#ffd75f';
-    ctx.fillRect(ix - w / 2, iy + rs + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
+    ctx.fillRect(ix - w / 2, sy + rs + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
   }
   ctx.globalAlpha = 1;
 }
@@ -2378,7 +2399,7 @@ function drawBeamsIso() {
     const tgt = state.units.find(un => un.id === b.beamId && un.hp > 0);
     if (!tgt || !visibleToPlayer(tgt)) continue;
     const bx = isoX(b.x, b.y), by = isoY(b.x, b.y) - 10;
-    const tx = isoX(tgt.x, tgt.y), ty = isoY(tgt.x, tgt.y);
+    const tx = isoX(tgt.x, tgt.y), ty = isoY(tgt.x, tgt.y) - (tgt.landed ? 0 : FLY_H);
     const bg = ctx.createLinearGradient(bx, by, tx, ty);
     bg.addColorStop(0, 'rgba(125,255,214,0.85)');
     bg.addColorStop(1, 'rgba(125,255,214,0.25)');
@@ -2402,8 +2423,11 @@ function drawProjectilesIso() {
   for (const p of state.projectiles) {
     const px = isoX(p.x, p.y), py = isoY(p.x, p.y);
     if (p.kind === 'missile') {
+      // missiles chase aircraft, so they fly at aircraft altitude
+      ctx.fillStyle = 'rgba(0,0,0,0.25)';
+      ctx.beginPath(); ctx.ellipse(px, py, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
       ctx.save();
-      ctx.translate(px, py);
+      ctx.translate(px, py - FLY_H);
       ctx.rotate(isoAngle(p.angle));
       ctx.fillStyle = '#e8edf2';
       ctx.fillRect(-4, -1.4, 8, 2.8);
@@ -2987,7 +3011,7 @@ canvas.addEventListener('mousedown', e => {
       abilityTargeting = null;
       if (mode === 'zone') castWeather(PLAYER, p.x, p.y);
       if (mode === 'unit') {
-        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && dist(u, p) <= UNIT_TYPES[u.type].r + 8);
+        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
         if (target) castClone(PLAYER, target);
       }
       refreshPanel();
@@ -3066,11 +3090,14 @@ window.addEventListener('mouseup', e => {
     const w = isoUnproject(x1, y1);
     selectAt(w.x, w.y);
   } else {
-    // the box is iso-screen-aligned: test each unit's PROJECTED position
-    let picked = state.units.filter(u =>
-      u.owner === PLAYER && u.hp > 0 && !u.garrisoned &&
-      isoX(u.x, u.y) >= x1 && isoX(u.x, u.y) <= x2 &&
-      isoY(u.x, u.y) >= y1 && isoY(u.x, u.y) <= y2);
+    // the box is iso-screen-aligned: test each unit's DRAWN position
+    // (airborne sprites ride FLY_H above their ground point)
+    let picked = state.units.filter(u => {
+      if (u.owner !== PLAYER || u.hp <= 0 || u.garrisoned) return false;
+      const alt = (UNIT_TYPES[u.type].flying && !u.landed) ? FLY_H : 0;
+      const px = isoX(u.x, u.y), py = isoY(u.x, u.y) - alt;
+      return px >= x1 && px <= x2 && py >= y1 && py <= y2;
+    });
     // a drag over a mixed crowd grabs the army and leaves the workers mining
     if (picked.some(u => UNIT_TYPES[u.type].role === 'combat')) {
       picked = picked.filter(u => UNIT_TYPES[u.type].role === 'combat');
