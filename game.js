@@ -2233,7 +2233,8 @@ function drawBuildingIso(b) {
       const on = !powerOf(b.owner).low;
       const ta = b.turret !== undefined ? b.turret : Math.atan2(WORLD_H / 2 - b.y, WORLD_W / 2 - b.x);
       ctx.save();
-      ctx.translate(ix, iy);
+      // towers with a raised platform carry the turret at its top
+      ctx.translate(ix, iy - (Art.turretLift[b.type] || 0));
       // turret ring with its own drop shadow (ground-plane ellipses)
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
       ctx.beginPath(); ctx.ellipse(1.2, 1.8, 7, 4.4, 0, 0, Math.PI * 2); ctx.fill();
@@ -2397,7 +2398,7 @@ function drawBeamsIso() {
     if (!b.beamId || b.hp <= 0) continue;
     const tgt = state.units.find(un => un.id === b.beamId && un.hp > 0);
     if (!tgt || !visibleToPlayer(tgt)) continue;
-    const bx = isoX(b.x, b.y), by = isoY(b.x, b.y) - 10;
+    const bx = isoX(b.x, b.y), by = isoY(b.x, b.y) - (Art.turretLift[b.type] || 10);
     const tx = isoX(tgt.x, tgt.y), ty = isoY(tgt.x, tgt.y) - (tgt.landed ? 0 : FLY_H);
     const bg = ctx.createLinearGradient(bx, by, tx, ty);
     bg.addColorStop(0, 'rgba(125,255,214,0.85)');

@@ -1391,6 +1391,246 @@
     ctx.stroke();
   }
 
+  // ---------- RA2-style iso construction kit ----------
+  // Everything below runs inside the local sheared ground frame.
+
+  // Draw in TRUE SCREEN AXES at a ground point: un-shears the frame so fn
+  // draws with x = screen right, negative y = screen up, origin at (gx, gy)
+  // on the ground. Use for anything vertical: masts, spires, dishes, poles.
+  function billboard(ctx, gx, gy, fn) {
+    ctx.save();
+    ctx.translate(gx, gy);
+    ctx.transform(0.5, -0.5, 1, 1, 0, 0); // inverse of the iso shear
+    fn();
+    ctx.restore();
+  }
+
+  // Window panes marching along both visible wall faces of an isoBox.
+  // A point on the SE face at edge offset s (0..h) and drop k (0..hgt from
+  // the roof) sits at (rx + w + k, ry + s + k); the SW face swaps roles.
+  function wallWindows(ctx, x, y, w, h, hgt, win) {
+    const rows = win.rows || 1;
+    const inset = win.inset !== undefined ? win.inset : 3;
+    const rowStep = (hgt - inset * 2) / rows;
+    const paneH = Math.min(win.paneH || 4.5, rowStep - 1.5);
+    if (paneH < 1.8) return;
+    const dark = win.col || 'rgba(15,20,28,0.8)';
+    const lit = win.litCol || 'rgba(180,220,250,0.7)';
+    const rx = x - hgt, ry = y - hgt;
+    const pane = (px, py, k0, dx, dy, len) => {
+      ctx.beginPath();
+      ctx.moveTo(px + k0, py + k0);
+      ctx.lineTo(px + dx * len + k0, py + dy * len + k0);
+      ctx.lineTo(px + dx * len + k0 + paneH, py + dy * len + k0 + paneH);
+      ctx.lineTo(px + k0 + paneH, py + k0 + paneH);
+      ctx.closePath();
+      ctx.fill();
+    };
+    for (let j = 0; j < rows; j++) {
+      const k0 = inset + j * rowStep;
+      const nSE = Math.max(1, Math.floor((h - 6) / (win.pitch || 9)));
+      const stepSE = (h - 6) / nSE;
+      for (let i = 0; i < nSE; i++) {
+        ctx.fillStyle = ((i * 7 + j * 13 + (win.seed || 0)) % 5 < (win.litRate || 0)) ? lit : dark;
+        pane(rx + w, ry + 4 + i * stepSE, k0, 0, 1, stepSE - 3);
+      }
+      const nSW = Math.max(1, Math.floor((w - 6) / (win.pitch || 9)));
+      const stepSW = (w - 6) / nSW;
+      ctx.fillStyle = 'rgba(8,11,16,0.8)'; // shadow-side panes read darker
+      for (let i = 0; i < nSW; i++) {
+        pane(rx + 4 + i * stepSW, ry + h, k0, 1, 0, stepSW - 3);
+      }
+    }
+  }
+
+  // dark doorway reaching the ground, centered on a wall face
+  function doorway(ctx, x, y, w, h, hgt, side, opt) {
+    const o2 = opt === true ? {} : (opt || {});
+    const dw = o2.w || 9;
+    const dh = Math.min(hgt - 1.5, o2.h || 10);
+    const k0 = hgt - dh;
+    const rx = x - hgt, ry = y - hgt;
+    ctx.fillStyle = o2.col || 'rgba(10,12,16,0.92)';
+    ctx.beginPath();
+    if (side === 'se') {
+      const s0 = h / 2 - dw / 2 + (o2.off || 0);
+      ctx.moveTo(rx + w + k0, ry + s0 + k0);
+      ctx.lineTo(rx + w + k0, ry + s0 + dw + k0);
+      ctx.lineTo(x + w, y + s0 + dw);
+      ctx.lineTo(x + w, y + s0);
+    } else {
+      const s0 = w / 2 - dw / 2 + (o2.off || 0);
+      ctx.moveTo(rx + s0 + k0, ry + h + k0);
+      ctx.lineTo(rx + s0 + dw + k0, ry + h + k0);
+      ctx.lineTo(x + s0 + dw, y + h);
+      ctx.lineTo(x + s0, y + h);
+    }
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  }
+
+  // One rectangular storey with true walls and window/door detail.
+  // (x, y, w, h) is the GROUND footprint; the roof rises hgt px straight up.
+  // opts: { r, roofCol, win: {rows, litRate, seed, ...}, doorSE, doorSW,
+  //         noShadow }. Returns [rx, ry] — the roof rect's origin — so
+  // callers can stack rooftop detail (or another storey) on top.
+  function isoBox(ctx, x, y, w, h, hgt, col, opt = {}) {
+    const rx = x - hgt, ry = y - hgt;
+    const r = opt.r !== undefined ? opt.r : 2;
+    if (!opt.noShadow) {
+      ctx.fillStyle = 'rgba(0,0,0,0.30)';
+      rr(ctx, x - hgt * 0.12, y + hgt * 0.4, w, h, r);
+      ctx.fill();
+    }
+    // SE wall (lit — light from the NE)
+    const se = ctx.createLinearGradient(rx + w, ry + h / 2, x + w, y + h / 2);
+    se.addColorStop(0, shade(col, -0.04));
+    se.addColorStop(1, shade(col, -0.3));
+    ctx.fillStyle = se;
+    ctx.beginPath();
+    ctx.moveTo(rx + w, ry + r * 0.3);
+    ctx.lineTo(rx + w, ry + h);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + w, y + r * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = shade(col, -0.55);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // SW wall (shaded)
+    const sw = ctx.createLinearGradient(rx + w / 2, ry + h, x + w / 2, y + h);
+    sw.addColorStop(0, shade(col, -0.3));
+    sw.addColorStop(1, shade(col, -0.52));
+    ctx.fillStyle = sw;
+    ctx.beginPath();
+    ctx.moveTo(rx + r * 0.3, ry + h);
+    ctx.lineTo(rx + w, ry + h);
+    ctx.lineTo(x + w, y + h);
+    ctx.lineTo(x + r * 0.3, y + h);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+    if (opt.win) wallWindows(ctx, x, y, w, h, hgt, opt.win);
+    if (opt.doorSE) doorway(ctx, x, y, w, h, hgt, 'se', opt.doorSE);
+    if (opt.doorSW) doorway(ctx, x, y, w, h, hgt, 'sw', opt.doorSW);
+    // roof
+    const rc = opt.roofCol || col;
+    const g = ctx.createLinearGradient(rx + w, ry, rx, ry + h);
+    g.addColorStop(0, shade(rc, 0.18));
+    g.addColorStop(1, shade(rc, -0.1));
+    ctx.fillStyle = g;
+    rr(ctx, rx, ry, w, h, r);
+    ctx.fill();
+    ctx.strokeStyle = shade(rc, -0.5);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.beginPath();
+    ctx.moveTo(rx + r, ry + 1.1);
+    ctx.lineTo(rx + w - 1.1, ry + 1.1);
+    ctx.lineTo(rx + w - 1.1, ry + h - r);
+    ctx.stroke();
+    return [rx, ry];
+  }
+
+  // Pitched-roof building: walls to wallH, then two roof planes meeting at
+  // a ridge. axis 'x': ridge runs along local x (gable ends face ±x);
+  // axis 'y': ridge along local y. Both slopes are visible from this angle.
+  function gabled(ctx, x, y, w, h, wallH, roofH, wallCol, roofCol, opt = {}) {
+    const T = wallH, R2 = wallH + roofH;
+    const axis = opt.axis || 'x';
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    rr(ctx, x - T * 0.12, y + T * 0.4, w, h, 2);
+    ctx.fill();
+    const quad = (a, b, c, d, col2) => {
+      ctx.fillStyle = col2;
+      ctx.beginPath();
+      ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]);
+      ctx.lineTo(c[0], c[1]); ctx.lineTo(d[0], d[1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+    };
+    if (axis === 'x') {
+      // SW eave wall
+      quad([x - T, y + h - T], [x + w - T, y + h - T], [x + w, y + h], [x, y + h], shade(wallCol, -0.34));
+      // SE gable wall (pentagon)
+      ctx.fillStyle = shade(wallCol, -0.08);
+      ctx.beginPath();
+      ctx.moveTo(x + w, y);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x + w - T, y + h - T);
+      ctx.lineTo(x + w - R2, y + h / 2 - R2);
+      ctx.lineTo(x + w - T, y - T);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+      // NE roof plane (lit) then SW plane (shaded)
+      quad([x - T, y - T], [x + w - T, y - T], [x + w - R2, y + h / 2 - R2], [x - R2, y + h / 2 - R2], shade(roofCol, 0.14));
+      quad([x - R2, y + h / 2 - R2], [x + w - R2, y + h / 2 - R2], [x + w - T, y + h - T], [x - T, y + h - T], shade(roofCol, -0.2));
+      // ridge highlight
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(x - R2 + 1, y + h / 2 - R2);
+      ctx.lineTo(x + w - R2 - 1, y + h / 2 - R2);
+      ctx.stroke();
+    } else {
+      // SE eave wall (lit)
+      quad([x + w - T, y - T], [x + w - T, y + h - T], [x + w, y + h], [x + w, y], shade(wallCol, -0.08));
+      // S gable wall (pentagon, shaded)
+      ctx.fillStyle = shade(wallCol, -0.34);
+      ctx.beginPath();
+      ctx.moveTo(x, y + h);
+      ctx.lineTo(x + w, y + h);
+      ctx.lineTo(x + w - T, y + h - T);
+      ctx.lineTo(x + w / 2 - R2, y + h - R2);
+      ctx.lineTo(x - T, y + h - T);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+      // E roof plane (lit) then W plane (shaded)
+      quad([x + w - T, y - T], [x + w - T, y + h - T], [x + w / 2 - R2, y + h - R2], [x + w / 2 - R2, y - R2], shade(roofCol, 0.14));
+      quad([x + w / 2 - R2, y - R2], [x + w / 2 - R2, y + h - R2], [x - T, y + h - T], [x - T, y - T], shade(roofCol, -0.2));
+      ctx.strokeStyle = 'rgba(255,255,255,0.28)';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath();
+      ctx.moveTo(x + w / 2 - R2, y - R2 + 1);
+      ctx.lineTo(x + w / 2 - R2, y + h - R2 - 1);
+      ctx.stroke();
+    }
+  }
+
+  // upright lattice mast (call inside billboard(): screen axes, y up = -y)
+  function lattice(ctx, hgt, baseW, topW, col = '#98a1ac', braces = 4) {
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(-baseW / 2, 0); ctx.lineTo(-topW / 2, -hgt);
+    ctx.moveTo(baseW / 2, 0); ctx.lineTo(topW / 2, -hgt);
+    ctx.stroke();
+    ctx.lineWidth = 0.7;
+    for (let i = 1; i <= braces; i++) {
+      const f = i / (braces + 1), fp = (i - 1) / (braces + 1);
+      const wH = baseW + (topW - baseW) * f;
+      const wP = baseW + (topW - baseW) * fp;
+      ctx.beginPath();
+      ctx.moveTo(-wH / 2, -hgt * f); ctx.lineTo(wH / 2, -hgt * f);
+      ctx.moveTo(-wP / 2, -hgt * fp); ctx.lineTo(wH / 2, -hgt * f);
+      ctx.moveTo(wP / 2, -hgt * fp); ctx.lineTo(-wH / 2, -hgt * f);
+      ctx.stroke();
+    }
+  }
+
   function blinker(ctx, t, x, y, col = '#ff5f5f', rate = 3) {
     if (Math.sin(t * rate) > 0.2) {
       ctx.fillStyle = col;
@@ -2150,22 +2390,54 @@
   // ================= TOWERS (engine draws the turret on top) =================
   B.watchtower = (ctx, t, o) => {
     pad(ctx, o);
-    // raised timber deck on stilts, plank grain running across it
-    towerDeck(ctx, 14, '#8f7448', '#54401f');
+    const V = 24; // deck height
+    // shadow of the elevated deck
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    rr(ctx, -9, -5, 22, 22, 2);
+    ctx.fill();
+    // four timber legs from footprint corners up to the deck underside
+    // (the N leg hides behind the deck), with X-braces on both faces
+    ctx.strokeStyle = '#5c4a2c';
+    ctx.lineWidth = 2.2;
+    for (const [cx, cy] of [[9, -9], [9, 9], [-9, 9]]) {
+      ctx.beginPath();
+      ctx.moveTo(cx, cy);
+      ctx.lineTo(cx - V, cy - V);
+      ctx.stroke();
+    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#4a3b21';
+    ctx.beginPath(); // SE face braces
+    ctx.moveTo(9, -9); ctx.lineTo(9 - V * 0.55, 9 - V * 0.55);
+    ctx.moveTo(9, 9); ctx.lineTo(9 - V * 0.55, -9 - V * 0.55);
+    // SW face braces
+    ctx.moveTo(9, 9); ctx.lineTo(-9 - V * 0.55, 9 - V * 0.55);
+    ctx.moveTo(-9, 9); ctx.lineTo(9 - V * 0.55, 9 - V * 0.55);
+    ctx.stroke();
+    // ladder up the SE face
+    billboard(ctx, 12, 4, () => {
+      ctx.strokeStyle = '#6e5a35';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0); ctx.lineTo(-2, -V + 3);
+      ctx.moveTo(2, 0); ctx.lineTo(2, -V + 3);
+      for (let yy = -3; yy > -V + 3; yy -= 4) { ctx.moveTo(-2, yy); ctx.lineTo(2, yy); }
+      ctx.stroke();
+    });
+    // plank deck riding at height V, with a sandbag parapet on the rim
+    isoBox(ctx, -11 - V, -11 - V, 22, 22, 4, '#8f7448', { noShadow: true, r: 1.5 });
     ctx.strokeStyle = 'rgba(60,45,25,0.5)';
-    ctx.lineWidth = 0.9;
-    for (let i = -10; i <= 10; i += 4) {
-      const half = Math.sqrt(Math.max(0, 14 * 14 - i * i)) - 1.5;
-      ctx.beginPath(); ctx.moveTo(i, -half); ctx.lineTo(i, half); ctx.stroke();
+    ctx.lineWidth = 0.8;
+    for (let i = -8; i <= 8; i += 4) {
+      ctx.beginPath();
+      ctx.moveTo(-11 - V + 10 + i, -11 - V - 4 + 1.5);
+      ctx.lineTo(-11 - V + 10 + i, 11 - V - 4 - 1.5);
+      ctx.stroke();
     }
-    // corner support posts poking through the deck
-    ctx.fillStyle = '#3f311c';
-    for (const a of [0.79, 2.36, 3.93, 5.5]) {
-      ctx.beginPath(); ctx.arc(Math.cos(a) * 11, Math.sin(a) * 11, 2, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#5c4a2c';
-      ctx.beginPath(); ctx.arc(Math.cos(a) * 11 - 0.6, Math.sin(a) * 11 - 0.6, 1, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#3f311c';
-    }
+    sandbag(ctx, 8 - V - 4, -6 - V - 4, 0.8);
+    sandbag(ctx, 9 - V - 4, 2 - V - 4, 0.9);
+    sandbag(ctx, -2 - V - 4, 9 - V - 4, 0.1);
+    sandbag(ctx, -8 - V - 4, 8 - V - 4, 0.25);
     // sandbags dumped around the base
     sandbag(ctx, -13, 15, 0.3);
     sandbag(ctx, -4, 17, -0.2);
@@ -2173,66 +2445,109 @@
   };
   B.tower5g = (ctx, t, o) => {
     pad(ctx, o);
-    // raised steel platform carrying the lattice mast
-    towerDeck(ctx, 13, '#414b56', '#20252c');
-    // lattice legs converging on the emitter head
-    ctx.strokeStyle = '#98a1ac';
-    ctx.lineWidth = 1.3;
+    // equipment cabin + fenced base slab
+    isoBox(ctx, 2, -14, 12, 11, 7, '#4a525e', { doorSW: { w: 5, h: 6 } });
+    const H = 38; // mast height
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath();
-    ctx.moveTo(-8.5, 7.5); ctx.lineTo(0, -7); ctx.lineTo(8.5, 7.5);
-    ctx.moveTo(-5.5, 2.5); ctx.lineTo(5.5, 2.5);
-    ctx.moveTo(-3, -2.5); ctx.lineTo(3, -2.5);
-    ctx.stroke();
-    // emitter head: metal drum ringed by sector antenna panels
-    drum3d(ctx, 0, -7, 3.6, '#79828e', 2);
-    ctx.fillStyle = '#d5dae2';
-    for (const a of [-Math.PI / 2, Math.PI / 6, Math.PI - Math.PI / 6]) {
-      ctx.save();
-      ctx.translate(0, -7);
-      ctx.rotate(a);
-      ctx.fillRect(3.4, -1.6, 1.8, 3.2);
-      ctx.restore();
-    }
-    if (o.on) {
-      for (let i = 0; i < 3; i++) {
-        const ph = ((t * 0.9 + i / 3) % 1);
-        ctx.strokeStyle = `rgba(140,208,255,${0.75 * (1 - ph)})`;
-        ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.arc(0, -7, 4 + ph * 12, -2.2, -0.9); ctx.stroke();
-        ctx.beginPath(); ctx.arc(0, -7, 4 + ph * 12, Math.PI + 0.9, Math.PI + 2.2); ctx.stroke();
+    ctx.ellipse(-3, 7, 12, 5, 0, 0, TAU);
+    ctx.fill();
+    // upright cell mast: lattice trunk, sector antenna panels, dishes
+    billboard(ctx, -3, 5, () => {
+      lattice(ctx, H, 15, 5, '#a8b0ba', 5);
+      // microwave drums mid-mast
+      ctx.fillStyle = '#7c848f';
+      ctx.beginPath(); ctx.ellipse(-4, -H * 0.55, 2.6, 3.2, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(4.4, -H * 0.62, 2.2, 2.8, 0, 0, TAU); ctx.fill();
+      // head platform
+      ctx.fillStyle = '#59616c';
+      ctx.fillRect(-6.5, -H - 1.5, 13, 3);
+      // three sector panels fanned around the head
+      for (const [px, rot] of [[-6, -0.28], [0, 0], [6, 0.28]]) {
+        ctx.save();
+        ctx.translate(px, -H + 2.5);
+        ctx.rotate(rot);
+        const pg = ctx.createLinearGradient(-1.8, 0, 1.8, 0);
+        pg.addColorStop(0, '#e8ecf1');
+        pg.addColorStop(1, '#b7bfc9');
+        ctx.fillStyle = pg;
+        rr(ctx, -1.9, -5.5, 3.8, 11, 1.2);
+        ctx.fill();
+        ctx.strokeStyle = '#6d7480';
+        ctx.lineWidth = 0.7;
+        ctx.stroke();
+        ctx.restore();
       }
-    }
-    blinker(ctx, t, 0, -7, '#ff5f5f', 2.4);
+      // 5G waves washing out from the head
+      if (o.on) {
+        for (let i = 0; i < 3; i++) {
+          const ph = ((t * 0.9 + i / 3) % 1);
+          ctx.strokeStyle = `rgba(140,208,255,${0.7 * (1 - ph)})`;
+          ctx.lineWidth = 1.3;
+          ctx.beginPath(); ctx.arc(0, -H + 2, 6 + ph * 13, -2.4, -0.7); ctx.stroke();
+          ctx.beginPath(); ctx.arc(0, -H + 2, 6 + ph * 13, Math.PI + 0.7, Math.PI + 2.4); ctx.stroke();
+        }
+      }
+      // aviation light on the tip
+      if (Math.sin(t * 2.4) > 0.2) {
+        ctx.fillStyle = '#ff5f5f';
+        ctx.beginPath(); ctx.arc(0, -H - 3.5, 1.6, 0, TAU); ctx.fill();
+      }
+    });
   };
   B.stalagmite = (ctx, t, o) => {
     pad(ctx, o);
+    // rubble skirt on the ground
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(2, 3, 15, 13, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(3, 4, 15, 7, 0, 0, TAU); ctx.fill();
     ctx.fillStyle = '#665c4e';
-    ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fill();
-    for (const [px, py, s] of [[-8, 5, 7], [8, 6, 6], [0, -7, 8], [-10, -6, 5], [10, -5, 5]]) {
-      const g = ctx.createLinearGradient(px - s, py, px + s, py);
-      g.addColorStop(0, '#9c9080');
+    ctx.beginPath(); ctx.ellipse(0, 0, 14, 7.5, 0, 0, TAU); ctx.fill();
+    for (const [px, py, s] of [[-10, 3, 3.4], [11, 2, 2.8], [4, 6, 2.4]]) {
+      ctx.fillStyle = '#544b3f';
+      ctx.beginPath(); ctx.ellipse(px, py, s, s * 0.6, 0.3, 0, TAU); ctx.fill();
+    }
+    // one towering rock spike (the turret perches on its flat tip)
+    const H = 26;
+    billboard(ctx, 0, 2, () => {
+      const g = ctx.createLinearGradient(-9, 0, 9, 0);
+      g.addColorStop(0, '#57503f');
+      g.addColorStop(0.55, '#9c9080');
       g.addColorStop(1, '#6e6355');
       ctx.fillStyle = g;
       ctx.beginPath();
-      ctx.moveTo(px - s * 0.7, py + s * 0.5);
-      ctx.lineTo(px, py - s);
-      ctx.lineTo(px + s * 0.7, py + s * 0.5);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#544b3f';
-      ctx.lineWidth = 0.7;
+      ctx.moveTo(-10, 0);
+      ctx.lineTo(-7, -H * 0.45);
+      ctx.lineTo(-4.5, -H * 0.8);
+      ctx.lineTo(-3, -H);
+      ctx.lineTo(3.5, -H);
+      ctx.lineTo(6, -H * 0.7);
+      ctx.lineTo(9.5, -H * 0.35);
+      ctx.lineTo(11, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#453e33';
+      ctx.lineWidth = 1;
       ctx.stroke();
-      // wet glint at the tip
-      ctx.fillStyle = 'rgba(200,230,235,0.7)';
-      ctx.beginPath(); ctx.arc(px, py - s + 1.2, 0.8, 0, TAU); ctx.fill();
-    }
+      // cracks
+      ctx.strokeStyle = 'rgba(40,34,26,0.5)';
+      ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-2, -H + 3); ctx.lineTo(-5, -H * 0.55); ctx.lineTo(-3, -H * 0.3);
+      ctx.moveTo(4, -H * 0.85); ctx.lineTo(6.5, -H * 0.5);
+      ctx.stroke();
+      // small side spike
+      ctx.fillStyle = '#7c7261';
+      ctx.beginPath();
+      ctx.moveTo(6, 0); ctx.lineTo(10.5, -9); ctx.lineTo(13.5, 0);
+      ctx.closePath();
+      ctx.fill();
+    });
   };
   B.pylon = (ctx, t, o) => {
     pad(ctx, o);
     towerDeck(ctx, 12.5, '#3d4450', '#1e222a');
     const pulse = o.on ? 0.5 + 0.5 * Math.sin(t * 4) : 0.1;
-    // rune ring
+    // rune ring on the deck
     ctx.strokeStyle = `rgba(201,167,255,${0.25 + pulse * 0.35})`;
     ctx.lineWidth = 1;
     for (let i = 0; i < 6; i++) {
@@ -2242,78 +2557,138 @@
       ctx.lineTo(Math.cos(a) * 11, Math.sin(a) * 11);
       ctx.stroke();
     }
-    // floating crystal + under-glow
-    const lev = Math.sin(t * 2.2) * 1.5;
-    ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(1, 4, 5, 2.2, 0, 0, TAU); ctx.fill();
-    const g = ctx.createLinearGradient(-6, lev - 10, 6, lev + 10);
-    g.addColorStop(0, `rgba(225,205,255,${0.75 + pulse * 0.25})`);
-    g.addColorStop(1, `rgba(150,110,220,${0.6 + pulse * 0.3})`);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.moveTo(0, lev - 10); ctx.lineTo(6, lev); ctx.lineTo(0, lev + 10); ctx.lineTo(-6, lev);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#8a6fd0';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.5)';
-    ctx.beginPath(); ctx.moveTo(-2, lev - 4); ctx.lineTo(0, lev - 8); ctx.stroke();
+    // crystal hovering over the deck (screen-space, so it stands UP)
+    const H = 15;
+    ctx.fillStyle = `rgba(150,110,220,${0.14 + pulse * 0.25})`; // under-glow
+    ctx.beginPath(); ctx.ellipse(0, 0, 8, 4, 0, 0, TAU); ctx.fill();
+    billboard(ctx, 0, 0, () => {
+      const lev = Math.sin(t * 2.2) * 2;
+      const cy = -H + lev;
+      const g = ctx.createLinearGradient(-9, cy - 14, 9, cy + 14);
+      g.addColorStop(0, `rgba(232,214,255,${0.85 + pulse * 0.15})`);
+      g.addColorStop(1, `rgba(146,100,222,${0.7 + pulse * 0.3})`);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(0, cy - 14); ctx.lineTo(8.5, cy); ctx.lineTo(0, cy + 12); ctx.lineTo(-8.5, cy);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#7d5cc4';
+      ctx.lineWidth = 1.2;
+      ctx.stroke();
+      // facet lines + sparkle
+      ctx.strokeStyle = 'rgba(120,80,190,0.55)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath();
+      ctx.moveTo(0, cy - 14); ctx.lineTo(0, cy + 12);
+      ctx.moveTo(-8.5, cy); ctx.lineTo(8.5, cy);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.65)';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-3, cy - 6); ctx.lineTo(-0.5, cy - 11); ctx.stroke();
+      if (o.on) {
+        ctx.strokeStyle = `rgba(201,167,255,${0.3 + pulse * 0.4})`;
+        ctx.lineWidth = 0.9;
+        ctx.beginPath();
+        ctx.moveTo(-5, cy + 8); ctx.lineTo(-1 + Math.sin(t * 9) * 2, -1);
+        ctx.moveTo(5, cy + 8); ctx.lineTo(1 + Math.sin(t * 7) * 2, -1);
+        ctx.stroke();
+      }
+    });
   };
   B.laserpointer = (ctx, t, o) => {
     pad(ctx, o);
-    // giant lens assembly: housing ring, iris, red core
-    drum3d(ctx, 0, 0, 13, '#aeb5bf', 4);
-    ctx.strokeStyle = '#7c828c';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.arc(0, 0, 9.5, 0, TAU); ctx.stroke();
-    // iris blades
-    ctx.strokeStyle = '#666d78';
-    for (let i = 0; i < 6; i++) {
-      const a = i * (TAU / 6) + 0.3;
+    // sky-aimed giant laser pointer on a tripod gimbal
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(2, 3, 13, 6, 0, 0, TAU); ctx.fill();
+    billboard(ctx, 0, 0, () => {
+      // tripod
+      ctx.strokeStyle = '#59616c';
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(Math.cos(a) * 9, Math.sin(a) * 9);
-      ctx.lineTo(Math.cos(a + 0.5) * 5.5, Math.sin(a + 0.5) * 5.5);
+      ctx.moveTo(-9, 2); ctx.lineTo(0, -10);
+      ctx.moveTo(9, 2); ctx.lineTo(0, -10);
+      ctx.moveTo(0, 4); ctx.lineTo(0, -10);
       ctx.stroke();
-    }
-    const pw = o.on ? 0.6 + 0.4 * Math.sin(t * 6) : 0.15;
-    const g = ctx.createRadialGradient(0, 0, 0.5, 0, 0, 6);
-    g.addColorStop(0, `rgba(255,120,120,${pw})`);
-    g.addColorStop(1, `rgba(200,40,40,${pw * 0.6})`);
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, 5.5, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    ctx.beginPath(); ctx.arc(-2.4, -2.4, 1.6, 0, TAU); ctx.fill();
-    // AAA battery pack
-    block(ctx, -16, 8, 9, 7, 1, '#59524a', 2);
+      // the pointer body: fat silver pen angled at the sky
+      ctx.save();
+      ctx.translate(0, -12);
+      ctx.rotate(-0.9 + Math.sin(t * 0.6) * 0.06);
+      const bg = ctx.createLinearGradient(0, -4, 0, 4);
+      bg.addColorStop(0, '#e8ecf1');
+      bg.addColorStop(0.5, '#aeb5bf');
+      bg.addColorStop(1, '#7c828c');
+      ctx.fillStyle = bg;
+      rr(ctx, -7, -4, 22, 8, 3.5);
+      ctx.fill();
+      ctx.strokeStyle = '#5d646d';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // clicky button
+      ctx.fillStyle = '#c0392b';
+      ctx.beginPath(); ctx.ellipse(-1, -4.2, 2.4, 1.4, 0, 0, TAU); ctx.fill();
+      // emitter tip + beam glow
+      const pw = o.on ? 0.6 + 0.4 * Math.sin(t * 6) : 0.15;
+      ctx.fillStyle = '#59616c';
+      ctx.fillRect(15, -2.6, 3.5, 5.2);
+      ctx.fillStyle = `rgba(255,110,110,${pw})`;
+      ctx.beginPath(); ctx.arc(19.5, 0, 2.2, 0, TAU); ctx.fill();
+      if (o.on) {
+        const lg = ctx.createLinearGradient(19, 0, 34, 0);
+        lg.addColorStop(0, `rgba(255,90,90,${0.5 * pw})`);
+        lg.addColorStop(1, 'rgba(255,90,90,0)');
+        ctx.strokeStyle = lg;
+        ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(19, 0); ctx.lineTo(34, 0); ctx.stroke();
+      }
+      ctx.restore();
+    });
+    // AAA battery crate on the pad
+    isoBox(ctx, -18, 6, 9, 7, 4, '#59524a', {});
   };
   B.samsite = (ctx, t, o) => {
     pad(ctx, o);
     // armored emplacement ring
     towerDeck(ctx, 13.5, '#3f4854', '#1f242b');
-    // twin angled missile pods with visible tips
-    for (const s of [-1, 1]) {
-      ctx.save();
-      ctx.translate(-2, s * 7);
-      ctx.rotate(-0.35 * s);
-      block(ctx, -8, -4, 18, 8, 2, '#4a525e', 3);
-      for (let i = 0; i < 3; i++) {
-        ctx.fillStyle = '#20242a';
-        ctx.beginPath(); ctx.arc(-4 + i * 5.5, 0, 2.1, 0, TAU); ctx.fill();
-        ctx.fillStyle = o.on ? '#e8edf2' : '#5d646d';
-        ctx.beginPath(); ctx.arc(-4 + i * 5.5, 0, 1.2, 0, TAU); ctx.fill();
+    // twin missile pods RAISED at the sky (screen space)
+    billboard(ctx, -3, 2, () => {
+      for (const s of [-1, 1]) {
+        ctx.save();
+        ctx.translate(s * 6, -4);
+        ctx.rotate(-0.62);
+        const pg = ctx.createLinearGradient(0, -4, 0, 4);
+        pg.addColorStop(0, '#5d6a78');
+        pg.addColorStop(1, '#3c444f');
+        ctx.fillStyle = pg;
+        rr(ctx, -7, -4.5, 16, 9, 2);
+        ctx.fill();
+        ctx.strokeStyle = '#2c323b';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // three tube mouths at the top end
+        for (let i = 0; i < 3; i++) {
+          ctx.fillStyle = '#20242a';
+          ctx.beginPath(); ctx.ellipse(8, -3 + i * 3, 1.6, 1.3, 0, 0, TAU); ctx.fill();
+          ctx.fillStyle = o.on ? '#e8edf2' : '#5d646d';
+          ctx.beginPath(); ctx.arc(8, -3 + i * 3, 0.7, 0, TAU); ctx.fill();
+        }
+        ctx.restore();
       }
+    });
+    // radar mast with spinning bar
+    billboard(ctx, 9, 6, () => {
+      ctx.strokeStyle = '#59616c';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -12); ctx.stroke();
+      ctx.save();
+      ctx.translate(0, -12);
+      ctx.scale(Math.sin(o.on ? t * 3 : 0.8), 1); // bar seen edge-on as it spins
+      ctx.strokeStyle = '#9aa2ac';
+      ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
       ctx.restore();
-    }
-    // spinning radar bar
-    ctx.save();
-    ctx.translate(9, 0);
-    ctx.rotate(o.on ? t * 3 : 0.8);
-    ctx.strokeStyle = '#9aa2ac';
-    ctx.lineWidth = 1.4;
-    ctx.beginPath(); ctx.moveTo(-4.5, 0); ctx.lineTo(4.5, 0); ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = '#20242a';
-    ctx.beginPath(); ctx.arc(9, 0, 1.5, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#20242a';
+      ctx.beginPath(); ctx.arc(0, -12, 1.4, 0, TAU); ctx.fill();
+    });
   };
   B.geyser = (ctx, t, o) => {
     pad(ctx, o);
@@ -2348,34 +2723,46 @@
   B.tractor = (ctx, t, o) => {
     pad(ctx, o);
     towerDeck(ctx, 12.5, '#3d4450', '#1e222a');
-    // gimbal ring + dish
-    ctx.strokeStyle = '#6a7280';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(0, 0, 11, 0, TAU); ctx.stroke();
-    const dg = ctx.createRadialGradient(-3, -3, 1, 0, 0, 9);
-    dg.addColorStop(0, '#c8cdd5');
-    dg.addColorStop(1, '#7c828c');
-    ctx.fillStyle = dg;
-    ctx.beginPath(); ctx.ellipse(0, 0, 9, 7, -0.4, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#5c636e';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    // concentric dish grooves
-    ctx.strokeStyle = 'rgba(70,76,86,0.5)';
-    ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 4.2, -0.4, 0, TAU); ctx.stroke();
-    if (o.on) {
-      ctx.save();
-      ctx.rotate(t * 2.2);
-      const bg = ctx.createLinearGradient(0, 0, 13, 0);
-      bg.addColorStop(0, 'rgba(125,255,214,0.9)');
-      bg.addColorStop(1, 'rgba(125,255,214,0)');
-      ctx.strokeStyle = bg;
-      ctx.lineWidth = 2.4;
-      ctx.beginPath(); ctx.moveTo(2, 0); ctx.lineTo(14, 0); ctx.stroke();
-      ctx.restore();
-    }
-    ctx.fillStyle = `rgba(125,255,214,${o.on ? 0.85 : 0.25})`;
-    ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, TAU); ctx.fill();
+    // dish raised on an upright gimbal pylon, cupped at the sky
+    billboard(ctx, 0, 0, () => {
+      const H = 15;
+      ctx.strokeStyle = '#59616c';
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -H); ctx.stroke();
+      ctx.strokeStyle = '#454c56';
+      ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      ctx.moveTo(-6, -1); ctx.lineTo(0, -H * 0.55);
+      ctx.moveTo(6, -1); ctx.lineTo(0, -H * 0.55);
+      ctx.stroke();
+      // upturned dish: solid cup silhouette with a dark inner bowl
+      const dg = ctx.createLinearGradient(-13, -H - 7, 13, -H);
+      dg.addColorStop(0, '#d5dae2');
+      dg.addColorStop(1, '#79828e');
+      ctx.fillStyle = dg;
+      ctx.beginPath();
+      ctx.moveTo(-13, -H - 7);
+      ctx.quadraticCurveTo(0, -H + 4, 13, -H - 7);
+      ctx.ellipse(0, -H - 7, 13, 3.4, 0, 0, Math.PI, false);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#5c636e';
+      ctx.lineWidth = 1.1;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(24,30,36,0.65)';
+      ctx.beginPath();
+      ctx.ellipse(0, -H - 7, 13, 3.4, 0, 0, TAU);
+      ctx.fill();
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.ellipse(0, -H - 7, 13, 3.4, 0, Math.PI, TAU); ctx.stroke();
+      // feed horn + charge glow
+      ctx.strokeStyle = '#8b939e';
+      ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(0, -H - 7); ctx.lineTo(0, -H - 15); ctx.stroke();
+      ctx.fillStyle = `rgba(125,255,214,${o.on ? 0.6 + 0.4 * Math.sin(t * 5) : 0.25})`;
+      ctx.beginPath(); ctx.arc(0, -H - 15, 2.6, 0, TAU); ctx.fill();
+    });
   };
   B.sleepercell = (ctx, t, o) => {
     // camo-net hideout â€” deliberately low-profile, no pad
@@ -2849,6 +3236,9 @@
         ctx.beginPath(); ctx.arc(0, 0, 9, 0, TAU); ctx.fill();
       }
     },
+    // screen-px height at which the engine's generic turret (and beam
+    // origin) sits for towers whose art raises a platform
+    turretLift: { watchtower: 28, stalagmite: 26, tractor: 27 },
     hasBuilding: type => !!B[type],
     building(type, ctx, t, opts) {
       const fn = B[type];
