@@ -838,8 +838,11 @@ function updateProjectiles(dt) {
       }
     } else {
       const f = p.t / p.dur;
+      // ground-plane position; the lob arc is a SCREEN-space height (p.hgt)
+      // applied at draw time, not baked into world y
       p.x = p.sx + (p.tx - p.sx) * f;
-      p.y = p.sy + (p.ty - p.sy) * f - Math.sin(Math.PI * f) * p.arc;
+      p.y = p.sy + (p.ty - p.sy) * f;
+      p.hgt = Math.sin(Math.PI * f) * p.arc;
     }
   }
   state.projectiles = state.projectiles.filter(p => !p.done);
@@ -2110,47 +2113,124 @@ function draw() {
   // ground is prerendered already-projected; blit it in iso space
   ctx.drawImage(groundCanvas, -WORLD_H, 0, isoSpanW(), isoSpanH());
 
-  // phase-1 scaffold: project the rest of the world pass onto the ground plane
-  ctx.save();
-  isoShear(ctx);
+  // area-effect zones first — ground decals that everything stands on
+  drawZones();
 
+  // painter's algorithm: patches, buildings, ground units and landed
+  // aircraft in one pass, sorted by world x+y (screen depth)
+  drawList.length = 0;
   for (const p of state.patches) {
-    if (p.amount <= 0 || tileState(p.x, p.y) === 0) continue;
-    const s = 10 + 8 * Math.min(1, p.amount / 900);
-    ctx.fillStyle = '#3fd7d0';
-    ctx.beginPath();
-    ctx.moveTo(p.x, p.y - s); ctx.lineTo(p.x + s, p.y);
-    ctx.lineTo(p.x, p.y + s); ctx.lineTo(p.x - s, p.y);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#1a8a85'; ctx.stroke();
+    if (p.amount > 0 && tileState(p.x, p.y) !== 0) drawList.push({ d: p.x + p.y - 30, k: 0, e: p });
+  }
+  for (const b of state.buildings) {
+    if (b.hp > 0 && visibleToPlayer(b)) drawList.push({ d: b.x + b.y, k: 1, e: b });
+  }
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
+    if (UNIT_TYPES[u.type].flying && !u.landed) continue; // airborne drawn above
+    drawList.push({ d: u.x + u.y, k: 2, e: u });
+  }
+  drawList.sort((a, b) => a.d - b.d || a.k - b.k);
+  for (const it of drawList) {
+    if (it.k === 0) drawPatchIso(it.e);
+    else if (it.k === 1) drawBuildingIso(it.e);
+    else drawUnitIso(it.e);
   }
 
-  // buildings
-  for (const b of state.buildings) {
-    if (b.hp <= 0 || !visibleToPlayer(b)) continue;
-    const bt = bstatsOf(b);
-    ctx.save();
-    ctx.translate(b.x, b.y);
-    Art.building(b.type, ctx, state.time + (b.id % 89) * 0.71, {
-      w: b.w, h: b.h, color: COLORS[b.owner], on: !powerOf(b.owner).low,
-      fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
-    });
-    ctx.restore();
+  drawProjectilesIso();
 
-    if (bt.dmg && bt.weapon !== 'pulse' && !bt.ownWeaponArt) {
+  // airborne units above the ground layer, depth-sorted among themselves
+  drawList.length = 0;
+  for (const u of state.units) {
+    if (u.hp > 0 && !u.garrisoned && visibleToPlayer(u) && UNIT_TYPES[u.type].flying && !u.landed) {
+      drawList.push({ d: u.x + u.y, k: 2, e: u });
+    }
+  }
+  drawList.sort((a, b) => a.d - b.d);
+  for (const it of drawList) drawUnitIso(it.e);
+
+  drawBeamsIso();
+  Particles.draw(ctx);
+  drawOverlays();
+  ctx.restore();
+  drawMinimap();
+}
+
+const drawList = []; // reused every frame (GC)
+
+// mineral patches: ground stain + a cluster of upright crystal shards
+function drawPatchIso(p) {
+  const ix = isoX(p.x, p.y), iy = isoY(p.x, p.y);
+  const s = 10 + 8 * Math.min(1, p.amount / 900);
+  ctx.fillStyle = 'rgba(31,106,102,0.45)';
+  ctx.beginPath();
+  ctx.ellipse(ix, iy, s * 1.7, s * 0.85, 0, 0, Math.PI * 2);
+  ctx.fill();
+  for (let i = 0; i < 3; i++) {
+    const a = p.id * 2.1 + i * 2.4;
+    const ox = Math.cos(a) * s * 0.7, oy = Math.sin(a) * s * 0.35;
+    const h = s * (0.75 + 0.2 * ((p.id + i) % 3));
+    ctx.fillStyle = '#3fd7d0';
+    ctx.beginPath();
+    ctx.moveTo(ix + ox, iy + oy - h);
+    ctx.lineTo(ix + ox + h * 0.38, iy + oy);
+    ctx.lineTo(ix + ox, iy + oy + h * 0.3);
+    ctx.lineTo(ix + ox - h * 0.38, iy + oy);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#1a8a85';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(220,255,252,0.5)'; // lit NE facet
+    ctx.beginPath();
+    ctx.moveTo(ix + ox, iy + oy - h);
+    ctx.lineTo(ix + ox + h * 0.38, iy + oy);
+    ctx.lineTo(ix + ox, iy + oy - h * 0.25);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
+
+// outline of a building's world footprint, projected (a ground diamond)
+function strokeFootprint(b, margin) {
+  const ew = (b.w + margin) / 2, eh = (b.h + margin) / 2;
+  const ix = isoX(b.x, b.y), iy = isoY(b.x, b.y);
+  ctx.beginPath();
+  [[-ew, -eh], [ew, -eh], [ew, eh], [-ew, eh]].forEach(([dx, dy], i) => {
+    if (i) ctx.lineTo(ix + dx - dy, iy + (dx + dy) / 2);
+    else ctx.moveTo(ix + dx - dy, iy + (dx + dy) / 2);
+  });
+  ctx.closePath();
+  ctx.stroke();
+}
+
+function drawBuildingIso(b) {
+  const bt = bstatsOf(b);
+  const ix = isoX(b.x, b.y), iy = isoY(b.x, b.y);
+  const topY = iy - (b.w + b.h) / 4; // screen y of the footprint's north corner
+  ctx.save();
+  ctx.translate(ix, iy);
+  isoShear(ctx); // building art draws in its local ground-plane frame
+  Art.building(b.type, ctx, state.time + (b.id % 89) * 0.71, {
+    w: b.w, h: b.h, color: COLORS[b.owner], on: !powerOf(b.owner).low,
+    fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
+  });
+  ctx.restore();
+
+  if (bt.dmg && bt.weapon !== 'pulse' && !bt.ownWeaponArt) {
       const on = !powerOf(b.owner).low;
       const ta = b.turret !== undefined ? b.turret : Math.atan2(WORLD_H / 2 - b.y, WORLD_W / 2 - b.x);
       ctx.save();
-      ctx.translate(b.x, b.y);
-      // turret ring with its own drop shadow
+      ctx.translate(ix, iy);
+      // turret ring with its own drop shadow (ground-plane ellipses)
       ctx.fillStyle = 'rgba(0,0,0,0.35)';
-      ctx.beginPath(); ctx.arc(1.2, 1.8, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(1.2, 1.8, 7, 4.4, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = on ? '#4d5661' : '#474747';
-      ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(0, 0, 7, 4.4, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(0,0,0,0.5)';
       ctx.lineWidth = 1;
       ctx.stroke();
-      ctx.rotate(ta);
+      ctx.rotate(isoAngle(ta)); // barrel points along the projected heading
       // barrel(s): tapered, outlined, with a lighter muzzle band
       ctx.fillStyle = on ? '#2b3138' : '#525252';
       ctx.strokeStyle = 'rgba(0,0,0,0.45)';
@@ -2178,40 +2258,42 @@ function draw() {
         ctx.strokeStyle = on ? '#fff' : '#666';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(b.x - 4, b.y - b.h / 2 - 7);
-        ctx.lineTo(b.x, b.y - b.h / 2 - 12);
-        ctx.lineTo(b.x + 4, b.y - b.h / 2 - 7);
+        ctx.moveTo(ix - 4, topY - 7);
+        ctx.lineTo(ix, topY - 12);
+        ctx.lineTo(ix + 4, topY - 7);
         ctx.stroke();
       }
     }
     if (selection.includes(b)) {
       ctx.strokeStyle = b.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
       ctx.lineWidth = 2;
-      ctx.strokeRect(b.x - b.w / 2 - 3, b.y - b.h / 2 - 3, b.w + 6, b.h + 6);
+      strokeFootprint(b, 6);
       ctx.fillStyle = '#fff';
       ctx.font = 'bold 10px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(buildingName(b), b.x, b.y + b.h / 2 + 18);
+      ctx.fillText(buildingName(b), ix, iy + (b.w + b.h) / 4 + 18);
       if (bt.atkRange) {
+        // a world-space circle projects to a 2:1 ellipse, radius * sqrt2
         ctx.strokeStyle = 'rgba(127,255,159,0.25)';
         ctx.beginPath();
-        ctx.arc(b.x, b.y, bt.atkRange, 0, Math.PI * 2);
+        ctx.ellipse(ix, iy, bt.atkRange * Math.SQRT2, bt.atkRange * Math.SQRT2 / 2, 0, 0, Math.PI * 2);
         ctx.stroke();
       }
       if (b.rally) {
+        const rx = isoX(b.rally.x, b.rally.y), ry = isoY(b.rally.x, b.rally.y);
         ctx.strokeStyle = 'rgba(127,255,159,0.6)';
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
-        ctx.moveTo(b.x, b.y);
-        ctx.lineTo(b.rally.x, b.rally.y);
+        ctx.moveTo(ix, iy);
+        ctx.lineTo(rx, ry);
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.fillStyle = '#7fff9f';
-        ctx.fillRect(b.rally.x - 2, b.rally.y - 12, 3, 12);
+        ctx.fillRect(rx - 2, ry - 12, 3, 12);
         ctx.beginPath();
-        ctx.moveTo(b.rally.x + 1, b.rally.y - 12);
-        ctx.lineTo(b.rally.x + 12, b.rally.y - 9);
-        ctx.lineTo(b.rally.x + 1, b.rally.y - 6);
+        ctx.moveTo(rx + 1, ry - 12);
+        ctx.lineTo(rx + 12, ry - 9);
+        ctx.lineTo(rx + 1, ry - 6);
         ctx.closePath(); ctx.fill();
       }
     }
@@ -2219,103 +2301,110 @@ function draw() {
     if (b.garrison && b.garrison.length) {
       for (let i = 0; i < b.garrison.length; i++) {
         ctx.fillStyle = COLORS[b.owner];
-        ctx.fillRect(b.x - b.garrison.length * 4 + i * 8 + 1, b.y - b.h / 2 - 16, 6, 5);
+        ctx.fillRect(ix - b.garrison.length * 4 + i * 8 + 1, topY - 16, 6, 5);
         ctx.strokeStyle = 'rgba(0,0,0,0.5)';
         ctx.lineWidth = 1;
-        ctx.strokeRect(b.x - b.garrison.length * 4 + i * 8 + 1, b.y - b.h / 2 - 16, 6, 5);
+        ctx.strokeRect(ix - b.garrison.length * 4 + i * 8 + 1, topY - 16, 6, 5);
       }
     }
-    drawBar(b.x, b.y - b.h / 2 - 8, b.w, b.hp / b.maxHp);
+    drawBar(ix, topY - 8, (b.w + b.h) / 2, b.hp / b.maxHp);
 
     if (b.queue.length) {
+      const bw = (b.w + b.h) / 2, qy = iy + (b.w + b.h) / 4 + 3;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
-      ctx.fillRect(b.x - b.w / 2, b.y + b.h / 2 + 3, b.w, 5);
+      ctx.fillRect(ix - bw / 2, qy, bw, 5);
       ctx.fillStyle = '#ffd75f';
-      ctx.fillRect(b.x - b.w / 2, b.y + b.h / 2 + 3, b.w * clamp(b.queue[0].t / b.queue[0].duration, 0, 1), 5);
+      ctx.fillRect(ix - bw / 2, qy, bw * clamp(b.queue[0].t / b.queue[0].duration, 0, 1), 5);
     }
+}
+
+function drawUnitIso(u) {
+  const t = UNIT_TYPES[u.type];
+  // reptilian skin suit: enemy infantry render in YOUR color until they attack
+  const drawCol = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
+  const grounded = !!u.landed; // rearming on the pad
+  // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim
+  const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
+  // rendered radius: sprites draw a touch larger than their collision size
+  const rs = t.r * UNIT_DRAW_SCALE;
+  const ix = isoX(u.x, u.y), iy = isoY(u.x, u.y);
+  ctx.save();
+  ctx.translate(ix, iy + bob);
+  ctx.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
+  // your own gaslight phantoms look ghostly to you; enemy ones look real
+  if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
+  // shadows are ground-plane ellipses
+  if (t.flying && !grounded) Art.shadow(ctx, t.r * 0.9, t.r * 0.45, 8, 13 - bob);
+  else Art.shadow(ctx, t.r * 1.15, t.r * 0.6, 0, 1.5);
+  ctx.save();
+  ctx.scale(1, 0.5); // squash the glow into a ground pool
+  Art.teamGlow(ctx, t.r + 8, drawCol);
+  ctx.restore();
+  // upright billboard sprite, rotated to the PROJECTED heading (RA2 look)
+  ctx.rotate(isoAngle(u.facing || 0));
+  Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
+    color: drawCol,
+    moving: u.order.type !== 'idle',
+    firing: u.cooldown > t.cooldown - 0.15,
+    dist: u.travel,
+  });
+  ctx.restore();
+  if (u.carrying > 0) {
+    ctx.fillStyle = '#3fd7d0';
+    ctx.fillRect(ix - 3, iy - rs - 7, 6, 5);
   }
-
-  // ground units, then air units on top
-  for (const flyingPass of [false, true]) {
-    for (const u of state.units) {
-      if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
-      const t = UNIT_TYPES[u.type];
-      if (!!t.flying !== flyingPass) continue;
-
-      // reptilian skin suit: enemy infantry render in YOUR color until they attack
-      const drawCol = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
-      const grounded = !!u.landed; // rearming on the pad
-      // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim
-      const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
-      // rendered radius: sprites draw a touch larger than their collision size
-      const rs = t.r * UNIT_DRAW_SCALE;
-      ctx.save();
-      ctx.translate(u.x, u.y + bob);
-      ctx.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
-      // your own gaslight phantoms look ghostly to you; enemy ones look real
-      if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
-      if (t.flying && !grounded) Art.shadow(ctx, t.r * 0.9, t.r * 0.45, 8, 13 - bob);
-      else Art.shadow(ctx, t.r * 1.15, t.r * 0.75, 0, 1.5);
-      Art.teamGlow(ctx, t.r + 8, drawCol);
-      ctx.rotate(u.facing || 0);
-      Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
-        color: drawCol,
-        moving: u.order.type !== 'idle',
-        firing: u.cooldown > t.cooldown - 0.15,
-        dist: u.travel,
-      });
-      ctx.restore();
-      if (u.carrying > 0) {
-        ctx.fillStyle = '#3fd7d0';
-        ctx.fillRect(u.x - 3, u.y - rs - 7, 6, 5);
-      }
-      if (selection.includes(u)) {
-        ctx.strokeStyle = u.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
-        ctx.lineWidth = 1.5;
-        ctx.beginPath();
-        ctx.arc(u.x, u.y, rs + 5, 0, Math.PI * 2);
-        ctx.stroke();
-      }
-      if (u.hp < u.maxHp) drawBar(u.x, u.y - rs - 12, rs * 2.4, u.hp / u.maxHp);
-      if (t.maxAmmo && (u.ammo < t.maxAmmo || selection.includes(u))) {
-        const w = rs * 2.2;
-        ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(u.x - w / 2, u.y + rs + 5, w, 3);
-        ctx.fillStyle = '#ffd75f';
-        ctx.fillRect(u.x - w / 2, u.y + rs + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
-      }
-      ctx.globalAlpha = 1;
-    }
+  if (selection.includes(u)) {
+    ctx.strokeStyle = u.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.ellipse(ix, iy, rs + 5, (rs + 5) * 0.55, 0, 0, Math.PI * 2);
+    ctx.stroke();
   }
+  if (u.hp < u.maxHp) drawBar(ix, iy - rs - 12, rs * 2.4, u.hp / u.maxHp);
+  if (t.maxAmmo && (u.ammo < t.maxAmmo || selection.includes(u))) {
+    const w = rs * 2.2;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(ix - w / 2, iy + rs + 5, w, 3);
+    ctx.fillStyle = '#ffd75f';
+    ctx.fillRect(ix - w / 2, iy + rs + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
+  }
+  ctx.globalAlpha = 1;
+}
 
-  // tractor beams: tower -> locked aircraft
+// tractor beams: tower -> locked aircraft (projected endpoints)
+function drawBeamsIso() {
   for (const b of state.buildings) {
     if (!b.beamId || b.hp <= 0) continue;
     const tgt = state.units.find(un => un.id === b.beamId && un.hp > 0);
     if (!tgt || !visibleToPlayer(tgt)) continue;
-    const bg = ctx.createLinearGradient(b.x, b.y, tgt.x, tgt.y);
+    const bx = isoX(b.x, b.y), by = isoY(b.x, b.y) - 10;
+    const tx = isoX(tgt.x, tgt.y), ty = isoY(tgt.x, tgt.y);
+    const bg = ctx.createLinearGradient(bx, by, tx, ty);
     bg.addColorStop(0, 'rgba(125,255,214,0.85)');
     bg.addColorStop(1, 'rgba(125,255,214,0.25)');
     ctx.strokeStyle = bg;
     ctx.lineWidth = 2 + Math.sin(state.time * 14) * 0.8;
-    ctx.beginPath(); ctx.moveTo(b.x, b.y); ctx.lineTo(tgt.x, tgt.y); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(tx, ty); ctx.stroke();
     // pull ripples travelling down the beam
-    const dx = tgt.x - b.x, dy = tgt.y - b.y;
+    const dx = tx - bx, dy = ty - by;
     for (let i = 0; i < 3; i++) {
       const f = ((state.time * 0.9 + i / 3) % 1);
       ctx.fillStyle = `rgba(200,255,240,${0.7 * (1 - f)})`;
       ctx.beginPath();
-      ctx.arc(tgt.x - dx * f, tgt.y - dy * f, 2.2, 0, Math.PI * 2);
+      ctx.arc(tx - dx * f, ty - dy * f, 2.2, 0, Math.PI * 2);
       ctx.fill();
     }
   }
+}
 
-  // projectiles in flight (with ground shadow)
+// projectiles in flight (ground shadow on the plane, body lifted by its arc)
+function drawProjectilesIso() {
   for (const p of state.projectiles) {
+    const px = isoX(p.x, p.y), py = isoY(p.x, p.y);
     if (p.kind === 'missile') {
       ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.angle);
+      ctx.translate(px, py);
+      ctx.rotate(isoAngle(p.angle));
       ctx.fillStyle = '#e8edf2';
       ctx.fillRect(-4, -1.4, 8, 2.8);
       ctx.fillStyle = '#8b939e'; // tail fins
@@ -2327,39 +2416,44 @@ function draw() {
       ctx.restore();
       continue;
     }
-    const f = p.t / p.dur;
-    const gx = p.sx + (p.tx - p.sx) * f, gy = p.sy + (p.ty - p.sy) * f;
+    // shadow on the ground point; the round itself rides its arc height
+    const hx = px, hy = py - (p.hgt || 0);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
-    ctx.beginPath(); ctx.ellipse(gx, gy, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(px, py, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
     if (p.kind === 'rock') {
       ctx.fillStyle = '#8a7f6e';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 3.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#5c5347'; ctx.lineWidth = 1; ctx.stroke();
     } else if (p.kind === 'shell') {
       // gunship howitzer round: small, fast, mean
       ctx.fillStyle = '#d8d2c2';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 2.4, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(255,190,90,0.7)'; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x - 5, p.y + 3); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx - 5, hy + 3); ctx.stroke();
     } else if (p.kind === 'magma') {
       ctx.fillStyle = '#ff8a3c';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 3.4, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = 'rgba(255,220,120,0.9)';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 1.6, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 1.6, 0, Math.PI * 2); ctx.fill();
     } else if (p.kind === 'plasma') {
       ctx.fillStyle = 'rgba(125,255,214,0.9)';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 3.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 3.4, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#e8fff8';
-      ctx.beginPath(); ctx.arc(p.x, p.y, 1.4, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(hx, hy, 1.4, 0, Math.PI * 2); ctx.fill();
     } else { // bomb
       ctx.fillStyle = '#2b2f36';
-      ctx.beginPath(); ctx.ellipse(p.x, p.y, 2.6, 3.6, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(hx, hy, 2.6, 3.6, 0, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#4a515c';
-      ctx.fillRect(p.x - 2.4, p.y - 5, 4.8, 2);
+      ctx.fillRect(hx - 2.4, hy - 5, 4.8, 2);
     }
   }
+}
 
-  // area-effect zones
+// area-effect zones: ground-plane decals, drawn through the shear so their
+// circles land as iso ellipses
+function drawZones() {
+  ctx.save();
+  isoShear(ctx);
   for (const z of state.zones) {
     const kind = z.kind || 'rain';
     if (kind === 'rain' || kind === 'storm') {
@@ -2395,18 +2489,22 @@ function draw() {
       }
     }
   }
+  ctx.restore();
+}
 
-  Particles.draw(ctx);
-
-  // fog — written as raw pixels (black with per-tile alpha)
+// fog + cursor overlays, drawn while the camera transform is active
+function drawOverlays() {
+  // fog — raw pixels (black with per-tile alpha), stretched over the world
+  // rect through the projection so tiles land as ground diamonds
   const fd = new Uint32Array(fogImg.data.buffer);
   for (let i = 0; i < vis.length; i++) {
     fd[i] = vis[i] === 2 ? 0 : vis[i] === 1 ? 0x80000000 : 0xF2000000;
   }
   fogCtx.putImageData(fogImg, 0, 0);
+  ctx.save();
+  isoShear(ctx);
   ctx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, WORLD_W, WORLD_H);
-
-  ctx.restore(); // end ground-plane shear — overlays below draw in iso space
+  ctx.restore();
 
   if (mouse.sel) {
     const s = mouse.sel;
@@ -2441,9 +2539,6 @@ function draw() {
     ctx.globalAlpha = 1;
     ctx.restore();
   }
-
-  ctx.restore();
-  drawMinimap();
 }
 
 function drawBar(cx, y, w, frac) {

@@ -50,7 +50,9 @@
     },
 
     smoke(x, y, r = 3) {
-      this.spawn({ kind: 'smoke', x, y, vx: (Math.random() - 0.5) * 8, vy: -12, r, grow: 9, life: 1.1 });
+      // vz is a SCREEN-space rise: smoke climbs straight up regardless of
+      // where "up" points in projected world coordinates
+      this.spawn({ kind: 'smoke', x, y, vx: (Math.random() - 0.5) * 8, vz: 12, r, grow: 9, life: 1.1 });
     },
 
     bolt(x1, y1, x2, y2, col = [255, 245, 180]) {
@@ -71,7 +73,7 @@
       }
       for (let i = 0; i < 7 * big; i++) {
         const a = Math.random() * TAU, s = 8 + Math.random() * 26;
-        this.spawn({ kind: 'smoke', x: x + Math.cos(a) * 5, y: y + Math.sin(a) * 5, vx: Math.cos(a) * s, vy: Math.sin(a) * s - 8, r: 3.5 + Math.random() * 4, grow: 11, life: 0.8 + Math.random() * 0.7 });
+        this.spawn({ kind: 'smoke', x: x + Math.cos(a) * 5, y: y + Math.sin(a) * 5, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 8, r: 3.5 + Math.random() * 4, grow: 11, life: 0.8 + Math.random() * 0.7 });
       }
     },
 
@@ -81,62 +83,71 @@
         p.life -= dt;
         p.x += (p.vx || 0) * dt;
         p.y += (p.vy || 0) * dt;
+        if (p.vz) p.z = (p.z || 0) + p.vz * dt;
         if (p.drag) { p.vx *= 1 - p.drag * dt; p.vy *= 1 - p.drag * dt; }
       }
       for (let i = parts.length - 1; i >= 0; i--) if (parts[i].life <= 0) parts.splice(i, 1);
     },
 
+    // particles live at world positions; project at draw time. p.z (fed by
+    // vz) lifts the sprite straight up in SCREEN space. Ground-plane rings
+    // (booms, pulses) render as 2:1 ellipses.
     draw(ctx) {
       for (const p of parts) {
         if (p.delay && p.delay > 0) continue;
         const f = Math.max(0, p.life / p.maxLife);
         const c = p.col || [255, 230, 140];
+        const px = isoX(p.x, p.y), py = isoY(p.x, p.y) - (p.z || 0);
         if (p.kind === 'tracer') {
           ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${f})`;
           ctx.lineWidth = 1.6;
           ctx.beginPath();
-          ctx.moveTo(p.x - p.vx * 0.016, p.y - p.vy * 0.016);
-          ctx.lineTo(p.x, p.y);
+          const tx = p.x - p.vx * 0.016, ty = p.y - p.vy * 0.016;
+          ctx.moveTo(isoX(tx, ty), isoY(tx, ty));
+          ctx.lineTo(px, py);
           ctx.stroke();
         } else if (p.kind === 'spark') {
           ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${f})`;
-          ctx.fillRect(p.x - 1, p.y - 1, 2, 2);
+          ctx.fillRect(px - 1, py - 1, 2, 2);
         } else if (p.kind === 'smoke') {
           ctx.fillStyle = `rgba(105,105,105,${f * 0.35})`;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r + (1 - f) * p.grow, 0, TAU);
+          ctx.arc(px, py, p.r + (1 - f) * p.grow, 0, TAU);
           ctx.fill();
         } else if (p.kind === 'flash') {
           ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${f * 0.9})`;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r * (1.4 - f * 0.4), 0, TAU);
+          ctx.arc(px, py, p.r * (1.4 - f * 0.4), 0, TAU);
           ctx.fill();
         } else if (p.kind === 'ring') {
           ctx.strokeStyle = `rgba(255,190,110,${f})`;
           ctx.lineWidth = 3 * f;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r + (1 - f) * p.grow, 0, TAU);
+          const rr2 = p.r + (1 - f) * p.grow;
+          ctx.ellipse(px, py, rr2, rr2 * 0.5, 0, 0, TAU);
           ctx.stroke();
         } else if (p.kind === 'debris') {
           ctx.fillStyle = `rgba(58,58,64,${f})`;
-          ctx.fillRect(p.x - 1.5, p.y - 1.5, 3, 3);
+          ctx.fillRect(px - 1.5, py - 1.5, 3, 3);
         } else if (p.kind === 'bolt') {
           ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${f})`;
           ctx.lineWidth = 1.8;
           ctx.beginPath();
-          ctx.moveTo(p.x, p.y);
-          const dx = p.x2 - p.x, dy = p.y2 - p.y;
+          ctx.moveTo(px, py);
+          const qx = isoX(p.x2, p.y2), qy = isoY(p.x2, p.y2);
+          const dx = qx - px, dy = qy - py;
           for (let i = 1; i <= 4; i++) {
             const seg = i / 5;
-            ctx.lineTo(p.x + dx * seg + (Math.random() - 0.5) * 9, p.y + dy * seg + (Math.random() - 0.5) * 9);
+            ctx.lineTo(px + dx * seg + (Math.random() - 0.5) * 9, py + dy * seg + (Math.random() - 0.5) * 9);
           }
-          ctx.lineTo(p.x2, p.y2);
+          ctx.lineTo(qx, qy);
           ctx.stroke();
         } else if (p.kind === 'pulsering') {
           ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},${f * 0.8})`;
           ctx.lineWidth = 2.6;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, p.r + (1 - f) * p.grow, 0, TAU);
+          const rr2 = p.r + (1 - f) * p.grow;
+          ctx.ellipse(px, py, rr2, rr2 * 0.5, 0, 0, TAU);
           ctx.stroke();
         }
       }
