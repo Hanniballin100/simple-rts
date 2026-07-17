@@ -336,19 +336,25 @@ function setupWorld(map) {
 function centerCameraOnHome() {
   const hq = state.buildings.find(b => b.owner === PLAYER && b.type === 'hq');
   if (!hq) return;
-  cam.x = hq.x - canvas.width / cam.zoom / 2;
-  cam.y = hq.y - canvas.height / cam.zoom / 2;
+  cam.x = isoX(hq.x, hq.y) - canvas.width / cam.zoom / 2;
+  cam.y = isoY(hq.x, hq.y) - canvas.height / cam.zoom / 2;
   clampCam();
 }
 
 function minZoom() {
-  return Math.max(canvas.width / WORLD_W, canvas.height / WORLD_H, 0.5);
+  return Math.max(canvas.width / isoSpanW(), canvas.height / isoSpanH(), 0.5);
 }
 
+// cam.x/cam.y live in iso screen space; clamp by keeping the CENTER of the
+// view over the world rectangle (the iso diamond has empty corners, so a
+// plain bounding-box clamp would let the camera sit over pure void)
 function clampCam() {
   cam.zoom = clamp(cam.zoom, minZoom(), 2);
-  cam.x = clamp(cam.x, 0, Math.max(0, WORLD_W - canvas.width / cam.zoom));
-  cam.y = clamp(cam.y, 0, Math.max(0, WORLD_H - canvas.height / cam.zoom));
+  const hw = canvas.width / cam.zoom / 2, hh = canvas.height / cam.zoom / 2;
+  const c = isoUnproject(cam.x + hw, cam.y + hh);
+  const wx = clamp(c.x, 0, WORLD_W), wy = clamp(c.y, 0, WORLD_H);
+  cam.x = isoX(wx, wy) - hw;
+  cam.y = isoY(wx, wy) - hh;
 }
 
 function resizeCanvas() {
@@ -1656,12 +1662,19 @@ function updateAI(owner, dt) {
   }
 }
 
-function screenToWorld(e) {
+// mouse event -> iso screen space (the space cam.x/cam.y pan in)
+function screenToIso(e) {
   const r = canvas.getBoundingClientRect();
   return {
     x: (e.clientX - r.left) / cam.zoom + cam.x,
     y: (e.clientY - r.top) / cam.zoom + cam.y,
   };
+}
+
+// mouse event -> world (cartesian) ground-plane point
+function screenToWorld(e) {
+  const p = screenToIso(e);
+  return isoUnproject(p.x, p.y);
 }
 
 function selectAt(x, y) {
@@ -1738,8 +1751,8 @@ function minimapPan(e) {
   const r = mmCanvas.getBoundingClientRect();
   const wx = (e.clientX - r.left) / r.width * WORLD_W;
   const wy = (e.clientY - r.top) / r.height * WORLD_H;
-  cam.x = wx - canvas.width / cam.zoom / 2;
-  cam.y = wy - canvas.height / cam.zoom / 2;
+  cam.x = isoX(wx, wy) - canvas.width / cam.zoom / 2;
+  cam.y = isoY(wx, wy) - canvas.height / cam.zoom / 2;
   clampCam();
 }
 
@@ -2091,6 +2104,9 @@ function draw() {
   ctx.save();
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
+  // phase-1 scaffold: project the whole world pass onto the iso ground plane
+  ctx.save();
+  isoShear(ctx);
 
   ctx.drawImage(groundCanvas, 0, 0, WORLD_W, WORLD_H);
 
@@ -2386,6 +2402,8 @@ function draw() {
   fogCtx.putImageData(fogImg, 0, 0);
   ctx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, WORLD_W, WORLD_H);
 
+  ctx.restore(); // end ground-plane shear — overlays below draw in iso space
+
   if (mouse.sel) {
     const s = mouse.sel;
     ctx.strokeStyle = '#7fff9f';
@@ -2394,6 +2412,8 @@ function draw() {
   }
 
   if (placing) {
+    ctx.save();
+    isoShear(ctx); // ghost + radii are world-space ground markings
     const t = bstats(PLAYER, placing);
     const ok = !placementBlocked(PLAYER, placing, mouse.x, mouse.y) && withinBuildRadius(PLAYER, mouse.x, mouse.y);
     ctx.globalAlpha = 0.5;
@@ -2415,6 +2435,7 @@ function draw() {
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   ctx.restore();
@@ -2485,9 +2506,18 @@ function drawMinimap() {
       }
     }
   }
+  // the visible area is a screen-aligned rect in iso space -> a rotated
+  // parallelogram on the (top-down) minimap
   mmCtx.strokeStyle = '#cfd6dd';
   mmCtx.lineWidth = 1;
-  mmCtx.strokeRect(cam.x * sx, cam.y * sy, canvas.width / cam.zoom * sx, canvas.height / cam.zoom * sy);
+  mmCtx.beginPath();
+  const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
+  [[0, 0], [vw, 0], [vw, vh], [0, vh]].forEach(([ox, oy], i) => {
+    const c = isoUnproject(cam.x + ox, cam.y + oy);
+    if (i) mmCtx.lineTo(c.x * sx, c.y * sy); else mmCtx.moveTo(c.x * sx, c.y * sy);
+  });
+  mmCtx.closePath();
+  mmCtx.stroke();
 }
 
 function checkGameOver() {
@@ -2827,7 +2857,7 @@ canvas.addEventListener('contextmenu', e => e.preventDefault());
 canvas.addEventListener('wheel', e => {
   e.preventDefault();
   if (!started) return;
-  const before = screenToWorld(e);
+  const before = screenToIso(e); // keep the iso point under the cursor fixed
   cam.zoom = clamp(cam.zoom * (e.deltaY < 0 ? 1.15 : 1 / 1.15), minZoom(), 2);
   const r = canvas.getBoundingClientRect();
   cam.x = before.x - (e.clientX - r.left) / cam.zoom;
@@ -2868,7 +2898,11 @@ canvas.addEventListener('mousedown', e => {
       refreshPanel();
       return;
     }
-    mouse.sel = { x1: p.x, y1: p.y, x2: p.x, y2: p.y };
+    // drag-select box lives in iso screen space (stays screen-axis-aligned;
+    // in world space it is a parallelogram — units are tested by their
+    // projected position, which is the same thing)
+    const pi = screenToIso(e);
+    mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
     if (placing || attackMoveArmed || abilityTargeting) {
       placing = null;
@@ -2886,7 +2920,7 @@ canvas.addEventListener('mousemove', e => {
   const p = screenToWorld(e);
   mouse.x = p.x;
   mouse.y = p.y;
-  if (mouse.sel) { mouse.sel.x2 = p.x; mouse.sel.y2 = p.y; }
+  if (mouse.sel) { const pi = screenToIso(e); mouse.sel.x2 = pi.x; mouse.sel.y2 = pi.y; }
 });
 
 window.addEventListener('mousemove', e => {
@@ -2914,17 +2948,21 @@ window.addEventListener('mouseup', e => {
   mmDown = false;
   if (!mouse.sel) return;
   const s = mouse.sel;
-  const p = screenToWorld(e);
+  const p = screenToIso(e);
   s.x2 = p.x;
   s.y2 = p.y;
   mouse.sel = null;
   const x1 = Math.min(s.x1, s.x2), x2 = Math.max(s.x1, s.x2);
   const y1 = Math.min(s.y1, s.y2), y2 = Math.max(s.y1, s.y2);
   if (x2 - x1 < 6 && y2 - y1 < 6) {
-    selectAt(x1, y1);
+    const w = isoUnproject(x1, y1);
+    selectAt(w.x, w.y);
   } else {
+    // the box is iso-screen-aligned: test each unit's PROJECTED position
     let picked = state.units.filter(u =>
-      u.owner === PLAYER && u.hp > 0 && !u.garrisoned && u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2);
+      u.owner === PLAYER && u.hp > 0 && !u.garrisoned &&
+      isoX(u.x, u.y) >= x1 && isoX(u.x, u.y) <= x2 &&
+      isoY(u.x, u.y) >= y1 && isoY(u.x, u.y) <= y2);
     // a drag over a mixed crowd grabs the army and leaves the workers mining
     if (picked.some(u => UNIT_TYPES[u.type].role === 'combat')) {
       picked = picked.filter(u => UNIT_TYPES[u.type].role === 'combat');
