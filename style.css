@@ -50,7 +50,7 @@ body {
 /* ---------- RA2-style sidebar ---------- */
 
 #sidebar {
-  width: 212px;
+  width: 248px;
   background: #1a1f27;
   border: 1px solid #333a44;
   padding: 6px;
@@ -64,8 +64,8 @@ body {
   border: 1px solid #46536a;
   background: #000;
   cursor: pointer;
-  width: 198px;
-  height: 140px;
+  width: 234px;
+  height: 164px;
 }
 
 #credits {
@@ -113,7 +113,7 @@ body {
 
 .cameo {
   position: relative;
-  height: 48px;
+  height: 60px;
   background: #242b36;
   border: 1px solid #465363;
   border-radius: 4px;
@@ -125,12 +125,12 @@ body {
   justify-content: center;
   gap: 2px;
   overflow: hidden;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .cameo:hover { background: #2e3744; }
 .cameo .cameo-name { font-weight: 600; line-height: 1.1; text-align: center; z-index: 1; }
-.cameo .cameo-cost { color: #ffd75f; font-size: 10px; z-index: 1; }
+.cameo .cameo-cost { color: #ffd75f; font-size: 11px; z-index: 1; }
 
 .cameo .cameo-progress {
   position: absolute;
@@ -156,7 +156,7 @@ body {
 .cameo.ready .cameo-cost { color: #7fff9f; }
 .cameo.disabled { opacity: 0.4; cursor: default; }
 
-.cameo.power { border-color: #6a5a8a; height: 54px; }
+.cameo.power { border-color: #6a5a8a; height: 66px; }
 .cameo.power .cameo-cost { color: #b9a7dd; }
 .cameo.power .cameo-progress { background: rgba(155, 120, 220, 0.3); }
 .cameo.power.castable { border-color: #c9a7ff; }

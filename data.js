@@ -14,6 +14,7 @@ const PAD_SLOT_POS = [[-26, -15], [26, -15], [-26, 19], [26, 19]];
 const HARVEST_AMOUNT = 6;    // minerals per trip
 const HARVEST_TIME = 3.5;    // seconds spent mining
 const FOG_TILE = 50;
+const UNIT_DRAW_SCALE = 1.2; // visual-only: units render this much bigger than their collision radius
 
 const PLAYER = 0;
 const ENEMY = 1;    // first AI opponent; extra AIs are owners 2, 3, ...
@@ -71,10 +72,10 @@ const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER
 
 const FACTIONS = {
   flat: {
-    name: 'Flat Earthers', family: 'FLAT EARTH', emoji: '🥞',
-    desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth. Flimsy bargain buildings; a big Believer workforce keeps the shacks fueled. Deeply suspicious of the sky — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
-    economy: { workers: 7 },
-    worker: 'believer', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
+    name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
+    desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth. Flimsy bargain buildings, kept fueled by a convoy of lightly armed Rigs of Truth. Deeply suspicious of the sky — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
+    economy: { workers: 5 },
+    worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['preacher', 'catapult', 'cropduster'], advanced: [],
     powers: {
@@ -88,10 +89,10 @@ const FACTIONS = {
     },
   },
   resistance: {
-    name: 'The Resistance', family: 'FLAT EARTH', emoji: '📡',
-    desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts. The cheapest structures anywhere — none of them built to last.',
-    economy: { workers: 5 },
-    worker: 'believer', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
+    name: 'The Resistance', family: 'RESISTANCE', emoji: '📡',
+    desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts. The cheapest structures anywhere — none of them built to last. Fast scrap-built Salvage Rigs keep the minerals moving.',
+    economy: { workers: 4 },
+    worker: 'salvagerig', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['preacher', 'catapult', 'cropduster'], advanced: [],
     powers: {
@@ -119,14 +120,14 @@ const FACTIONS = {
     buildingNames: {
       hq: 'World HQ', powerplant: 'Fusion Plant', barracks: 'Command Center',
       factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
-      tower5g: '5G Tower', samsite: 'Patriot Battery',
+      tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Spectre Hangar',
     },
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Men in Black hit hard; Surveillance Vans see everything, from very far away. Well-funded facilities, with unmarked Mining Rigs doing the dirty work.',
+    desc: 'It was never elected and never leaves. Men in Black hit hard; Surveillance Vans see everything, from very far away. Well-funded facilities, with sharp-eyed Unmarked Rigs doing the dirty work.',
     economy: { workers: 3 },
-    worker: 'harvester', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
+    worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'b1'], advanced: ['gunship', 'b2'],
     powers: {
@@ -136,14 +137,14 @@ const FACTIONS = {
     buildingNames: {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
       factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
-      tower5g: '5G Tower', samsite: 'Patriot Battery',
+      tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Unmarked Hangar',
     },
   },
   hollow: {
-    name: 'Hollow Earthers', family: 'HOLLOW EARTH', emoji: '🕳️',
-    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and Cave Bat swarms. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and Diggers haul oversized loads.',
-    economy: { workers: 5 },
-    worker: 'digger', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
+    name: 'Hollow Earthers', family: 'EARTHERS', emoji: '🕳️',
+    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and Cave Bat swarms. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and hulking Bore Rigs haul oversized loads.',
+    economy: { workers: 4 },
+    worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['sapper', 'magma'], advanced: ['ptero'],
     powers: {
@@ -205,11 +206,15 @@ const FACTIONS = {
 // req: building type that must be finished before the unit can be trained.
 
 const UNIT_TYPES = {
-  // workers — carry: minerals hauled per trip (default HARVEST_AMOUNT)
-  believer:  { name: 'Believer',    role: 'worker', builtAt: 'hq', hp: 40,  speed: 85, dmg: 3, atkRange: 22, cooldown: 1, sight: 170, cost: 50,  r: 8,  buildTime: 4 },
-  digger:    { name: 'Mole Digger', role: 'worker', builtAt: 'hq', hp: 50,  speed: 80, dmg: 4, atkRange: 22, cooldown: 1, sight: 160, cost: 50,  r: 8,  buildTime: 4, carry: 9 },
-  // globalist automation: a few armed rigs instead of a crowd of field hands
-  harvester: { name: 'Mining Rig',  role: 'worker', builtAt: 'hq', hp: 200, speed: 55, dmg: 5, atkRange: 90, cooldown: 1, sight: 200, cost: 110, r: 13, buildTime: 9, carry: 14, shape: 'square' },
+  // workers — every faction's worker line is its own mining rig (the aliens
+  // have none). carry: minerals hauled per trip; limit: hard per-player cap
+  // (alive + queued). The flat-earth family's carry less but come lightly
+  // armed; the Bore Rig is a slow armored hauler with a drill for a face.
+  harvester:  { name: 'Mining Rig',   role: 'worker', builtAt: 'hq', hp: 200, speed: 55, dmg: 5, atkRange: 90, cooldown: 1,   sight: 200, cost: 110, r: 13, buildTime: 9,  carry: 14, shape: 'square', limit: 4 },
+  blackrig:   { name: 'Unmarked Rig', role: 'worker', builtAt: 'hq', hp: 190, speed: 58, dmg: 6, atkRange: 95, cooldown: 1,   sight: 260, cost: 105, r: 13, buildTime: 9,  carry: 12, shape: 'square', limit: 4 },
+  truthrig:   { name: 'Rig of Truth', role: 'worker', builtAt: 'hq', hp: 150, speed: 60, dmg: 4, atkRange: 85, cooldown: 0.9, sight: 190, cost: 90,  r: 12, buildTime: 8,  carry: 9,  shape: 'square', limit: 6 },
+  salvagerig: { name: 'Salvage Rig',  role: 'worker', builtAt: 'hq', hp: 130, speed: 72, dmg: 4, atkRange: 90, cooldown: 0.9, sight: 200, cost: 80,  r: 12, buildTime: 7,  carry: 8,  shape: 'square', limit: 5 },
+  borerig:    { name: 'Bore Rig',     role: 'worker', builtAt: 'hq', hp: 240, speed: 45, dmg: 8, atkRange: 24, cooldown: 1.1, sight: 170, cost: 120, r: 13, buildTime: 10, carry: 16, shape: 'square', limit: 5 },
   // basic infantry
   militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5 },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4 },
@@ -258,7 +263,9 @@ const UNIT_TYPES = {
   // heavies — an orbiting AC-130 and the stealth-black flying wing
   b1:      { name: 'B-1 Lancer',    role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
   b2:      { name: 'B-2 Spirit',    role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
-  gunship: { name: 'AC-130 Gunship', role: 'combat', builtAt: 'airpad', hp: 380, speed: 105, dmg: 11, atkRange: 200, cooldown: 0.22, sight: 300, cost: 420, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.7, weapon: 'gunship', orbitR: 145, shellEvery: 8, shellDmg: 45, shellSplash: 34 , req: 'tech' },
+  // lumbering death circle: wide slow pylon turn, battery rakes up to
+  // multiTarget enemies in range at once; flies from its own single-plane hangar
+  gunship: { name: 'AC-130 Gunship', role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
   // faction-power units (never trainable)
   smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
@@ -273,7 +280,9 @@ const BUILDING_TYPES = {
   powerplant: { hp: 320, w: 58, h: 58, cost: 80,  buildTime: 10, sight: 160, power: +100, cap: 6 },
   barracks:   { hp: 450, w: 54, h: 54, cost: 100, buildTime: 12, sight: 200, power: -30,  cap: 3 },
   factory:    { hp: 500, w: 88, h: 68, cost: 150, buildTime: 16, sight: 200, power: -40,  cap: 2 },
-  airpad:     { hp: 420, w: 96, h: 72, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 2 },
+  airpad:     { hp: 420, w: 96, h: 72, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 2, padCap: 4 },
+  // dedicated heavy hangar: holds a single AC-130, gated behind the tech lab
+  hangar:     { hp: 520, w: 124, h: 92, cost: 220, buildTime: 18, sight: 220, power: -50, cap: 2, padCap: 1, req: 'tech' },
   // research site: pricey and power-hungry, unlocks each faction's advanced
   // units (req: 'tech' on the unit); flat-earth family airpads need it too
   tech:       { hp: 480, w: 60, h: 60, cost: 260, buildTime: 20, sight: 220, power: -80, cap: 1 },
@@ -281,13 +290,15 @@ const BUILDING_TYPES = {
   watchtower: { hp: 300, w: 40, h: 40, cost: 75,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 10, atkRange: 175, cooldown: 0.7,  targets: 'ground' },
   tower5g:    { hp: 340, w: 40, h: 40, cost: 100, buildTime: 12, sight: 280, power: -30, cap: 5, dmg: 6,  atkRange: 215, cooldown: 0.9,  targets: 'ground', weapon: 'pulse' },
   stalagmite: { hp: 320, w: 40, h: 40, cost: 80,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 11, atkRange: 180, cooldown: 0.7,  targets: 'ground' },
-  pylon:      { hp: 340, w: 40, h: 40, cost: 105, buildTime: 12, sight: 260, power: -30, cap: 5, dmg: 16, atkRange: 200, cooldown: 0.85, targets: 'ground', weapon: 'chain' },
+  // ownWeaponArt: the drawing already shows its weapon (crystal, lens, pods,
+  // dish) — the engine must not stamp the generic swivel turret over it
+  pylon:      { hp: 340, w: 40, h: 40, cost: 105, buildTime: 12, sight: 260, power: -30, cap: 5, dmg: 16, atkRange: 200, cooldown: 0.85, targets: 'ground', weapon: 'chain', ownWeaponArt: true },
   // anti-air towers
-  laserpointer: { hp: 280, w: 38, h: 38, cost: 90,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 14,  atkRange: 230, cooldown: 0.6,  targets: 'air' },
+  laserpointer: { hp: 280, w: 38, h: 38, cost: 90,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 14,  atkRange: 230, cooldown: 0.6,  targets: 'air', ownWeaponArt: true },
   aanest:       { hp: 260, w: 36, h: 36, cost: 70,  buildTime: 8,  sight: 270, power: -20, cap: 5, dmg: 3.5, atkRange: 220, cooldown: 0.14, targets: 'air' }, // rapid tracer stream
-  samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 20,  atkRange: 270, cooldown: 1.6,  targets: 'air', weapon: 'missile' },
+  samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 20,  atkRange: 270, cooldown: 1.6,  targets: 'air', weapon: 'missile', ownWeaponArt: true },
   geyser:       { hp: 300, w: 38, h: 38, cost: 95,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 16,  atkRange: 240, cooldown: 0.75, targets: 'air' },
-  tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 2.4, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam' },
+  tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 2.4, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam', ownWeaponArt: true },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
   // neutral map structures — garrison infantry inside to claim them
@@ -362,15 +373,15 @@ const BUILDING_MODS = {
     tech:       { hp: 580 },
   },
   grey: { // zero-point economy: no miners, structures conjure minerals
-    hq:         { hp: 1000, power: 80, income: 12 },
-    powerplant: { cost: 130, hp: 350, power: 130, buildTime: 13, income: 8 },
+    hq:         { hp: 1000, power: 80, income: 16 },
+    powerplant: { cost: 130, hp: 350, power: 130, buildTime: 13, income: 11 },
     barracks:   { cost: 125, hp: 430 },
     factory:    { cost: 180, hp: 520 },
     airpad:     { cost: 165, hp: 440 },
   },
   reptilian: { // the nest provides: same structure income, slightly cheaper
-    hq:         { hp: 1050, power: 75, income: 12 },
-    powerplant: { cost: 120, hp: 340, power: 125, buildTime: 12, income: 8 },
+    hq:         { hp: 1050, power: 75, income: 16 },
+    powerplant: { cost: 120, hp: 340, power: 125, buildTime: 12, income: 11 },
     barracks:   { cost: 110, hp: 470 },
     factory:    { cost: 170, hp: 530 },
     airpad:     { cost: 150, hp: 450 },

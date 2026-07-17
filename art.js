@@ -556,39 +556,87 @@
     ctx.fillStyle = o.color;
     ctx.fillRect(-16, 5.5, 32, 1.6);
   };
-  D.harvester = (ctx, t, o) => {
+  // mining rigs — one shared hull, faction-flavored trim.
+  // opts: hull/trim/hopper/cab colors, scale (smaller flat-earth builds),
+  // gun (pintle gun on the cab), drill (bore cone instead of the intake
+  // roller), dish (sweeping surveillance dish)
+  function rigBase(ctx, t, o, opts) {
+    ctx.save();
+    if (opts.scale) ctx.scale(opts.scale, opts.scale);
     treads(ctx, t, o, 24, 5, 10);
-    // low-slung corporate hull
-    ctx.fillStyle = '#15181d';
+    // low-slung hull
+    ctx.fillStyle = opts.hull;
     rr(ctx, -14, -8, 26, 16, 3);
     ctx.fill();
-    ctx.strokeStyle = '#4a515c'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.strokeStyle = opts.trim; ctx.lineWidth = 1; ctx.stroke();
     // ore hopper with a mineral shimmer
-    ctx.fillStyle = '#20242a';
+    ctx.fillStyle = opts.hopper;
     rr(ctx, -12, -5.5, 11, 11, 2);
     ctx.fill();
     ctx.fillStyle = `rgba(63,215,208,${0.3 + 0.2 * Math.sin(t * 3)})`;
     rr(ctx, -10.5, -4, 8, 8, 1.5);
     ctx.fill();
     // tinted cab
-    ctx.fillStyle = '#0a0c0f';
+    ctx.fillStyle = opts.cab;
     rr(ctx, 2, -5.4, 5, 10.8, 1.5);
     ctx.fill();
-    // intake roller, stripes crawl as it drives
-    ctx.fillStyle = '#8b939e';
-    rr(ctx, 12, -7, 3.5, 14, 1);
-    ctx.fill();
-    ctx.strokeStyle = '#5d646d';
-    ctx.lineWidth = 0.9;
-    const roll = ((o.dist || 0) * 0.6 + t * 2) % 4.7;
-    for (let i = 0; i < 3; i++) {
-      const p = (roll + i * 4.7) % 14;
-      ctx.beginPath(); ctx.moveTo(12.4, -7 + p); ctx.lineTo(15.1, -7 + p); ctx.stroke();
+    if (opts.drill) {
+      // spinning bore cone up front, like the drill tank's
+      ctx.fillStyle = '#8b939e';
+      ctx.beginPath();
+      ctx.moveTo(12, -6); ctx.lineTo(21, 0); ctx.lineTo(12, 6);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#5d646d';
+      ctx.lineWidth = 1;
+      const spin = t * 30;
+      for (let i = 0; i < 3; i++) {
+        const p = ((spin + i * 3) % 9 + 9) % 9;
+        const frac = p / 9;
+        ctx.beginPath();
+        ctx.moveTo(12 + p, -6 * (1 - frac));
+        ctx.lineTo(12 + p, 6 * (1 - frac));
+        ctx.stroke();
+      }
+    } else {
+      // intake roller, stripes crawl as it drives
+      ctx.fillStyle = '#8b939e';
+      rr(ctx, 12, -7, 3.5, 14, 1);
+      ctx.fill();
+      ctx.strokeStyle = '#5d646d';
+      ctx.lineWidth = 0.9;
+      const roll = ((o.dist || 0) * 0.6 + t * 2) % 4.7;
+      for (let i = 0; i < 3; i++) {
+        const p = (roll + i * 4.7) % 14;
+        ctx.beginPath(); ctx.moveTo(12.4, -7 + p); ctx.lineTo(15.1, -7 + p); ctx.stroke();
+      }
+    }
+    if (opts.gun) {
+      // pintle gun bolted to the cab roof
+      ctx.strokeStyle = '#2f353d'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(4.5, 0); ctx.lineTo(11.5, 0); ctx.stroke();
+      ctx.fillStyle = '#3a414b';
+      ctx.beginPath(); ctx.arc(4.5, 0, 2.1, 0, TAU); ctx.fill();
+    }
+    if (opts.dish) {
+      // sweeping roof dish, same idea as the surveillance van's
+      ctx.save();
+      ctx.translate(4.5, 0);
+      ctx.rotate(t * 1.2);
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.arc(0, 0, 3.4, -1.1, 1.1); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(3.4, 0); ctx.stroke();
+      ctx.restore();
     }
     // team stripe
     ctx.fillStyle = o.color;
     ctx.fillRect(-14, 5.6, 26, 2);
-  };
+    ctx.restore();
+  }
+  D.harvester  = (ctx, t, o) => rigBase(ctx, t, o, { hull: '#15181d', trim: '#4a515c', hopper: '#20242a', cab: '#0a0c0f' });
+  D.blackrig   = (ctx, t, o) => rigBase(ctx, t, o, { hull: '#0c0e12', trim: '#3a414b', hopper: '#15181d', cab: '#06070a', dish: true });
+  D.truthrig   = (ctx, t, o) => rigBase(ctx, t, o, { hull: '#7a5c37', trim: '#4a3820', hopper: '#5c452a', cab: '#33271a', scale: 0.9,  gun: true });
+  D.salvagerig = (ctx, t, o) => rigBase(ctx, t, o, { hull: '#4a523c', trim: '#2e3325', hopper: '#3a4030', cab: '#22261c', scale: 0.85, gun: true });
+  D.borerig    = (ctx, t, o) => rigBase(ctx, t, o, { hull: '#6e5a46', trim: '#463829', hopper: '#57482e', cab: '#2e2519', scale: 1.05, drill: true });
   D.drill = (ctx, t, o) => {
     treads(ctx, t, o, 24, 5, 9);
     ctx.fillStyle = shade(o.color, -0.15);
@@ -1013,9 +1061,10 @@
     ctx.restore();
   };
   D.gunship = (ctx, t, o) => {
-    // AC-130: big four-engine airframe with a broadside battery
+    // AC-130: big four-engine airframe with a broadside battery — drawn at
+    // twice its old size, it should dwarf everything else in the sky
     ctx.save();
-    ctx.scale(1.25, 1.25);
+    ctx.scale(2.5, 2.5);
     // wide wing with four props
     ctx.fillStyle = '#272b33';
     rr(ctx, -3, -16, 8, 32, 2);
@@ -1162,13 +1211,28 @@
   // Height illusion: every structure = cast shadow + dark walls + lit roof.
 
   // a raised block â€” the core top-down "this is a 3D structure" primitive
+  // extruded box, RA2-style top-down-oblique: the roof sits on a visible
+  // south-facing facade (lift tall), light from the top-left, shadow cast
+  // down-right onto the ground
   function block(ctx, x, y, w, h, r, col, lift = 4) {
+    // facade height scales with the block's mass: big structures get RA2-tall
+    // walls, small roof details stay low boxes
+    const sizeBoost = Math.min(2, Math.sqrt(w * h) / 30);
+    const ext = Math.max(4, lift * 1.8 * sizeBoost + 2);
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    rr(ctx, x + lift, y + lift + 1.5, w, h, r);
+    rr(ctx, x + lift * 1.1 + ext * 0.25, y + lift * 0.5 + 2.5, w, h + ext, r);
     ctx.fill();
-    ctx.fillStyle = shade(col, -0.45);
-    rr(ctx, x + lift * 0.5, y + lift * 0.5, w, h, r);
+    // the wall the roof sits on — darkens toward the ground
+    const wg = ctx.createLinearGradient(0, y + h - r, 0, y + h + ext);
+    wg.addColorStop(0, shade(col, -0.26));
+    wg.addColorStop(1, shade(col, -0.55));
+    ctx.fillStyle = wg;
+    rr(ctx, x, y, w, h + ext, r);
     ctx.fill();
+    ctx.strokeStyle = shade(col, -0.6);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // roof, lit from the top-left
     const g = ctx.createLinearGradient(x, y, x + w * 0.7, y + h);
     g.addColorStop(0, shade(col, 0.22));
     g.addColorStop(1, shade(col, -0.12));
@@ -1186,12 +1250,25 @@
     ctx.stroke();
   }
 
-  // a raised disc (round building)
+  // a raised cylinder: top disc on a visible curved side wall
   function drum3d(ctx, x, y, rad, col, lift = 3) {
+    const ext = Math.max(3.5, lift * 1.4 + rad * 0.35);
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
-    ctx.beginPath(); ctx.arc(x + lift, y + lift + 1, rad, 0, TAU); ctx.fill();
-    ctx.fillStyle = shade(col, -0.45);
-    ctx.beginPath(); ctx.arc(x + lift * 0.5, y + lift * 0.5, rad, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(x + lift * 1.1, y + ext + 2, rad, rad * 0.96, 0, 0, TAU); ctx.fill();
+    // side wall: darkest at the silhouette edges, like a lit cylinder
+    const wg = ctx.createLinearGradient(x - rad, 0, x + rad, 0);
+    wg.addColorStop(0, shade(col, -0.55));
+    wg.addColorStop(0.45, shade(col, -0.22));
+    wg.addColorStop(1, shade(col, -0.6));
+    ctx.fillStyle = wg;
+    ctx.beginPath();
+    ctx.moveTo(x - rad, y);
+    ctx.lineTo(x - rad, y + ext);
+    ctx.arc(x, y + ext, rad, Math.PI, 0, true);
+    ctx.lineTo(x + rad, y);
+    ctx.closePath();
+    ctx.fill();
+    // top disc, lit from the top-left
     const g = ctx.createRadialGradient(x - rad * 0.4, y - rad * 0.4, rad * 0.15, x, y, rad);
     g.addColorStop(0, shade(col, 0.3));
     g.addColorStop(1, shade(col, -0.15));
@@ -1204,12 +1281,28 @@
 
   // low concrete foundation with team-color corner brackets
   function pad(ctx, o) {
-    ctx.fillStyle = '#2a2f34';
+    // ground-contact shadow so the slab sits ON the terrain, not painted on it
+    ctx.fillStyle = 'rgba(0,0,0,0.30)';
+    rr(ctx, -o.w / 2 + 2.5, -o.h / 2 + 3.5, o.w, o.h, 4);
+    ctx.fill();
+    // poured surface, lit from the top
+    const pg = ctx.createLinearGradient(0, -o.h / 2, 0, o.h / 2);
+    pg.addColorStop(0, '#49515b');
+    pg.addColorStop(1, '#2e343b');
+    ctx.fillStyle = pg;
     rr(ctx, -o.w / 2, -o.h / 2, o.w, o.h, 4);
     ctx.fill();
     ctx.strokeStyle = 'rgba(0,0,0,0.45)';
     ctx.lineWidth = 1;
     ctx.stroke();
+    // beveled lip along the lit edges
+    ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+    ctx.beginPath();
+    ctx.moveTo(-o.w / 2 + 3, o.h / 2 - 4);
+    ctx.lineTo(-o.w / 2 + 3, -o.h / 2 + 3);
+    ctx.lineTo(o.w / 2 - 4, -o.h / 2 + 3);
+    ctx.stroke();
+    // expansion grooves
     ctx.strokeStyle = 'rgba(0,0,0,0.18)';
     ctx.beginPath(); ctx.moveTo(0, -o.h / 2 + 3); ctx.lineTo(0, o.h / 2 - 3); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-o.w / 2 + 3, 0); ctx.lineTo(o.w / 2 - 3, 0); ctx.stroke();
@@ -1224,6 +1317,24 @@
       ctx.lineTo(cx, cy - sy * L);
       ctx.stroke();
     }
+  }
+
+  // raised circular tower platform: drop shadow + dark under-skirt + a deck
+  // lit from the top-left — sells the elevation that flat fills never did
+  function towerDeck(ctx, r, topCol, skirtCol) {
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath(); ctx.ellipse(3.5, 5.5, r + 1.5, r * 0.9, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = skirtCol;
+    ctx.beginPath(); ctx.arc(0, 4, r, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.rect(-r, 0, r * 2, 4); ctx.fill();
+    const g = ctx.createRadialGradient(-r * 0.35, -r * 0.45, r * 0.15, 0, 0, r);
+    g.addColorStop(0, shade(topCol, 0.14));
+    g.addColorStop(1, shade(topCol, -0.10));
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, r, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+    ctx.lineWidth = 1.1;
+    ctx.stroke();
   }
 
   function blinker(ctx, t, x, y, col = '#ff5f5f', rate = 3) {
@@ -1844,11 +1955,49 @@
   };
 
   // ================= AIRPAD (a real airfield: runway + landing circle) =================
+  B.hangar = (ctx, t, o) => {
+    // single-plane heavy hangar: one big centered landing ring, nothing else
+    pad(ctx, o);
+    const W = o.w, H = o.h;
+    block(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4, '#343b43', 3);
+    const sg = ctx.createLinearGradient(0, -H / 2, 0, H / 2);
+    sg.addColorStop(0, 'rgba(255,255,255,0.07)');
+    sg.addColorStop(1, 'rgba(0,0,0,0.14)');
+    ctx.fillStyle = sg;
+    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.lineWidth = 1.8;
+    ctx.setLineDash([9, 6]);
+    ctx.beginPath(); ctx.arc(0, 4, Math.min(W, H) / 2 - 12, 0, TAU); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,255,255,0.5)';
+    ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('130', 0, 4);
+    // sequenced corner landing lights, same rhythm as the airpad's
+    const hw = W / 2 - 9, hh = H / 2 - 9;
+    [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].forEach(([lx, ly], i) => {
+      const lit = o.on && ((t * 2 + i) % 4) < 1;
+      ctx.fillStyle = lit ? '#ffd75f' : 'rgba(255,215,95,0.2)';
+      ctx.beginPath(); ctx.arc(lx, ly, 1.7, 0, TAU); ctx.fill();
+    });
+  };
   B.airpad = (ctx, t, o) => {
     pad(ctx, o);
     const W = o.w, H = o.h;
     // raised tarmac deck
     block(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4, '#3a4148', 3);
+    // top-lit sheen + painted safety border lift the slab off the page
+    const sg = ctx.createLinearGradient(0, -H / 2, 0, H / 2);
+    sg.addColorStop(0, 'rgba(255,255,255,0.07)');
+    sg.addColorStop(1, 'rgba(0,0,0,0.14)');
+    ctx.fillStyle = sg;
+    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255,210,90,0.45)';
+    ctx.lineWidth = 1.2;
+    rr(ctx, -W / 2 + 6.5, -H / 2 + 6.5, W - 13, H - 13, 3);
+    ctx.stroke();
     // runway band
     ctx.fillStyle = '#454d56';
     rr(ctx, -W / 2 + 9, -11, W - 34, 22, 2);
@@ -1947,43 +2096,59 @@
   // ================= TOWERS (engine draws the turret on top) =================
   B.watchtower = (ctx, t, o) => {
     pad(ctx, o);
-    // timber platform with plank grain + crossed bracing
-    block(ctx, -13, -13, 26, 26, 2, '#8a6f45', 5);
-    ctx.strokeStyle = 'rgba(0,0,0,0.25)';
-    ctx.lineWidth = 0.8;
-    for (let i = -9; i <= 9; i += 4.5) {
-      ctx.beginPath(); ctx.moveTo(i, -12); ctx.lineTo(i, 12); ctx.stroke();
+    // raised timber deck on stilts, plank grain running across it
+    towerDeck(ctx, 14, '#8f7448', '#54401f');
+    ctx.strokeStyle = 'rgba(60,45,25,0.5)';
+    ctx.lineWidth = 0.9;
+    for (let i = -10; i <= 10; i += 4) {
+      const half = Math.sqrt(Math.max(0, 14 * 14 - i * i)) - 1.5;
+      ctx.beginPath(); ctx.moveTo(i, -half); ctx.lineTo(i, half); ctx.stroke();
     }
-    ctx.strokeStyle = 'rgba(60,45,25,0.6)';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.moveTo(-12, -12); ctx.lineTo(12, 12);
-    ctx.moveTo(12, -12); ctx.lineTo(-12, 12);
-    ctx.stroke();
-    sandbag(ctx, -12, 14, 0.3);
-    sandbag(ctx, -4, 16, -0.2);
+    // corner support posts poking through the deck
+    ctx.fillStyle = '#3f311c';
+    for (const a of [0.79, 2.36, 3.93, 5.5]) {
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 11, Math.sin(a) * 11, 2, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#5c4a2c';
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 11 - 0.6, Math.sin(a) * 11 - 0.6, 1, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#3f311c';
+    }
+    // sandbags dumped around the base
+    sandbag(ctx, -13, 15, 0.3);
+    sandbag(ctx, -4, 17, -0.2);
+    sandbag(ctx, 5, 16, 0.15);
   };
   B.tower5g = (ctx, t, o) => {
     pad(ctx, o);
-    // truss mast (triangle) + emitters
-    block(ctx, -11, -11, 22, 22, 3, '#39434f', 4);
-    ctx.strokeStyle = '#8b939e';
-    ctx.lineWidth = 1.2;
+    // raised steel platform carrying the lattice mast
+    towerDeck(ctx, 13, '#414b56', '#20252c');
+    // lattice legs converging on the emitter head
+    ctx.strokeStyle = '#98a1ac';
+    ctx.lineWidth = 1.3;
     ctx.beginPath();
-    ctx.moveTo(-7, 7); ctx.lineTo(0, -8); ctx.lineTo(7, 7);
-    ctx.moveTo(-4.5, 2); ctx.lineTo(4.5, 2);
-    ctx.moveTo(-2.5, -3); ctx.lineTo(2.5, -3);
+    ctx.moveTo(-8.5, 7.5); ctx.lineTo(0, -7); ctx.lineTo(8.5, 7.5);
+    ctx.moveTo(-5.5, 2.5); ctx.lineTo(5.5, 2.5);
+    ctx.moveTo(-3, -2.5); ctx.lineTo(3, -2.5);
     ctx.stroke();
+    // emitter head: metal drum ringed by sector antenna panels
+    drum3d(ctx, 0, -7, 3.6, '#79828e', 2);
+    ctx.fillStyle = '#d5dae2';
+    for (const a of [-Math.PI / 2, Math.PI / 6, Math.PI - Math.PI / 6]) {
+      ctx.save();
+      ctx.translate(0, -7);
+      ctx.rotate(a);
+      ctx.fillRect(3.4, -1.6, 1.8, 3.2);
+      ctx.restore();
+    }
     if (o.on) {
       for (let i = 0; i < 3; i++) {
         const ph = ((t * 0.9 + i / 3) % 1);
         ctx.strokeStyle = `rgba(140,208,255,${0.75 * (1 - ph)})`;
         ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.arc(0, -8, 3 + ph * 12, -2.2, -0.9); ctx.stroke();
-        ctx.beginPath(); ctx.arc(0, -8, 3 + ph * 12, Math.PI + 0.9, Math.PI + 2.2); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, -7, 4 + ph * 12, -2.2, -0.9); ctx.stroke();
+        ctx.beginPath(); ctx.arc(0, -7, 4 + ph * 12, Math.PI + 0.9, Math.PI + 2.2); ctx.stroke();
       }
     }
-    blinker(ctx, t, 0, -8, '#ff5f5f', 2.4);
+    blinker(ctx, t, 0, -7, '#ff5f5f', 2.4);
   };
   B.stalagmite = (ctx, t, o) => {
     pad(ctx, o);
@@ -2011,7 +2176,7 @@
   };
   B.pylon = (ctx, t, o) => {
     pad(ctx, o);
-    block(ctx, -12, -12, 24, 24, 12, '#3d4450', 3);
+    towerDeck(ctx, 12.5, '#3d4450', '#1e222a');
     const pulse = o.on ? 0.5 + 0.5 * Math.sin(t * 4) : 0.1;
     // rune ring
     ctx.strokeStyle = `rgba(201,167,255,${0.25 + pulse * 0.35})`;
@@ -2069,7 +2234,8 @@
   };
   B.samsite = (ctx, t, o) => {
     pad(ctx, o);
-    block(ctx, -13, -13, 26, 26, 3, '#39434f', 4);
+    // armored emplacement ring
+    towerDeck(ctx, 13.5, '#3f4854', '#1f242b');
     // twin angled missile pods with visible tips
     for (const s of [-1, 1]) {
       ctx.save();
@@ -2127,7 +2293,7 @@
   };
   B.tractor = (ctx, t, o) => {
     pad(ctx, o);
-    block(ctx, -12, -12, 24, 24, 12, '#3d4450', 3);
+    towerDeck(ctx, 12.5, '#3d4450', '#1e222a');
     // gimbal ring + dish
     ctx.strokeStyle = '#6a7280';
     ctx.lineWidth = 2;

@@ -570,6 +570,7 @@ function segHitsRect(x1, y1, x2, y2, cx, cy, ex, ey) {
 function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   const d = Math.hypot(tx - u.x, ty - u.y);
   if (d <= stopDist) return true;
+  u.wdWant = true; // actively trying to move — eligible for the wedge-breaker
   const t = UNIT_TYPES[u.type];
   let speed = t.speed;
   // rain/storm zones slow ground units; a tractor beam slows anything it holds
@@ -928,12 +929,20 @@ function fireAt(u, target, t) {
           { dmg: t.shellDmg || 40, splash: t.shellSplash || 30, bldgBonus: 1.4 });
         if (visible) sfx('shot');
       } else {
-        dealDamage(u, target, dmg, t);
-        Particles.shot(u.x + Math.cos(a + 1.5) * (t.r - 3), u.y + Math.sin(a + 1.5) * (t.r - 3),
-          target.x, target.y, 'bullet');
+        // the cannons rake up to multiTarget enemies inside the orbit at once
+        const extras = (t.multiTarget || 1) > 1
+          ? enemiesOf(u.owner).filter(e => e !== target && !e.disguised && canTarget(t, e) &&
+              dist(u, e) <= t.atkRange + entityRadius(e))
+            .sort((x, y) => dist(u, x) - dist(u, y)).slice(0, t.multiTarget - 1)
+          : [];
+        for (const tgt of [target, ...extras]) {
+          dealDamage(u, tgt, dmg, t);
+          Particles.shot(u.x + Math.cos(a + 1.5) * (t.r - 3), u.y + Math.sin(a + 1.5) * (t.r - 3),
+            tgt.x, tgt.y, 'bullet');
+        }
         if (visible && u.burst % 3 === 0) sfx('shot');
       }
-      if (target.hp <= 0 && u.order.type === 'attack') u.order = { type: 'idle' };
+      if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
     } else {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
@@ -946,9 +955,23 @@ function fireAt(u, target, t) {
         });
       }
       if (visible) sfx(state.factions[u.owner] === 'glob' ? 'laser' : 'shot');
-      if (target.hp <= 0 && u.order.type === 'attack') u.order = { type: 'idle' };
+      if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
     }
   }
+}
+
+// on a kill, flying attackers swing straight onto the next nearest enemy
+// instead of breaking off — pad craft keep hunting until the ammo runs dry
+// (the empty-magazine check in updateUnit sends them home). Ground units
+// still drop to idle and re-acquire by sight.
+function nextTargetOrIdle(u, t) {
+  if (t.flying && !(t.maxAmmo && u.ammo <= 0)) {
+    const foe = nearest(u, enemiesOf(u.owner), e =>
+      !e.disguised && canTarget(t, e) &&
+      dist(u, e) <= Math.max(t.sight * 1.6, 450) && dist(u, e) >= (t.minRange || 0));
+    if (foe) { orderAttack(u, foe); return; }
+  }
+  u.order = { type: 'idle' };
 }
 
 function autoAcquire(u, dt) {
@@ -978,6 +1001,12 @@ function rectDist(u, b) {
 
 // ---------- airfield slots (RA2-style: 4 aircraft stationed per pad) ----------
 
+// stationed-aircraft capacity of a pad-host building (airpads hold 4, the
+// AC-130's dedicated hangar holds 1)
+function padCapOf(b) {
+  return bstatsOf(b).padCap || PAD_CAP;
+}
+
 function padLoad(b) {
   return state.units.filter(u => u.hp > 0 && u.homeId === b.id && UNIT_TYPES[u.type].pad).length
     + b.queue.filter(j => UNIT_TYPES[j.type].pad).length;
@@ -987,21 +1016,24 @@ function freeSlot(b) {
   const taken = new Set(state.units
     .filter(u => u.hp > 0 && u.homeId === b.id && UNIT_TYPES[u.type].pad)
     .map(u => u.slot));
-  for (let s = 0; s < PAD_CAP; s++) if (!taken.has(s)) return s;
+  for (let s = 0; s < padCapOf(b); s++) if (!taken.has(s)) return s;
   return 0;
 }
 
-function padSlotsFree(owner) {
+function padSlotsFree(owner, padType = 'airpad') {
   return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done &&
-    b.type === 'airpad' && padLoad(b) < PAD_CAP);
+    b.type === padType && padLoad(b) < padCapOf(b));
 }
 
-// resolve an aircraft's home pad; adopts a new one (and slot) if the old died
+// resolve an aircraft's home pad; adopts a new one (and slot) if the old died.
+// A craft only homes to the building type that trains it — no AC-130s
+// squatting on fighter pads.
 function findPadFor(u) {
-  let home = state.buildings.find(b => b.id === u.homeId && b.hp > 0 && b.done && b.type === 'airpad');
+  const padType = UNIT_TYPES[u.type].builtAt;
+  let home = state.buildings.find(b => b.id === u.homeId && b.hp > 0 && b.done && b.type === padType);
   if (home) return home;
-  home = nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'airpad' &&
-    b.hp > 0 && b.done && padLoad(b) < PAD_CAP);
+  home = nearest(u, state.buildings, b => b.owner === u.owner && b.type === padType &&
+    b.hp > 0 && b.done && padLoad(b) < padCapOf(b));
   if (home) { u.homeId = home.id; u.slot = freeSlot(home); }
   return home;
 }
@@ -1021,7 +1053,9 @@ function updateUnit(u, dt) {
   // the unit out along the least-blocked direction (escalation, rare).
   u.wdT = (u.wdT || 0) + dt;
   if (u.wdT >= 2.5) {
-    if (o.type !== 'idle' && o.type !== 'loiter' && !u.landed &&
+    // only units that actually TRIED to move count as pinned — a mortar
+    // holding position to fire is standing still on purpose, not wedged
+    if (u.wdWant && o.type !== 'idle' && o.type !== 'loiter' && !u.landed &&
         u.travel - (u.wdTravel || 0) < 5) {
       delete u.dodge;
       delete u.veer;
@@ -1052,6 +1086,7 @@ function updateUnit(u, dt) {
       u.wdStrikes = 0;
     }
     u.wdT = 0;
+    u.wdWant = false;
     u.wdTravel = u.travel;
   }
 
@@ -1062,15 +1097,42 @@ function updateUnit(u, dt) {
     return;
   }
 
+  // armed rigs defend themselves: pop off at anything in weapon range without
+  // ever dropping the order they're on — mine, haul, and shoot back
+  if (stats.role === 'worker' && stats.dmg && o.type !== 'attack' && o.type !== 'tunnel') {
+    u.defT = (u.defT === undefined ? (u.id % 10) * 0.035 : u.defT) - dt;
+    if (u.defT <= 0) {
+      u.defT = 0.35;
+      const foe = nearest(u, enemiesOf(u.owner), e =>
+        !e.disguised && canTarget(stats, e) && dist(u, e) <= stats.atkRange + entityRadius(e));
+      u.defFoeId = foe ? foe.id : null;
+    }
+    if (u.defFoeId && u.cooldown <= 0) {
+      const foe = findEntity(u.defFoeId);
+      if (foe && foe.hp > 0 && !foe.disguised && dist(u, foe) <= stats.atkRange + entityRadius(foe)) {
+        u.facing = Math.atan2(foe.y - u.y, foe.x - u.x);
+        fireAt(u, foe, stats);
+      } else {
+        u.defFoeId = null;
+      }
+    }
+  }
+
   switch (o.type) {
     case 'idle':
       if (stats.pad && u.landed) {
-        // parked on the pad: top off ammo, hold position (no auto-scramble)
+        // parked on the pad: top off ammo, patch the airframe, hold position
         if (u.ammo < stats.maxAmmo) u.ammo = Math.min(stats.maxAmmo, u.ammo + stats.maxAmmo * dt / 4);
+        if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
         break;
       }
       if (stats.pad && findPadFor(u)) { u.order = { type: 'rearm' }; break; }
       if (stats.plane) { u.order = { type: 'loiter', x: u.x, y: u.y }; break; } // no pad left: circle
+      // free-flying craft mend slowly while hovering near a friendly airfield
+      if (stats.flying && u.hp < u.maxHp && state.buildings.some(b =>
+          b.owner === u.owner && b.hp > 0 && b.done && bstatsOf(b).padCap && rectDist(u, b) < 130)) {
+        u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
+      }
       if (stats.role === 'combat') autoAcquire(u, dt);
       break;
 
@@ -1107,7 +1169,8 @@ function updateUnit(u, dt) {
 
     case 'attack': {
       const target = findEntity(o.targetId);
-      if (!target || target.hp <= 0 || !canTarget(stats, target)) { u.order = { type: 'idle' }; break; }
+      // covers targets finished off by projectiles (bombs) or someone else
+      if (!target || target.hp <= 0 || !canTarget(stats, target)) { nextTargetOrIdle(u, stats); break; }
       tryAttack(u, target, dt);
       break;
     }
@@ -1146,7 +1209,8 @@ function updateUnit(u, dt) {
       const home = findPadFor(u);
       if (!home) { u.order = { type: 'idle' }; break; } // no airfield left — stranded
       if (u.slot === undefined) u.slot = freeSlot(home);
-      const [ox, oy] = PAD_SLOT_POS[u.slot % PAD_CAP];
+      // single-plane hangars park their resident dead center
+      const [ox, oy] = padCapOf(home) === 1 ? [0, 6] : PAD_SLOT_POS[u.slot % PAD_CAP];
       const px = home.x + ox, py = home.y + oy;
       const arrived = stats.plane ? flyToward(u, px, py, dt, 16, true) : moveToward(u, px, py, dt, 5);
       if (arrived) {
@@ -1267,12 +1331,23 @@ function rebuildSepGrid() {
   }
 }
 
+// live + queued count of one unit type, for limit-capped units (mining rigs)
+function unitCount(owner, type) {
+  let n = 0;
+  for (const u of state.units) if (u.owner === owner && u.hp > 0 && u.type === type) n++;
+  for (const b of state.buildings) {
+    if (b.owner === owner && b.hp > 0) n += b.queue.filter(j => j.type === type).length;
+  }
+  return n;
+}
+
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
   if (ut.req && !hasStruct(owner, ut.req)) return false;
+  if (ut.limit && unitCount(owner, unitType) >= ut.limit) return false;
   let trainers = state.buildings.filter(b =>
     b.owner === owner && b.hp > 0 && b.done && b.type === ut.builtAt && b.queue.length < 5);
-  if (ut.pad) trainers = trainers.filter(b => padLoad(b) < PAD_CAP); // needs a free pad slot
+  if (ut.pad) trainers = trainers.filter(b => padLoad(b) < padCapOf(b)); // needs a free pad slot
   if (!trainers.length) return false;
   if (state.minerals[owner] < ut.cost) return false;
   trainers.sort((a, b) => ut.pad ? padLoad(a) - padLoad(b) : a.queue.length - b.queue.length);
@@ -1411,7 +1486,7 @@ function updateBuilding(b, dt) {
     b.queue.shift();
     const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 30, b.y + b.h / 2 + 22);
     const ut = UNIT_TYPES[job.type];
-    if (b.type === 'airpad') u.homeId = b.id; // aircraft remember their airfield
+    if (bstatsOf(b).padCap) u.homeId = b.id; // aircraft remember their airfield/hangar
     if (ut.pad) u.slot = freeSlot(b);         // claim a parking slot on it
     if (b.owner === PLAYER) eva('Unit ready');
     if (b.rally) {
@@ -1458,6 +1533,8 @@ function aiDesiredStructure(owner, counts, power) {
   const order = f.economy.workers === 0
     ? ['barracks', 'powerplant', f.tower, 'powerplant', 'factory', f.aaTower, 'powerplant', 'airpad', 'powerplant', 'tech', 'barracks', f.tower, 'powerplant', f.aaTower]
     : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', 'tech', f.tower, f.aaTower];
+  // hangar factions add the AC-130's dedicated field once the lab is up
+  if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
   const want = {};
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
@@ -1516,7 +1593,7 @@ function updateAI(owner, dt) {
   }
   const reserve = (!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0;
 
-  // workers (income factions have none to train)
+  // rigs (income factions have none to train; trainUnit enforces the cap)
   if (f.worker && workers.length < f.economy.workers &&
       state.minerals[owner] >= UNIT_TYPES[f.worker].cost + reserve) {
     trainUnit(owner, f.worker);
@@ -1702,13 +1779,14 @@ function sidebarUnitClick(type) {
   const hasTrainer = state.buildings.some(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
   if (!hasTrainer) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.builtAt] || ut.builtAt}`); return; }
   if (ut.req && !hasStruct(PLAYER, ut.req)) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.req] || ut.req}`); return; }
-  if (ut.pad && !padSlotsFree(PLAYER)) { eva('Airfields at capacity'); return; }
+  if (ut.pad && !padSlotsFree(PLAYER, ut.builtAt)) { eva('Airfields at capacity'); return; }
+  if (ut.limit && unitCount(PLAYER, type) >= ut.limit) { eva('Unit limit reached'); return; }
   if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
   if (trainUnit(PLAYER, type)) sfx('click');
   refreshSidebar();
 }
 
-function makeCameo(grid, key, label, cost, onClick) {
+function makeCameo(grid, key, label, cost, onClick, onCancel) {
   const btn = document.createElement('button');
   btn.className = 'cameo';
   const prog = document.createElement('div'); prog.className = 'cameo-progress';
@@ -1717,8 +1795,45 @@ function makeCameo(grid, key, label, cost, onClick) {
   const badge = document.createElement('span'); badge.className = 'badge'; badge.style.display = 'none';
   btn.append(prog, name, costEl, badge);
   btn.addEventListener('click', onClick);
+  // right-click cancels whatever this cameo has queued (full refund)
+  btn.addEventListener('contextmenu', e => { e.preventDefault(); if (onCancel) onCancel(); });
   grid.appendChild(btn);
   cameoButtons[key] = { btn, costEl, prog, badge, baseCost: cost, baseLabel: label };
+}
+
+// right-click on a structure cameo: scrap the queued (or ready-to-place)
+// construction of that type and refund the full cost
+function cancelStructure(type) {
+  const c = state.construction[PLAYER];
+  if (!c || c.type !== type) return;
+  state.construction[PLAYER] = null;
+  if (placing === type) placing = null;
+  state.minerals[PLAYER] += bstats(PLAYER, type).cost;
+  eva('Construction canceled');
+  sfx('click');
+  refreshSidebar();
+  refreshPanel();
+}
+
+// right-click on a unit cameo: pull the most recently queued unit of that
+// type back out of its trainer's queue and refund the full cost
+function cancelUnit(type) {
+  const ut = UNIT_TYPES[type];
+  let best = null;
+  for (const b of state.buildings) {
+    if (b.owner !== PLAYER || b.hp <= 0 || b.type !== ut.builtAt) continue;
+    for (let i = b.queue.length - 1; i >= 0; i--) {
+      if (b.queue[i].type === type) {
+        if (!best || i > best.i) best = { b, i }; // deepest in queue = least progress lost
+        break;
+      }
+    }
+  }
+  if (!best) return;
+  best.b.queue.splice(best.i, 1);
+  state.minerals[PLAYER] += ut.cost;
+  sfx('click');
+  refreshSidebar();
 }
 
 function buildSidebar() {
@@ -1728,17 +1843,22 @@ function buildSidebar() {
   const f = facOf(PLAYER);
 
   const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech'];
+  // factions with a hangar-based heavy get the hangar construction slot
+  if ([...(f.advanced || []), ...f.extras].some(u => UNIT_TYPES[u].builtAt === 'hangar')) structs.push('hangar');
   for (const s of structs) {
-    makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || s, bstats(PLAYER, s).cost, () => sidebarStructureClick(s));
+    makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || s, bstats(PLAYER, s).cost,
+      () => sidebarStructureClick(s), () => cancelStructure(s));
   }
   const unlocks = [...(f.advanced || []).map(u => UNIT_TYPES[u].name),
+    ...(structs.includes('hangar') ? [f.buildingNames.hangar || 'Hangar'] : []),
     ...(bstats(PLAYER, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
   cameoButtons['s:tech'].btn.title = unlocks.length ? 'Unlocks: ' + unlocks.join(', ') : 'Research site';
   // worker-less factions have no worker cameo — their buildings pay the bills
   const unitList = [f.worker, f.infantry, f.aa, f.extras[0], f.vehicle, f.extras[1],
     ...f.air, ...f.extras.slice(2), ...(f.advanced || [])].filter(Boolean);
   for (const u of unitList) {
-    makeCameo(gridUnits, 'u:' + u, UNIT_TYPES[u].name, UNIT_TYPES[u].cost, () => sidebarUnitClick(u));
+    makeCameo(gridUnits, 'u:' + u, UNIT_TYPES[u].name, UNIT_TYPES[u].cost,
+      () => sidebarUnitClick(u), () => cancelUnit(u));
     if (UNIT_TYPES[u].req) {
       cameoButtons['u:' + u].btn.title = `Requires ${f.buildingNames[UNIT_TYPES[u].req] || UNIT_TYPES[u].req}`;
     }
@@ -1823,8 +1943,12 @@ function refreshSidebar() {
       const ut = UNIT_TYPES[type];
       const trainers = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
       const locked = !!ut.req && !hasStruct(PLAYER, ut.req);
-      ui.btn.classList.toggle('disabled', trainers.length === 0 || locked);
-      ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req) : '$' + ui.baseCost;
+      const have = ut.limit ? unitCount(PLAYER, type) : 0;
+      const capped = !!ut.limit && have >= ut.limit;
+      ui.btn.classList.toggle('disabled', trainers.length === 0 || locked || capped);
+      ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req)
+        : capped ? 'MAX'
+        : '$' + ui.baseCost + (ut.limit ? ` (${have}/${ut.limit})` : '');
       const queued = trainers.reduce((n, b) => n + b.queue.filter(j => j.type === type).length, 0);
       ui.badge.style.display = queued ? '' : 'none';
       ui.badge.textContent = queued;
@@ -1993,17 +2117,42 @@ function draw() {
     });
     ctx.restore();
 
-    if (bt.dmg && bt.weapon !== 'pulse') {
+    if (bt.dmg && bt.weapon !== 'pulse' && !bt.ownWeaponArt) {
       const on = !powerOf(b.owner).low;
       const ta = b.turret !== undefined ? b.turret : Math.atan2(WORLD_H / 2 - b.y, WORLD_W / 2 - b.x);
       ctx.save();
       ctx.translate(b.x, b.y);
-      ctx.fillStyle = on ? '#c6ccd4' : '#666';
-      ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+      // turret ring with its own drop shadow
+      ctx.fillStyle = 'rgba(0,0,0,0.35)';
+      ctx.beginPath(); ctx.arc(1.2, 1.8, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = on ? '#4d5661' : '#474747';
+      ctx.beginPath(); ctx.arc(0, 0, 7, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
       ctx.rotate(ta);
-      ctx.strokeStyle = on ? '#e8edf2' : '#777';
-      ctx.lineWidth = 3;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(bt.targets === 'air' ? 10 : 12, 0); ctx.stroke();
+      // barrel(s): tapered, outlined, with a lighter muzzle band
+      ctx.fillStyle = on ? '#2b3138' : '#525252';
+      ctx.strokeStyle = 'rgba(0,0,0,0.45)';
+      ctx.lineWidth = 0.8;
+      const len = bt.targets === 'air' ? 12 : 14;
+      const rails = bt.targets === 'air' ? [-2.2, 2.2] : [0];
+      for (const oy of rails) {
+        ctx.beginPath();
+        ctx.moveTo(2, oy - 1.7); ctx.lineTo(len, oy - 1); ctx.lineTo(len, oy + 1); ctx.lineTo(2, oy + 1.7);
+        ctx.closePath(); ctx.fill(); ctx.stroke();
+        ctx.fillStyle = on ? '#8b939e' : '#666';
+        ctx.fillRect(len - 2.4, oy - 1.1, 2.4, 2.2);
+        ctx.fillStyle = on ? '#2b3138' : '#525252';
+      }
+      // domed cap, lit from the top-left
+      const dg = ctx.createRadialGradient(-1.8, -1.8, 0.8, 0, 0, 5.4);
+      dg.addColorStop(0, on ? '#b3bbc7' : '#8e8e8e');
+      dg.addColorStop(1, on ? '#59626e' : '#575757');
+      ctx.fillStyle = dg;
+      ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.4)';
+      ctx.stroke();
       ctx.restore();
       if (bt.targets === 'air') {
         ctx.strokeStyle = on ? '#fff' : '#666';
@@ -2078,8 +2227,11 @@ function draw() {
       const grounded = !!u.landed; // rearming on the pad
       // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim
       const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
+      // rendered radius: sprites draw a touch larger than their collision size
+      const rs = t.r * UNIT_DRAW_SCALE;
       ctx.save();
       ctx.translate(u.x, u.y + bob);
+      ctx.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
       // your own gaslight phantoms look ghostly to you; enemy ones look real
       if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
       if (t.flying && !grounded) Art.shadow(ctx, t.r * 0.9, t.r * 0.45, 8, 13 - bob);
@@ -2095,22 +2247,22 @@ function draw() {
       ctx.restore();
       if (u.carrying > 0) {
         ctx.fillStyle = '#3fd7d0';
-        ctx.fillRect(u.x - 3, u.y - t.r - 7, 6, 5);
+        ctx.fillRect(u.x - 3, u.y - rs - 7, 6, 5);
       }
       if (selection.includes(u)) {
         ctx.strokeStyle = u.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(u.x, u.y, t.r + 5, 0, Math.PI * 2);
+        ctx.arc(u.x, u.y, rs + 5, 0, Math.PI * 2);
         ctx.stroke();
       }
-      if (u.hp < u.maxHp) drawBar(u.x, u.y - t.r - 12, t.r * 2.4, u.hp / u.maxHp);
+      if (u.hp < u.maxHp) drawBar(u.x, u.y - rs - 12, rs * 2.4, u.hp / u.maxHp);
       if (t.maxAmmo && (u.ammo < t.maxAmmo || selection.includes(u))) {
-        const w = t.r * 2.2;
+        const w = rs * 2.2;
         ctx.fillStyle = 'rgba(0,0,0,0.6)';
-        ctx.fillRect(u.x - w / 2, u.y + t.r + 5, w, 3);
+        ctx.fillRect(u.x - w / 2, u.y + rs + 5, w, 3);
         ctx.fillStyle = '#ffd75f';
-        ctx.fillRect(u.x - w / 2, u.y + t.r + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
+        ctx.fillRect(u.x - w / 2, u.y + rs + 5, w * clamp(u.ammo / t.maxAmmo, 0, 1), 3);
       }
       ctx.globalAlpha = 1;
     }
@@ -2771,8 +2923,13 @@ window.addEventListener('mouseup', e => {
   if (x2 - x1 < 6 && y2 - y1 < 6) {
     selectAt(x1, y1);
   } else {
-    selection = state.units.filter(u =>
+    let picked = state.units.filter(u =>
       u.owner === PLAYER && u.hp > 0 && !u.garrisoned && u.x >= x1 && u.x <= x2 && u.y >= y1 && u.y <= y2);
+    // a drag over a mixed crowd grabs the army and leaves the workers mining
+    if (picked.some(u => UNIT_TYPES[u.type].role === 'combat')) {
+      picked = picked.filter(u => UNIT_TYPES[u.type].role === 'combat');
+    }
+    selection = picked;
   }
   refreshPanel();
 });
