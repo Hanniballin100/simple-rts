@@ -15,9 +15,10 @@ Then open http://localhost:8377 and choose your truth.
 | File | Contents |
 |---|---|
 | `data.js` | All game data: constants, map sizes, terrain types, factions, unit/building stats. Balance changes go here. |
+| `iso.js` | 2:1 isometric projection layer: project/unproject helpers used at render + input time (the simulation stays flat cartesian). |
 | `mapgen.js` | Random map generator: start positions, mineral fields, terrain features. |
-| `art.js` | Unit & building drawings (top-down animated vector) + particle effects. |
-| `game.js` | Engine: state, orders, combat, AI, input, sidebar UI, rendering. |
+| `art.js` | Unit & building drawings (animated vector, RA2-style iso volumes with NE lighting) + particle effects. |
+| `game.js` | Engine: state, orders, combat, AI, input, sidebar UI, depth-sorted iso rendering. |
 | `mockup.html/js` | Standalone art style demo. |
 
 ## Factions

@@ -1764,11 +1764,10 @@ function issueCommand(x, y) {
 }
 
 function minimapPan(e) {
+  // the minimap IS the projected world, so a click maps straight to iso space
   const r = mmCanvas.getBoundingClientRect();
-  const wx = (e.clientX - r.left) / r.width * WORLD_W;
-  const wy = (e.clientY - r.top) / r.height * WORLD_H;
-  cam.x = isoX(wx, wy) - canvas.width / cam.zoom / 2;
-  cam.y = isoY(wx, wy) - canvas.height / cam.zoom / 2;
+  cam.x = (e.clientX - r.left) / r.width * isoSpanW() - WORLD_H - canvas.width / cam.zoom / 2;
+  cam.y = (e.clientY - r.top) / r.height * isoSpanH() - canvas.height / cam.zoom / 2;
   clampCam();
 }
 
@@ -2473,47 +2472,49 @@ function drawProjectilesIso() {
   }
 }
 
-// area-effect zones: ground-plane decals, drawn through the shear so their
-// circles land as iso ellipses
+// area-effect zones: the coverage circle is a ground ellipse; the weather
+// inside (rain, flames, gas) draws upright in screen space
 function drawZones() {
-  ctx.save();
-  isoShear(ctx);
   for (const z of state.zones) {
     const kind = z.kind || 'rain';
+    const zx = isoX(z.x, z.y), zy = isoY(z.x, z.y);
+    const rx = z.r * Math.SQRT2, ry = rx / 2;
     if (kind === 'rain' || kind === 'storm') {
       ctx.fillStyle = kind === 'storm' ? 'rgba(60,80,130,0.22)' : 'rgba(80,130,190,0.15)';
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(120,170,230,0.5)'; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
       ctx.strokeStyle = 'rgba(160,200,245,0.55)'; ctx.lineWidth = 1;
       for (let i = 0; i < 14; i++) {
-        const rx = z.x + Math.sin(i * 2.4) * z.r * 0.8;
-        const ry = z.y + Math.cos(i * 1.9) * z.r * 0.65 + ((state.time * 130 + i * 37) % 44) - 22;
-        ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx - 3, ry + 9); ctx.stroke();
+        // streaks fall straight down the screen inside the ellipse
+        const sx2 = zx + Math.sin(i * 2.4) * rx * 0.8;
+        const sy2 = zy + Math.cos(i * 1.9) * ry * 0.65 + ((state.time * 130 + i * 37) % 44) - 30;
+        ctx.beginPath(); ctx.moveTo(sx2, sy2); ctx.lineTo(sx2 - 3, sy2 + 9); ctx.stroke();
       }
     } else if (kind === 'fire') {
       ctx.fillStyle = 'rgba(255,120,40,0.18)';
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
       for (let i = 0; i < 7; i++) {
         const fl = 0.5 + 0.5 * Math.sin(state.time * 9 + i * 2.3);
+        const fx = z.x + Math.sin(i * 2.7) * z.r * 0.6, fy = z.y + Math.cos(i * 1.7) * z.r * 0.6;
         ctx.fillStyle = `rgba(255,${140 + Math.floor(fl * 70)},60,${0.35 + fl * 0.45})`;
         ctx.beginPath();
-        ctx.arc(z.x + Math.sin(i * 2.7) * z.r * 0.6, z.y + Math.cos(i * 1.7) * z.r * 0.6, 2 + fl * 2.5, 0, Math.PI * 2);
+        ctx.arc(isoX(fx, fy), isoY(fx, fy) - fl * 2, 2 + fl * 2.5, 0, Math.PI * 2);
         ctx.fill();
       }
     } else if (kind === 'toxin') {
       ctx.fillStyle = 'rgba(130,200,80,0.16)';
-      ctx.beginPath(); ctx.arc(z.x, z.y, z.r, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
       for (let i = 0; i < 5; i++) {
+        const gx = z.x + Math.sin(i * 2.1 + state.time * 0.7) * z.r * 0.5;
+        const gy = z.y + Math.cos(i * 1.3 + state.time * 0.5) * z.r * 0.5;
         ctx.fillStyle = 'rgba(160,220,110,0.22)';
         ctx.beginPath();
-        ctx.arc(z.x + Math.sin(i * 2.1 + state.time * 0.7) * z.r * 0.5,
-          z.y + Math.cos(i * 1.3 + state.time * 0.5) * z.r * 0.5, 5 + i, 0, Math.PI * 2);
+        ctx.arc(isoX(gx, gy), isoY(gx, gy) - i, 5 + i, 0, Math.PI * 2);
         ctx.fill();
       }
     }
   }
-  ctx.restore();
 }
 
 // fog + cursor overlays, drawn while the camera transform is active
@@ -2593,30 +2594,47 @@ function drawMinimap() {
     return;
   }
 
-  const sx = mmCanvas.width / WORLD_W, sy = mmCanvas.height / WORLD_H;
+  // RA2-style diamond radar: the minimap shows the PROJECTED world, so the
+  // map is a diamond and the camera viewport is a plain rectangle on it
+  const sx = mmCanvas.width / isoSpanW(), sy = mmCanvas.height / isoSpanH();
+  const mmX = (x, y) => (isoX(x, y) + WORLD_H) * sx;
+  const mmY = (x, y) => isoY(x, y) * sy;
+  // ground diamond + terrain, drawn through the projection
+  mmCtx.save();
+  mmCtx.scale(sx, sy);
+  mmCtx.translate(WORLD_H, 0);
+  isoShear(mmCtx);
+  mmCtx.fillStyle = '#1c2818';
+  mmCtx.fillRect(0, 0, WORLD_W, WORLD_H);
   for (const o of TERRAIN) {
     mmCtx.fillStyle = o.type === 'water' ? '#1d3a4a' : o.type === 'forest' ? '#243d1c' : '#4a4f56';
     mmCtx.beginPath();
-    mmCtx.arc(o.x * sx, o.y * sy, o.r * sx, 0, Math.PI * 2);
+    mmCtx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
     mmCtx.fill();
   }
+  mmCtx.restore();
   for (const p of state.patches) {
     if (p.amount <= 0 || tileState(p.x, p.y) === 0) continue;
     mmCtx.fillStyle = '#3fd7d0';
-    mmCtx.fillRect(p.x * sx - 1, p.y * sy - 1, 3, 3);
+    mmCtx.fillRect(mmX(p.x, p.y) - 1, mmY(p.x, p.y) - 1, 3, 3);
   }
   for (const b of state.buildings) {
     if (b.hp <= 0 || !visibleToPlayer(b)) continue;
     mmCtx.fillStyle = COLORS[b.owner];
-    mmCtx.fillRect(b.x * sx - 3, b.y * sy - 3, 6, 6);
+    mmCtx.fillRect(mmX(b.x, b.y) - 3, mmY(b.x, b.y) - 2, 6, 5);
   }
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
     mmCtx.fillStyle = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
-    mmCtx.fillRect(u.x * sx - 1, u.y * sy - 1, 2, 2);
+    mmCtx.fillRect(mmX(u.x, u.y) - 1, mmY(u.x, u.y) - 1, 2, 2);
   }
-  // fog overlay: reuse the main fog canvas, stretched onto the minimap
-  mmCtx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, mmCanvas.width, mmCanvas.height);
+  // fog overlay: reuse the main fog canvas, projected onto the diamond
+  mmCtx.save();
+  mmCtx.scale(sx, sy);
+  mmCtx.translate(WORLD_H, 0);
+  isoShear(mmCtx);
+  mmCtx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, WORLD_W, WORLD_H);
+  mmCtx.restore();
   // radar intel passives pierce the fog: flat sees enemy air, hollow sees enemy ground
   const pf = state.factions[PLAYER];
   if (pf === 'flat' || pf === 'hollow') {
@@ -2625,22 +2643,16 @@ function drawMinimap() {
       const fly = !!UNIT_TYPES[u.type].flying;
       if ((pf === 'flat' && fly) || (pf === 'hollow' && !fly)) {
         mmCtx.fillStyle = '#ffb45f';
-        mmCtx.fillRect(u.x * sx - 1.5, u.y * sy - 1.5, 3, 3);
+        mmCtx.fillRect(mmX(u.x, u.y) - 1.5, mmY(u.x, u.y) - 1.5, 3, 3);
       }
     }
   }
-  // the visible area is a screen-aligned rect in iso space -> a rotated
-  // parallelogram on the (top-down) minimap
+  // the visible area is a screen-aligned rect in iso space — so on the
+  // projected minimap it is a plain rectangle
   mmCtx.strokeStyle = '#cfd6dd';
   mmCtx.lineWidth = 1;
-  mmCtx.beginPath();
-  const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
-  [[0, 0], [vw, 0], [vw, vh], [0, vh]].forEach(([ox, oy], i) => {
-    const c = isoUnproject(cam.x + ox, cam.y + oy);
-    if (i) mmCtx.lineTo(c.x * sx, c.y * sy); else mmCtx.moveTo(c.x * sx, c.y * sy);
-  });
-  mmCtx.closePath();
-  mmCtx.stroke();
+  mmCtx.strokeRect((cam.x + WORLD_H) * sx, cam.y * sy,
+    canvas.width / cam.zoom * sx, canvas.height / cam.zoom * sy);
 }
 
 function checkGameOver() {
