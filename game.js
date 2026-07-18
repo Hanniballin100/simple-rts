@@ -1483,8 +1483,10 @@ function updateBuilding(b, dt) {
         dealDamage(b, foe, bt.dmg, bt);
         b.cooldown = bt.cooldown;
         b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+        // muzzle flash + tracer leave from the turret's actual barrel height
         Particles.shot(b.x + Math.cos(b.turret) * 10, b.y + Math.sin(b.turret) * 10,
-          foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]], 10,
+          foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]],
+          (Art.turretLift[b.type] || 8) + 2,
           (foe.kind === 'unit' && UNIT_TYPES[foe.type].flying && !foe.landed) ? FLY_H : 0);
         if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) {
           sfx(state.factions[b.owner] === 'glob' ? 'laser' : 'shot');
@@ -2345,6 +2347,7 @@ function drawBuildingIso(b) {
   Art.building(b.type, ctx, state.time + (b.id % 89) * 0.71, {
     w: b.w, h: b.h, color: COLORS[b.owner], on: !powerOf(b.owner).low,
     fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
+    turret: b.turret, // towers with their own weapon art track their target
   });
   ctx.restore();
 

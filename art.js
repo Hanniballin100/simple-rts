@@ -1631,6 +1631,27 @@
     }
   }
 
+  // flat alien deck: dark metal slab flush with the ground with a glowing
+  // rim — alien tech doesn't stand on pedestals, it hugs the earth
+  function alienSlab(ctx, w, h, r) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    rr(ctx, -w / 2 + 2, -h / 2 + 3, w, h, r);
+    ctx.fill();
+    const g = ctx.createLinearGradient(w / 2, -h / 2, -w / 2, h / 2);
+    g.addColorStop(0, '#434b59');
+    g.addColorStop(1, '#333947');
+    ctx.fillStyle = g;
+    rr(ctx, -w / 2, -h / 2, w, h, r);
+    ctx.fill();
+    ctx.strokeStyle = '#20242e';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(125,255,214,0.28)';
+    ctx.lineWidth = 1;
+    rr(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, Math.max(2, r * 0.8));
+    ctx.stroke();
+  }
+
   function blinker(ctx, t, x, y, col = '#ff5f5f', rate = 3) {
     if (Math.sin(t * rate) > 0.2) {
       ctx.fillStyle = col;
@@ -1639,15 +1660,35 @@
   }
 
   function sandbag(ctx, x, y, a) {
-    const g = ctx.createRadialGradient(x - 1, y - 1, 0.5, x, y, 6);
-    g.addColorStop(0, '#a8987010');
-    g.addColorStop(0, '#b3a377');
-    g.addColorStop(1, '#8a7c58');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.ellipse(x, y, 6, 3.8, a, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#6e6244';
-    ctx.lineWidth = 0.6;
-    ctx.stroke();
+    // an upright bag mound standing on the ground (a varies the width a bit)
+    const w2 = 5 + (Math.abs(Math.sin(a * 3)) * 1.4);
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(x + 1.2, y + 0.8, w2, 2.4, 0, 0, TAU); ctx.fill();
+    billboard(ctx, x, y, () => {
+      const g = ctx.createLinearGradient(0, -4.6, 0, 0);
+      g.addColorStop(0, '#b3a377');
+      g.addColorStop(1, '#87794f');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-w2, 0);
+      ctx.quadraticCurveTo(-w2, -4.4, 0, -4.4);
+      ctx.quadraticCurveTo(w2, -4.4, w2, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#6e6244';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+      // cinch seam + a lit top edge
+      ctx.beginPath();
+      ctx.moveTo(-w2 * 0.6, -2.1);
+      ctx.quadraticCurveTo(0, -3.1, w2 * 0.6, -2.1);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,246,214,0.35)';
+      ctx.beginPath();
+      ctx.moveTo(-w2 * 0.5, -3.9);
+      ctx.quadraticCurveTo(0, -4.6, w2 * 0.5, -3.9);
+      ctx.stroke();
+    });
   }
 
   function ventBox(ctx, x, y, w = 8, h = 6) {
@@ -1834,8 +1875,8 @@
         ctx.stroke();
       }
     } else {
-      // alien anchor: conduit platform + grand dome
-      block(ctx, -34, -34, 68, 68, 8, '#3d4450', 4);
+      // alien anchor: flat conduit deck + grand dome
+      alienSlab(ctx, 68, 68, 8);
       ctx.strokeStyle = 'rgba(125,255,214,0.4)';
       ctx.lineWidth = 1.4;
       for (const a of [0.79, 2.36, 3.93, 5.5]) {
@@ -1930,27 +1971,61 @@
       ctx.restore();
       if (o.on && Math.random() < 0.07 && window.Particles) Particles.smoke(o.wx + 15, o.wy - 12, 2, 22);
     } else if (o.fam === 'glob') {
-      // fusion torus in a cradle
-      block(ctx, -24, -24, 48, 48, 24, '#39404b', 3);
-      for (let i = 0; i < 4; i++) {
-        const a = (i / 4) * TAU + Math.PI / 4;
-        block(ctx, Math.cos(a) * 19 - 3, Math.sin(a) * 19 - 3, 6, 6, 1, '#4a525e', 3);
-      }
+      // fusion hall with the torus standing UPRIGHT in a cradle on the roof
       const pulse = o.on ? 0.5 + 0.5 * Math.sin(t * 3) : 0.08;
-      ctx.strokeStyle = `rgba(140,208,255,${0.35 + pulse * 0.55})`;
-      ctx.lineWidth = 5.5;
-      ctx.beginPath(); ctx.arc(0, 0, 15, 0, TAU); ctx.stroke();
-      // plasma current racing around the ring
-      if (o.on) {
-        ctx.strokeStyle = 'rgba(230,248,255,0.95)';
+      const rt = isoBox(ctx, -24, -16, 46, 34, 11, '#39404b', {
+        win: { rows: 1, paneH: 3.6, inset: 3, litRate: 3, seed: 4, litCol: 'rgba(140,208,255,0.6)' },
+        doorSE: { w: 8, h: 7.5 },
+      });
+      // coolant conduits running along the roof edge
+      ctx.strokeStyle = '#4a525e';
+      ctx.lineWidth = 2.4;
+      ctx.beginPath();
+      ctx.moveTo(rt[0] + 4, rt[1] + 28);
+      ctx.lineTo(rt[0] + 40, rt[1] + 28);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(140,208,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      // the torus, mounted upright on a roof cradle
+      billboard(ctx, rt[0] + 22, rt[1] + 15, () => {
+        const R2 = 12, cy = -R2 - 5;
+        // cradle arms
+        ctx.strokeStyle = '#59616c';
         ctx.lineWidth = 2.4;
-        ctx.beginPath(); ctx.arc(0, 0, 15, t * 4, t * 4 + 1.1); ctx.stroke();
-      }
-      const g = ctx.createRadialGradient(0, 0, 0.5, 0, 0, 7);
-      g.addColorStop(0, `rgba(220,245,255,${0.5 + pulse * 0.5})`);
-      g.addColorStop(1, 'rgba(140,208,255,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(-8, 0); ctx.lineTo(-R2 * 0.7, cy + R2 * 0.7);
+        ctx.moveTo(8, 0); ctx.lineTo(R2 * 0.7, cy + R2 * 0.7);
+        ctx.stroke();
+        // containment ring: dark casing, plasma channel, racing current
+        ctx.strokeStyle = '#262c35';
+        ctx.lineWidth = 7.5;
+        ctx.beginPath(); ctx.arc(0, cy, R2, 0, TAU); ctx.stroke();
+        ctx.strokeStyle = `rgba(140,208,255,${0.3 + pulse * 0.6})`;
+        ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.arc(0, cy, R2, 0, TAU); ctx.stroke();
+        if (o.on) {
+          ctx.strokeStyle = 'rgba(235,250,255,0.95)';
+          ctx.lineWidth = 2.2;
+          ctx.beginPath(); ctx.arc(0, cy, R2, t * 4, t * 4 + 1.1); ctx.stroke();
+        }
+        // core glow through the ring's eye
+        const g = ctx.createRadialGradient(0, cy, 0.5, 0, cy, 7);
+        g.addColorStop(0, `rgba(220,245,255,${0.45 + pulse * 0.5})`);
+        g.addColorStop(1, 'rgba(140,208,255,0)');
+        ctx.fillStyle = g;
+        ctx.beginPath(); ctx.arc(0, cy, 7, 0, TAU); ctx.fill();
+        // magnet segment ticks around the casing
+        ctx.strokeStyle = '#4a525e';
+        ctx.lineWidth = 2.6;
+        for (let i = 0; i < 8; i++) {
+          const a = (i / 8) * TAU + 0.4;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * (R2 - 4.5), cy + Math.sin(a) * (R2 - 4.5));
+          ctx.lineTo(Math.cos(a) * (R2 + 4.5), cy + Math.sin(a) * (R2 + 4.5));
+          ctx.stroke();
+        }
+      });
     } else if (o.fam === 'hollow') {
       // geothermal bore under a drill tripod
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
@@ -2013,7 +2088,7 @@
       }
     } else {
       // zero-point core: orb levitating over a triad of standing crystals
-      block(ctx, -22, -22, 44, 44, 22, '#3d4450', 3);
+      alienSlab(ctx, 44, 44, 22);
       const pulse = o.on ? 0.6 + 0.4 * Math.sin(t * 5) : 0.12;
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
       ctx.beginPath(); ctx.ellipse(2, 4, 7, 3.5, 0, 0, TAU); ctx.fill();
@@ -2149,8 +2224,8 @@
       ctx.beginPath(); ctx.moveTo(-14, 14); ctx.lineTo(-8, 6); ctx.stroke();
       ctx.beginPath(); ctx.arc(-8, 6, 3, 3.5, 5.6); ctx.stroke();
     } else {
-      // cloning pod triplet on a platform
-      block(ctx, -23, -19, 46, 38, 6, '#3d4450', 4);
+      // cloning pod triplet on a flush deck
+      alienSlab(ctx, 46, 38, 6);
       // feed pipes to a centre pump
       ctx.strokeStyle = '#5c636e';
       ctx.lineWidth = 2;
@@ -2779,35 +2854,67 @@
   };
   B.samsite = (ctx, t, o) => {
     pad(ctx, o);
-    // armored emplacement ring
-    towerDeck(ctx, 13.5, '#3f4854', '#1f242b');
-    // twin missile pods RAISED at the sky (screen space)
-    billboard(ctx, -3, 2, () => {
-      for (const s of [-1, 1]) {
-        ctx.save();
-        ctx.translate(s * 6, -4);
-        ctx.rotate(-0.62);
-        const pg = ctx.createLinearGradient(0, -4, 0, 4);
-        pg.addColorStop(0, '#5d6a78');
-        pg.addColorStop(1, '#3c444f');
-        ctx.fillStyle = pg;
-        rr(ctx, -7, -4.5, 16, 9, 2);
-        ctx.fill();
-        ctx.strokeStyle = '#2c323b';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-        // three tube mouths at the top end
-        for (let i = 0; i < 3; i++) {
-          ctx.fillStyle = '#20242a';
-          ctx.beginPath(); ctx.ellipse(8, -3 + i * 3, 1.6, 1.3, 0, 0, TAU); ctx.fill();
-          ctx.fillStyle = o.on ? '#e8edf2' : '#5d646d';
-          ctx.beginPath(); ctx.arc(8, -3 + i * 3, 0.7, 0, TAU); ctx.fill();
-        }
-        ctx.restore();
-      }
-    });
+    // Patriot battery: a slewing turntable carrying the classic angled
+    // four-canister launcher box, aimed wherever the battery is tracking
+    const ang = o.turret !== undefined ? o.turret : -Math.PI / 3;
+    // turntable trailer, rotated in the ground plane
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(1.5, 3, 13, 6.5, 0, 0, TAU); ctx.fill();
+    ctx.save();
+    ctx.scale(1, 0.5);
+    ctx.rotate(ang);
+    ctx.fillStyle = '#4a525e';
+    rr(ctx, -11, -8, 22, 16, 3);
+    ctx.fill();
+    ctx.strokeStyle = '#2c323b';
+    ctx.lineWidth = 1.4;
+    ctx.stroke();
+    // leveling jacks at the corners
+    ctx.fillStyle = '#2c323b';
+    for (const [jx, jy] of [[-9, -6], [9, -6], [9, 6], [-9, 6]]) ctx.fillRect(jx - 1.5, jy - 1.5, 3, 3);
+    ctx.restore();
+    // pivot drum
+    ctx.fillStyle = '#59616c';
+    ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 3, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#2c323b';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // the canister box: rear on the mount, muzzle end raised at ~40 degrees,
+    // drawn as a thick slab from rear ground-point to elevated tip
+    const hd = isoAngle(ang);
+    const dxu = Math.cos(hd), dyu = Math.sin(hd);
+    const rx2 = -dxu * 8, ry2 = -dyu * 8 * 0.62 + 1;   // rear pivot (screen)
+    const tx2 = dxu * 13, ty2 = dyu * 13 * 0.62 - 12;  // raised muzzle end
+    ctx.strokeStyle = '#38404a';
+    ctx.lineWidth = 11;
+    ctx.lineCap = 'butt';
+    ctx.beginPath(); ctx.moveTo(rx2, ry2); ctx.lineTo(tx2, ty2); ctx.stroke();
+    const bg = ctx.createLinearGradient(rx2, ry2 - 5, rx2, ry2 + 5);
+    bg.addColorStop(0, '#77828f');
+    bg.addColorStop(1, '#4d5661');
+    ctx.strokeStyle = bg;
+    ctx.lineWidth = 9;
+    ctx.beginPath(); ctx.moveTo(rx2, ry2); ctx.lineTo(tx2, ty2); ctx.stroke();
+    // canister seams along the box
+    ctx.strokeStyle = 'rgba(30,36,43,0.6)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(rx2, ry2); ctx.lineTo(tx2, ty2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rx2 - dyu * 2.4, ry2 + dxu * 2.4); ctx.lineTo(tx2 - dyu * 2.4, ty2 + dxu * 2.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rx2 + dyu * 2.4, ry2 - dxu * 2.4); ctx.lineTo(tx2 + dyu * 2.4, ty2 - dxu * 2.4); ctx.stroke();
+    // 2x2 muzzle covers on the raised face
+    const px2 = -dyu, py2 = dxu; // perpendicular on screen
+    for (const [a2, b2] of [[-2.3, -2.3], [2.3, -2.3], [-2.3, 2.3], [2.3, 2.3]]) {
+      ctx.fillStyle = '#20242a';
+      ctx.beginPath();
+      ctx.ellipse(tx2 + px2 * a2 + dxu * (b2 * 0.3), ty2 + py2 * a2 + b2 * 0.9, 2, 1.7, 0, 0, TAU);
+      ctx.fill();
+      ctx.fillStyle = o.on ? '#e8edf2' : '#5d646d';
+      ctx.beginPath();
+      ctx.arc(tx2 + px2 * a2 + dxu * (b2 * 0.3), ty2 + py2 * a2 + b2 * 0.9, 0.8, 0, TAU);
+      ctx.fill();
+    }
     // radar mast with spinning bar
-    billboard(ctx, 9, 6, () => {
+    billboard(ctx, 11, 8, () => {
       ctx.strokeStyle = '#59616c';
       ctx.lineWidth = 1.6;
       ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -12); ctx.stroke();
