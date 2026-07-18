@@ -2761,17 +2761,21 @@ function drawMinimap() {
       }
     }
   }
-  // camera viewport: unproject the four screen corners into world space
+  // camera viewport: the iso camera really sees a rotated diamond of the
+  // world, but a plain upright rect (its bounding box) is what a classic
+  // radar shows — draw that, clamped to the map
+  const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
+  let wx0 = Infinity, wy0 = Infinity, wx1 = -Infinity, wy1 = -Infinity;
+  for (const [ox, oy] of [[0, 0], [vw, 0], [vw, vh], [0, vh]]) {
+    const c = isoUnproject(cam.x + ox, cam.y + oy);
+    wx0 = Math.min(wx0, c.x); wy0 = Math.min(wy0, c.y);
+    wx1 = Math.max(wx1, c.x); wy1 = Math.max(wy1, c.y);
+  }
+  wx0 = clamp(wx0, 0, WORLD_W); wx1 = clamp(wx1, 0, WORLD_W);
+  wy0 = clamp(wy0, 0, WORLD_H); wy1 = clamp(wy1, 0, WORLD_H);
   mmCtx.strokeStyle = '#cfd6dd';
   mmCtx.lineWidth = 1;
-  mmCtx.beginPath();
-  const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
-  [[0, 0], [vw, 0], [vw, vh], [0, vh]].forEach(([ox, oy], i) => {
-    const c = isoUnproject(cam.x + ox, cam.y + oy);
-    if (i) mmCtx.lineTo(c.x * sx, c.y * sy); else mmCtx.moveTo(c.x * sx, c.y * sy);
-  });
-  mmCtx.closePath();
-  mmCtx.stroke();
+  mmCtx.strokeRect(wx0 * sx, wy0 * sy, (wx1 - wx0) * sx, (wy1 - wy0) * sy);
 }
 
 function checkGameOver() {
