@@ -2451,10 +2451,11 @@
 
   // ================= AIRPAD (a real airfield: runway + landing circle) =================
   B.hangar = (ctx, t, o) => {
-    // single-plane heavy hangar: one big centered landing ring, nothing else
+    // heavy hangar: a real shed at the west end, its door opening onto the
+    // runway the AC-130 taxis out to (the parking slot sits mid-strip)
     pad(ctx, o);
     const W = o.w, H = o.h;
-    // flat apron — airfields hug the ground, no podium
+    // apron asphalt
     ctx.fillStyle = '#343b43';
     rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
     ctx.fill();
@@ -2464,20 +2465,75 @@
     ctx.fillStyle = sg;
     rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
     ctx.fill();
-    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
-    ctx.lineWidth = 1.8;
-    ctx.setLineDash([9, 6]);
-    ctx.beginPath(); ctx.arc(0, 4, Math.min(W, H) / 2 - 12, 0, TAU); ctx.stroke();
+    // the runway strip: hangar apron west, threshold far east
+    const ry0 = -4, rh = 26;
+    ctx.fillStyle = '#454d56';
+    rr(ctx, -34, ry0, W / 2 - 8 + 34, rh, 2);
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.35)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // centerline dashes + threshold piano keys at the east end
+    ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+    ctx.lineWidth = 1.7;
+    ctx.setLineDash([8, 7]);
+    ctx.beginPath();
+    ctx.moveTo(-28, ry0 + rh / 2);
+    ctx.lineTo(W / 2 - 26, ry0 + rh / 2);
+    ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = 'rgba(255,255,255,0.5)';
-    ctx.font = 'bold 15px Arial'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText('130', 0, 4);
-    // sequenced corner landing lights, same rhythm as the airpad's
-    const hw = W / 2 - 9, hh = H / 2 - 9;
-    [[-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh]].forEach(([lx, ly], i) => {
-      const lit = o.on && ((t * 2 + i) % 4) < 1;
-      ctx.fillStyle = lit ? '#ffd75f' : 'rgba(255,215,95,0.2)';
-      ctx.beginPath(); ctx.arc(lx, ly, 1.7, 0, TAU); ctx.fill();
+    for (let i = 0; i < 5; i++) ctx.fillRect(W / 2 - 20, ry0 + 3 + i * 4.5, 9, 2.4);
+    // '130' painted at the hangar end of the strip
+    ctx.fillStyle = 'rgba(255,255,255,0.45)';
+    ctx.font = 'bold 11px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('130', -24, ry0 + rh / 2 + 0.5);
+    // sequenced edge lights marching down both runway sides
+    for (let i = 0; i < 6; i++) {
+      const lx = -26 + i * ((W / 2 - 10 + 26) / 5);
+      const lit = o.on && ((t * 3 + i) % 6) < 1.2;
+      ctx.fillStyle = lit ? '#ffd75f' : 'rgba(255,215,95,0.22)';
+      ctx.beginPath(); ctx.arc(lx, ry0 - 2, 1.5, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(lx, ry0 + rh + 2, 1.5, 0, TAU); ctx.fill();
+    }
+    // the hangar shed itself: tall gabled steel shell, giant door facing
+    // the strip, beacon on the ridge
+    const bx = -W / 2 + 8, by = -H / 2 + 8, bw = 42, bh = 34;
+    gabled(ctx, bx, by, bw, bh, 12, 9, '#4a525e', '#5d646d');
+    doorway(ctx, bx, by, bw, bh, 12, 'se', { w: 22, h: 11, col: '#14171c' });
+    // door track rails + frame glow
+    ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+    ctx.lineWidth = 0.9;
+    const dX = bx + bw;
+    ctx.beginPath();
+    ctx.moveTo(dX + 12, by + bh / 2 - 11 + 12);
+    ctx.lineTo(dX + 12, by + bh / 2 + 11 + 12);
+    ctx.stroke();
+    billboard(ctx, bx + bw / 2, by + bh / 2, () => {
+      if (Math.sin(t * 2.6) > 0.1) {
+        ctx.fillStyle = '#ff5f5f';
+        ctx.beginPath(); ctx.arc(0, -25, 1.6, 0, TAU); ctx.fill();
+      }
+    });
+    // fuel bowser + drums by the shed
+    fuelDrum(ctx, bx + 6, by + bh + 12, '#a33c3c');
+    fuelDrum(ctx, bx + 14, by + bh + 14, '#8f8f3c');
+    // windsock at the far corner
+    billboard(ctx, W / 2 - 12, -H / 2 + 16, () => {
+      ctx.strokeStyle = '#9aa2ac';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -13); ctx.stroke();
+      const wind = Math.sin(t * 1.4) * 0.25;
+      ctx.save();
+      ctx.translate(0, -13);
+      ctx.rotate(0.3 + wind);
+      ctx.fillStyle = '#e07840';
+      ctx.beginPath();
+      ctx.moveTo(0, 0); ctx.lineTo(9, -1.4); ctx.lineTo(9, 1.4);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
     });
   };
   B.airpad = (ctx, t, o) => {
@@ -2854,79 +2910,100 @@
   };
   B.samsite = (ctx, t, o) => {
     pad(ctx, o);
-    // Patriot battery: a slewing turntable carrying the classic angled
-    // four-canister launcher box, aimed wherever the battery is tracking
+    // Patriot battery: sand-drab M901 launcher — a real rectangular
+    // four-canister box, elevated ~40 degrees on a slewing trailer mount
     const ang = o.turret !== undefined ? o.turret : -Math.PI / 3;
-    // turntable trailer, rotated in the ground plane
+    // trailer, rotated in the ground plane, with wheels and jacks
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(1.5, 3, 13, 6.5, 0, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(1.5, 3, 14, 7, 0, 0, TAU); ctx.fill();
     ctx.save();
     ctx.scale(1, 0.5);
     ctx.rotate(ang);
-    ctx.fillStyle = '#4a525e';
-    rr(ctx, -11, -8, 22, 16, 3);
+    ctx.fillStyle = '#6e6a52';
+    rr(ctx, -12, -7.5, 24, 15, 2.5);
     ctx.fill();
-    ctx.strokeStyle = '#2c323b';
+    ctx.strokeStyle = '#3c3a2c';
     ctx.lineWidth = 1.4;
     ctx.stroke();
-    // leveling jacks at the corners
-    ctx.fillStyle = '#2c323b';
-    for (const [jx, jy] of [[-9, -6], [9, -6], [9, 6], [-9, 6]]) ctx.fillRect(jx - 1.5, jy - 1.5, 3, 3);
-    ctx.restore();
-    // pivot drum
-    ctx.fillStyle = '#59616c';
-    ctx.beginPath(); ctx.ellipse(0, 0, 5.5, 3, 0, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#2c323b';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-    // the canister box: rear on the mount, muzzle end raised at ~40 degrees,
-    // drawn as a thick slab from rear ground-point to elevated tip
-    const hd = isoAngle(ang);
-    const dxu = Math.cos(hd), dyu = Math.sin(hd);
-    const rx2 = -dxu * 8, ry2 = -dyu * 8 * 0.62 + 1;   // rear pivot (screen)
-    const tx2 = dxu * 13, ty2 = dyu * 13 * 0.62 - 12;  // raised muzzle end
-    ctx.strokeStyle = '#38404a';
-    ctx.lineWidth = 11;
-    ctx.lineCap = 'butt';
-    ctx.beginPath(); ctx.moveTo(rx2, ry2); ctx.lineTo(tx2, ty2); ctx.stroke();
-    const bg = ctx.createLinearGradient(rx2, ry2 - 5, rx2, ry2 + 5);
-    bg.addColorStop(0, '#77828f');
-    bg.addColorStop(1, '#4d5661');
-    ctx.strokeStyle = bg;
-    ctx.lineWidth = 9;
-    ctx.beginPath(); ctx.moveTo(rx2, ry2); ctx.lineTo(tx2, ty2); ctx.stroke();
-    // canister seams along the box
-    ctx.strokeStyle = 'rgba(30,36,43,0.6)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(rx2, ry2); ctx.lineTo(tx2, ty2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(rx2 - dyu * 2.4, ry2 + dxu * 2.4); ctx.lineTo(tx2 - dyu * 2.4, ty2 + dxu * 2.4); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(rx2 + dyu * 2.4, ry2 - dxu * 2.4); ctx.lineTo(tx2 + dyu * 2.4, ty2 - dxu * 2.4); ctx.stroke();
-    // 2x2 muzzle covers on the raised face
-    const px2 = -dyu, py2 = dxu; // perpendicular on screen
-    for (const [a2, b2] of [[-2.3, -2.3], [2.3, -2.3], [-2.3, 2.3], [2.3, 2.3]]) {
-      ctx.fillStyle = '#20242a';
-      ctx.beginPath();
-      ctx.ellipse(tx2 + px2 * a2 + dxu * (b2 * 0.3), ty2 + py2 * a2 + b2 * 0.9, 2, 1.7, 0, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = o.on ? '#e8edf2' : '#5d646d';
-      ctx.beginPath();
-      ctx.arc(tx2 + px2 * a2 + dxu * (b2 * 0.3), ty2 + py2 * a2 + b2 * 0.9, 0.8, 0, TAU);
-      ctx.fill();
+    ctx.fillStyle = '#23241c';
+    for (const wy2 of [-8.5, 8.5]) {
+      ctx.beginPath(); ctx.ellipse(-6, wy2, 3, 2.2, 0, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.ellipse(5, wy2, 3, 2.2, 0, 0, TAU); ctx.fill();
     }
-    // radar mast with spinning bar
-    billboard(ctx, 11, 8, () => {
+    ctx.restore();
+    // screen-space frame for the elevated box: a() along heading, p lateral,
+    // h up. The box climbs from the rear mount to a raised muzzle face.
+    const hd = isoAngle(ang);
+    const ca = Math.cos(hd), sa = Math.sin(hd);
+    const P = (a2, p2, h2) => [a2 * ca - p2 * sa * 0.92, a2 * sa * 0.62 + p2 * ca * 0.5 - h2];
+    const HW = 4.6;               // half width
+    const A0 = -9, A1 = 9;        // rear / front along heading
+    const H0 = 3, H1 = 12;        // rear / front bottom heights
+    const TH = 6;                 // box thickness
+    const quad = (q, col) => {
+      ctx.fillStyle = col;
+      ctx.beginPath();
+      ctx.moveTo(q[0][0], q[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(q[i][0], q[i][1]);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = '#3c3a2c';
+      ctx.lineWidth = 0.9;
+      ctx.stroke();
+    };
+    const drab = '#a09a76', drabDark = '#7c7758', drabLight = '#b8b28c';
+    // support arms from trailer up to the box
+    ctx.strokeStyle = '#4a4738';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    const arm1 = P(-2, 0, 0), arm2 = P(2, 0, (H0 + H1) / 2 + 1);
+    ctx.moveTo(arm1[0], arm1[1] + 2); ctx.lineTo(arm2[0], arm2[1]);
+    ctx.stroke();
+    // far side wall, underside, near side wall, top, then the muzzle face
+    quad([P(A0, -HW, H0), P(A1, -HW, H1), P(A1, -HW, H1 + TH), P(A0, -HW, H0 + TH)], drabDark);
+    quad([P(A0, -HW, H0), P(A1, -HW, H1), P(A1, HW, H1), P(A0, HW, H0)], '#55523f');
+    quad([P(A0, HW, H0), P(A1, HW, H1), P(A1, HW, H1 + TH), P(A0, HW, H0 + TH)], drab);
+    quad([P(A0, -HW, H0 + TH), P(A1, -HW, H1 + TH), P(A1, HW, H1 + TH), P(A0, HW, H0 + TH)], drabLight);
+    // muzzle face: 2x2 canister doors
+    quad([P(A1, -HW, H1), P(A1, HW, H1), P(A1, HW, H1 + TH), P(A1, -HW, H1 + TH)], '#8a8468');
+    for (const [pp, hh] of [[-HW / 2, H1 + TH * 0.27], [HW / 2, H1 + TH * 0.27], [-HW / 2, H1 + TH * 0.73], [HW / 2, H1 + TH * 0.73]]) {
+      const c2 = P(A1 + 0.2, pp, hh);
+      ctx.fillStyle = '#2c2a20';
+      ctx.beginPath(); ctx.ellipse(c2[0], c2[1], 1.9, 1.7, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = o.on ? '#d8d2b8' : '#5d5a48';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+    }
+    // lateral canister seams along the top face
+    ctx.strokeStyle = 'rgba(60,58,44,0.55)';
+    ctx.lineWidth = 0.8;
+    const s1 = P(A0, 0, H0 + TH), s2 = P(A1, 0, H1 + TH);
+    ctx.beginPath(); ctx.moveTo(s1[0], s1[1]); ctx.lineTo(s2[0], s2[1]); ctx.stroke();
+    // AN/MPQ radar: the classic slanted flat panel on its own stand
+    billboard(ctx, 12, 8, () => {
       ctx.strokeStyle = '#59616c';
       ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -12); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-2, 0); ctx.lineTo(0, -6); ctx.moveTo(2.5, 0); ctx.lineTo(0.5, -6); ctx.stroke();
       ctx.save();
-      ctx.translate(0, -12);
-      ctx.scale(Math.sin(o.on ? t * 3 : 0.8), 1); // bar seen edge-on as it spins
-      ctx.strokeStyle = '#9aa2ac';
-      ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(5, 0); ctx.stroke();
+      ctx.translate(0, -6);
+      ctx.rotate(-0.35);
+      const rg = ctx.createLinearGradient(0, -9, 0, 0);
+      rg.addColorStop(0, '#8f8a6c');
+      rg.addColorStop(1, '#6e6a52');
+      ctx.fillStyle = rg;
+      rr(ctx, -4, -9.5, 8, 9.5, 1);
+      ctx.fill();
+      ctx.strokeStyle = '#3c3a2c';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+      // phased-array face
+      ctx.fillStyle = '#4c4a3a';
+      ctx.beginPath(); ctx.arc(0, -5, 2.6, 0, TAU); ctx.fill();
+      if (o.on && Math.sin(t * 4) > 0) {
+        ctx.fillStyle = '#d8ecd2';
+        ctx.beginPath(); ctx.arc(0, -5, 1, 0, TAU); ctx.fill();
+      }
       ctx.restore();
-      ctx.fillStyle = '#20242a';
-      ctx.beginPath(); ctx.arc(0, -12, 1.4, 0, TAU); ctx.fill();
     });
   };
   B.geyser = (ctx, t, o) => {
@@ -4325,6 +4402,95 @@
     ctx.fill();
     ctx.restore();
   };
+  // AC-130 gunship: side-profile heavy, foreshortened by heading, guns
+  // firing broadside out the port side like the real thing
+  I.gunship = (ctx, t, o) => {
+    const m = Math.cos(o.hdg) < 0 ? -1 : 1;
+    const fore = Math.max(0.55, Math.abs(Math.cos(o.hdg)));
+    ctx.save();
+    ctx.scale(m, 1);
+    ctx.rotate(Math.sin(o.hdg) * m * 0.38); // nose dips toward the heading
+    ctx.scale(fore, 1);
+    // fuselage: long grey hull with an upswept tail
+    const g = ctx.createLinearGradient(0, -10, 0, 0);
+    g.addColorStop(0, '#767e8a');
+    g.addColorStop(0.6, '#565e69');
+    g.addColorStop(1, '#3a4049');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(22, -2);                                  // nose tip
+    ctx.quadraticCurveTo(23, -7.5, 16, -8.2);            // radome top
+    ctx.lineTo(-13, -8);                                 // spine
+    ctx.quadraticCurveTo(-19, -8, -23, -5.5);            // tail sweep
+    ctx.lineTo(-23, -3.5);
+    ctx.quadraticCurveTo(-14, -1.2, -4, -0.8);           // belly rise
+    ctx.lineTo(14, -0.6);
+    ctx.quadraticCurveTo(20, -0.6, 22, -2);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#262b32';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    // vertical stabilizer with team-color band
+    ctx.fillStyle = '#4a515c';
+    ctx.beginPath();
+    ctx.moveTo(-15, -7.5);
+    ctx.lineTo(-21.5, -16.5);
+    ctx.lineTo(-25.5, -16.5);
+    ctx.lineTo(-23, -6);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#262b32';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    ctx.fillStyle = o.color;
+    ctx.fillRect(-25, -15.5, 4.5, 2.6);
+    // cockpit glass
+    ctx.fillStyle = '#1c2026';
+    ctx.beginPath();
+    ctx.moveTo(19.5, -6.8);
+    ctx.lineTo(14.5, -7.4);
+    ctx.lineTo(14.5, -5);
+    ctx.lineTo(18.5, -4.8);
+    ctx.closePath();
+    ctx.fill();
+    // high wing band with four engine nacelles + prop discs
+    ctx.fillStyle = '#5d6570';
+    ctx.beginPath();
+    ctx.moveTo(11, -8.8);
+    ctx.lineTo(-11, -9.4);
+    ctx.lineTo(-13, -7.6);
+    ctx.lineTo(11, -7.4);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#2c3138';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    for (const nx2 of [-9, -3, 3.5, 9.5]) {
+      ctx.fillStyle = '#454c56';
+      rr(ctx, nx2 - 1.6, -8.6, 4.6, 3, 1.2);
+      ctx.fill();
+      // prop blur
+      ctx.fillStyle = 'rgba(200,208,218,0.35)';
+      ctx.beginPath();
+      ctx.ellipse(nx2 + 3.6, -7.1, 1, 3.4, 0, 0, TAU);
+      ctx.fill();
+    }
+    // port-side battery: howitzer + cannon barrels poking from the hull
+    ctx.strokeStyle = '#20242a';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(2, -2); ctx.lineTo(0.5, 2.6);
+    ctx.moveTo(-4, -2); ctx.lineTo(-6, 2.2);
+    ctx.stroke();
+    if (o.firing) {
+      ctx.fillStyle = 'rgba(255,225,130,0.95)';
+      ctx.beginPath(); ctx.arc(0.2, 3.6, 2.6, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(-6.4, 3.2, 1.9, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  };
+
   I.orb = (ctx, t, o) => {
     const p2 = 0.6 + 0.4 * Math.sin(t * 5);
     const halo = ctx.createRadialGradient(0, -8, 1, 0, -8, 9);
