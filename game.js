@@ -2486,17 +2486,30 @@ function drawUnitIso(u) {
   ctx.scale(1, 0.5); // squash the glow into a ground pool
   Art.teamGlow(ctx, t.r + 8, drawCol);
   ctx.restore();
-  // sprite rotated to the PROJECTED heading, then foreshortened vertically
-  // so the body reads as seen from the iso camera angle rather than dead
-  // top-down (uniform across all unit types)
-  ctx.scale(1, 0.66);
-  ctx.rotate(isoAngle(u.facing || 0));
-  Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
-    color: drawCol,
-    moving: u.order.type !== 'idle',
-    firing: u.cooldown > t.cooldown - 0.15,
-    dist: u.travel,
-  });
+  if (Art.hasIso(u.type)) {
+    // dedicated iso sprite: an upright billboard that handles its own
+    // heading (mirroring, rotating decks and barrels internally)
+    Art.drawIso(u.type, ctx, state.time + (u.id % 97) * 0.63, {
+      color: drawCol,
+      moving: u.order.type !== 'idle',
+      firing: u.cooldown > t.cooldown - 0.15,
+      dist: u.travel,
+      carrying: u.carrying > 0,
+      facing: u.facing || 0,
+      hdg: isoAngle(u.facing || 0),
+    });
+  } else {
+    // aircraft & friends keep their top-down art, rotated to the projected
+    // heading and foreshortened for the iso camera
+    ctx.scale(1, 0.66);
+    ctx.rotate(isoAngle(u.facing || 0));
+    Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
+      color: drawCol,
+      moving: u.order.type !== 'idle',
+      firing: u.cooldown > t.cooldown - 0.15,
+      dist: u.travel,
+    });
+  }
   ctx.restore();
   if (u.carrying > 0) {
     ctx.fillStyle = '#3fd7d0';
