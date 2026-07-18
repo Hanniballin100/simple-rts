@@ -285,6 +285,7 @@ function setupWorld(map) {
   mapDecor = map.decor || [];
   initFog();
   renderGround();
+  buildTerrainProps();
 
   // bases + starting workers, spaced toward the map center
   // (income factions bring no workers — their structures provide)
@@ -1764,10 +1765,12 @@ function issueCommand(x, y) {
 }
 
 function minimapPan(e) {
-  // the minimap IS the projected world, so a click maps straight to iso space
+  // the minimap is a plain top-down map: click → world point → center camera
   const r = mmCanvas.getBoundingClientRect();
-  cam.x = (e.clientX - r.left) / r.width * isoSpanW() - WORLD_H - canvas.width / cam.zoom / 2;
-  cam.y = (e.clientY - r.top) / r.height * isoSpanH() - canvas.height / cam.zoom / 2;
+  const wx = (e.clientX - r.left) / r.width * WORLD_W;
+  const wy = (e.clientY - r.top) / r.height * WORLD_H;
+  cam.x = isoX(wx, wy) - canvas.width / cam.zoom / 2;
+  cam.y = isoY(wx, wy) - canvas.height / cam.zoom / 2;
   clampCam();
 }
 
@@ -2140,12 +2143,29 @@ function draw() {
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
     if (UNIT_TYPES[u.type].flying && !u.landed) continue; // airborne drawn above
-    drawList.push({ d: u.x + u.y, k: 2, e: u });
+    let d = u.x + u.y;
+    // a craft parked ON its pad must paint after the pad building, or the
+    // north parking slots vanish under the airfield graphic
+    if (u.landed && u.homeId) {
+      const hb = state.buildings.find(b => b.id === u.homeId);
+      if (hb) d = Math.max(d, hb.x + hb.y + 1);
+    }
+    drawList.push({ d, k: 2, e: u });
+  }
+  // static terrain props (trees, boulders) join the sort; cull to the view
+  const cx0 = cam.x - 60, cx1 = cam.x + canvas.width / cam.zoom + 60;
+  const cy0 = cam.y - 90, cy1 = cam.y + canvas.height / cam.zoom + 60;
+  for (const p of terrainProps) {
+    const px = isoX(p.x, p.y), py = isoY(p.x, p.y);
+    if (px < cx0 || px > cx1 || py < cy0 || py > cy1) continue;
+    if (tileState(p.x, p.y) === 0) continue;
+    drawList.push({ d: p.x + p.y, k: 3, e: p });
   }
   drawList.sort((a, b) => a.d - b.d || a.k - b.k);
   for (const it of drawList) {
     if (it.k === 0) drawPatchIso(it.e);
     else if (it.k === 1) drawBuildingIso(it.e);
+    else if (it.k === 3) drawPropIso(it.e);
     else drawUnitIso(it.e);
   }
 
@@ -2169,6 +2189,105 @@ function draw() {
 }
 
 const drawList = []; // reused every frame (GC)
+
+// ---------- terrain props: upright trees and boulders ----------
+// Purely visual — collision stays the TERRAIN blob circle. Generated once
+// per map with the same deterministic jitter the old baked art used, and
+// drawn through the depth sort so units walk in front of and behind them.
+let terrainProps = [];
+function buildTerrainProps() {
+  terrainProps = [];
+  for (const o of TERRAIN) {
+    if (o.type === 'forest') {
+      const n = Math.max(6, Math.round(o.r * o.r / 260));
+      for (let i = 0; i < n; i++) {
+        const a = prand(o.seed + i * 17) * Math.PI * 2;
+        const rd = Math.sqrt(prand(o.seed + i * 17 + 1)) * o.r * 0.82;
+        terrainProps.push({
+          kind: 'tree', x: o.x + Math.cos(a) * rd, y: o.y + Math.sin(a) * rd,
+          s: 5 + prand(o.seed + i * 17 + 2) * 5, v: i % 3,
+        });
+      }
+    } else if (o.type === 'rock') {
+      const n = Math.max(2, Math.round(o.r / 20));
+      for (let i = 0; i < n; i++) {
+        const a = prand(o.seed + i * 11) * Math.PI * 2;
+        const rd = prand(o.seed + i * 11 + 1) * o.r * 0.55;
+        terrainProps.push({
+          kind: 'rock', x: o.x + Math.cos(a) * rd, y: o.y + Math.sin(a) * rd,
+          s: 4.5 + prand(o.seed + i * 11 + 2) * 6.5 + o.r * 0.05, v: i % 2,
+        });
+      }
+    }
+  }
+}
+
+function drawPropIso(p) {
+  const ix = isoX(p.x, p.y), iy = isoY(p.x, p.y);
+  const s = p.s;
+  if (p.kind === 'tree') {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath();
+    ctx.ellipse(ix + 2.5, iy + 1, s * 1.15, s * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (p.v === 2) {
+      // conifer: trunk under stacked fronds
+      ctx.fillStyle = '#4a3826';
+      ctx.fillRect(ix - 1, iy - s * 0.8, 2, s * 0.8);
+      for (let i = 0; i < 3; i++) {
+        const w2 = s * (1.15 - i * 0.28), yy = iy - s * (0.7 + i * 0.75);
+        ctx.fillStyle = i % 2 ? '#2f4d26' : '#3c5c2e';
+        ctx.beginPath();
+        ctx.moveTo(ix - w2, yy);
+        ctx.lineTo(ix, yy - s * 1.1);
+        ctx.lineTo(ix + w2, yy);
+        ctx.closePath();
+        ctx.fill();
+      }
+    } else {
+      // broadleaf: trunk under a clumped canopy, lit from the NE
+      ctx.fillStyle = '#4a3826';
+      ctx.fillRect(ix - 1.2, iy - s * 1.1, 2.4, s * 1.1);
+      ctx.fillStyle = p.v ? '#2f4d26' : '#3c5c2e';
+      ctx.beginPath();
+      ctx.arc(ix, iy - s * 1.7, s, 0, Math.PI * 2);
+      ctx.arc(ix - s * 0.55, iy - s * 1.35, s * 0.72, 0, Math.PI * 2);
+      ctx.arc(ix + s * 0.55, iy - s * 1.4, s * 0.7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = p.v ? '#46683a' : '#557a42';
+      ctx.beginPath();
+      ctx.arc(ix + s * 0.3, iy - s * 1.95, s * 0.55, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  } else {
+    // boulder: faceted lump, lit from the NE
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath();
+    ctx.ellipse(ix + 2, iy + 1, s * 1.1, s * 0.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = p.v ? '#4a5058' : '#565d67';
+    ctx.beginPath();
+    ctx.moveTo(ix - s, iy);
+    ctx.lineTo(ix - s * 0.55, iy - s * 0.85);
+    ctx.lineTo(ix + s * 0.35, iy - s);
+    ctx.lineTo(ix + s, iy - s * 0.25);
+    ctx.lineTo(ix + s * 0.7, iy + s * 0.28);
+    ctx.lineTo(ix - s * 0.6, iy + s * 0.3);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#2c3036';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath();
+    ctx.moveTo(ix - s * 0.55, iy - s * 0.85);
+    ctx.lineTo(ix + s * 0.35, iy - s);
+    ctx.lineTo(ix + s, iy - s * 0.25);
+    ctx.lineTo(ix + s * 0.2, iy - s * 0.3);
+    ctx.closePath();
+    ctx.fill();
+  }
+}
 
 // mineral patches: ground stain + a cluster of upright crystal shards
 function drawPatchIso(p) {
@@ -2364,7 +2483,10 @@ function drawUnitIso(u) {
   ctx.scale(1, 0.5); // squash the glow into a ground pool
   Art.teamGlow(ctx, t.r + 8, drawCol);
   ctx.restore();
-  // upright billboard sprite, rotated to the PROJECTED heading (RA2 look)
+  // sprite rotated to the PROJECTED heading, then foreshortened vertically
+  // so the body reads as seen from the iso camera angle rather than dead
+  // top-down (uniform across all unit types)
+  ctx.scale(1, 0.66);
   ctx.rotate(isoAngle(u.facing || 0));
   Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
     color: drawCol,
@@ -2598,47 +2720,35 @@ function drawMinimap() {
     return;
   }
 
-  // RA2-style diamond radar: the minimap shows the PROJECTED world, so the
-  // map is a diamond and the camera viewport is a plain rectangle on it
-  const sx = mmCanvas.width / isoSpanW(), sy = mmCanvas.height / isoSpanH();
-  const mmX = (x, y) => (isoX(x, y) + WORLD_H) * sx;
-  const mmY = (x, y) => isoY(x, y) * sy;
-  // ground diamond + terrain, drawn through the projection
-  mmCtx.save();
-  mmCtx.scale(sx, sy);
-  mmCtx.translate(WORLD_H, 0);
-  isoShear(mmCtx);
+  // square top-down radar: the minimap stays a plain map of the world rect;
+  // only the camera viewport (a screen rect in iso space) shows as a
+  // rotated parallelogram
+  const sx = mmCanvas.width / WORLD_W, sy = mmCanvas.height / WORLD_H;
   mmCtx.fillStyle = '#1c2818';
-  mmCtx.fillRect(0, 0, WORLD_W, WORLD_H);
+  mmCtx.fillRect(0, 0, mmCanvas.width, mmCanvas.height);
   for (const o of TERRAIN) {
     mmCtx.fillStyle = o.type === 'water' ? '#1d3a4a' : o.type === 'forest' ? '#243d1c' : '#4a4f56';
     mmCtx.beginPath();
-    mmCtx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+    mmCtx.arc(o.x * sx, o.y * sy, o.r * sx, 0, Math.PI * 2);
     mmCtx.fill();
   }
-  mmCtx.restore();
   for (const p of state.patches) {
     if (p.amount <= 0 || tileState(p.x, p.y) === 0) continue;
     mmCtx.fillStyle = '#3fd7d0';
-    mmCtx.fillRect(mmX(p.x, p.y) - 1, mmY(p.x, p.y) - 1, 3, 3);
+    mmCtx.fillRect(p.x * sx - 1, p.y * sy - 1, 3, 3);
   }
   for (const b of state.buildings) {
     if (b.hp <= 0 || !visibleToPlayer(b)) continue;
     mmCtx.fillStyle = COLORS[b.owner];
-    mmCtx.fillRect(mmX(b.x, b.y) - 3, mmY(b.x, b.y) - 2, 6, 5);
+    mmCtx.fillRect(b.x * sx - 3, b.y * sy - 3, 6, 6);
   }
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
     mmCtx.fillStyle = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
-    mmCtx.fillRect(mmX(u.x, u.y) - 1, mmY(u.x, u.y) - 1, 2, 2);
+    mmCtx.fillRect(u.x * sx - 1, u.y * sy - 1, 2, 2);
   }
-  // fog overlay: reuse the main fog canvas, projected onto the diamond
-  mmCtx.save();
-  mmCtx.scale(sx, sy);
-  mmCtx.translate(WORLD_H, 0);
-  isoShear(mmCtx);
-  mmCtx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, WORLD_W, WORLD_H);
-  mmCtx.restore();
+  // fog overlay: reuse the main fog canvas, stretched onto the minimap
+  mmCtx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, mmCanvas.width, mmCanvas.height);
   // radar intel passives pierce the fog: flat sees enemy air, hollow sees enemy ground
   const pf = state.factions[PLAYER];
   if (pf === 'flat' || pf === 'hollow') {
@@ -2647,16 +2757,21 @@ function drawMinimap() {
       const fly = !!UNIT_TYPES[u.type].flying;
       if ((pf === 'flat' && fly) || (pf === 'hollow' && !fly)) {
         mmCtx.fillStyle = '#ffb45f';
-        mmCtx.fillRect(mmX(u.x, u.y) - 1.5, mmY(u.x, u.y) - 1.5, 3, 3);
+        mmCtx.fillRect(u.x * sx - 1.5, u.y * sy - 1.5, 3, 3);
       }
     }
   }
-  // the visible area is a screen-aligned rect in iso space — so on the
-  // projected minimap it is a plain rectangle
+  // camera viewport: unproject the four screen corners into world space
   mmCtx.strokeStyle = '#cfd6dd';
   mmCtx.lineWidth = 1;
-  mmCtx.strokeRect((cam.x + WORLD_H) * sx, cam.y * sy,
-    canvas.width / cam.zoom * sx, canvas.height / cam.zoom * sy);
+  mmCtx.beginPath();
+  const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
+  [[0, 0], [vw, 0], [vw, vh], [0, vh]].forEach(([ox, oy], i) => {
+    const c = isoUnproject(cam.x + ox, cam.y + oy);
+    if (i) mmCtx.lineTo(c.x * sx, c.y * sy); else mmCtx.moveTo(c.x * sx, c.y * sy);
+  });
+  mmCtx.closePath();
+  mmCtx.stroke();
 }
 
 function checkGameOver() {
@@ -2952,7 +3067,8 @@ function renderGround() {
         g.stroke();
       }
     } else if (o.type === 'rock') {
-      // shaded mesa with a few boulders on top
+      // shaded mesa base — the boulders standing on it are depth-sorted
+      // props drawn per frame (see buildTerrainProps)
       g.fillStyle = 'rgba(0,0,0,0.25)';
       blobPath(g, { ...o, x: o.x + 4, y: o.y + 5 }); g.fill();
       g.fillStyle = '#454b53';
@@ -2960,36 +3076,12 @@ function renderGround() {
       g.strokeStyle = '#2c3036'; g.lineWidth = 2; g.stroke();
       g.fillStyle = '#565d67';
       blobPath(g, { ...o, x: o.x - o.r * 0.18, y: o.y - o.r * 0.18, seed: o.seed + 5 }, 0.62); g.fill();
-      const nRocks = Math.max(2, Math.round(o.r / 22));
-      for (let i = 0; i < nRocks; i++) {
-        const a = prand(o.seed + i * 11) * Math.PI * 2;
-        const rd = prand(o.seed + i * 11 + 1) * o.r * 0.6;
-        const br = 4 + prand(o.seed + i * 11 + 2) * 7;
-        const bx = o.x + Math.cos(a) * rd, by = o.y + Math.sin(a) * rd;
-        g.fillStyle = i % 2 ? '#5f6771' : '#3a3f46';
-        g.beginPath(); g.arc(bx, by, br, 0, Math.PI * 2); g.fill();
-        g.fillStyle = 'rgba(255,255,255,0.12)';
-        g.beginPath(); g.arc(bx - br * 0.3, by - br * 0.3, br * 0.45, 0, Math.PI * 2); g.fill();
-      }
     } else if (o.type === 'forest') {
-      // undergrowth blob covered in tree canopies
+      // undergrowth blob — the trees themselves are depth-sorted props
       g.fillStyle = '#26361f';
       blobPath(g, o, 1.08); g.fill();
       g.fillStyle = '#1e2c19';
       blobPath(g, o, 0.85); g.fill();
-      const nTrees = Math.max(6, Math.round(o.r * o.r / 220));
-      for (let i = 0; i < nTrees; i++) {
-        const a = prand(o.seed + i * 17) * Math.PI * 2;
-        const rd = Math.sqrt(prand(o.seed + i * 17 + 1)) * o.r * 0.88;
-        const tr = 5 + prand(o.seed + i * 17 + 2) * 6;
-        const tx = o.x + Math.cos(a) * rd, ty = o.y + Math.sin(a) * rd;
-        g.fillStyle = 'rgba(0,0,0,0.3)';
-        g.beginPath(); g.arc(tx + 2, ty + 2.5, tr, 0, Math.PI * 2); g.fill();
-        g.fillStyle = i % 3 === 0 ? '#3c5c2e' : i % 3 === 1 ? '#2f4d26' : '#46683a';
-        g.beginPath(); g.arc(tx, ty, tr, 0, Math.PI * 2); g.fill();
-        g.fillStyle = 'rgba(190,230,150,0.25)';
-        g.beginPath(); g.arc(tx - tr * 0.3, ty - tr * 0.35, tr * 0.45, 0, Math.PI * 2); g.fill();
-      }
     }
   }
   g.restore();
