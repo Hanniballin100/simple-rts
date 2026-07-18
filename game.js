@@ -2130,21 +2130,37 @@ function draw() {
   // ground is prerendered already-projected; blit it in iso space
   ctx.drawImage(groundCanvas, -WORLD_H, 0, isoSpanW(), isoSpanH());
 
+  frameNo++;
+  if (frameNo % 600 === 0) purgeSpriteCache();
+
   // area-effect zones first — ground decals that everything stands on
   drawZones();
+
+  // view bounds in iso space — everything off-screen skips the draw pass
+  const cx0 = cam.x - 60, cx1 = cam.x + canvas.width / cam.zoom + 60;
+  const cy0 = cam.y - 90, cy1 = cam.y + canvas.height / cam.zoom + 60;
+  const inView = (x, y, m) => {
+    const px = isoX(x, y), py = isoY(x, y);
+    return px >= cx0 - m && px <= cx1 + m && py >= cy0 - m && py <= cy1 + m;
+  };
 
   // painter's algorithm: patches, buildings, ground units and landed
   // aircraft in one pass, sorted by world x+y (screen depth)
   drawList.length = 0;
   for (const p of state.patches) {
-    if (p.amount > 0 && tileState(p.x, p.y) !== 0) drawList.push({ d: p.x + p.y - 30, k: 0, e: p });
+    if (p.amount > 0 && tileState(p.x, p.y) !== 0 && inView(p.x, p.y, 40)) {
+      drawList.push({ d: p.x + p.y - 30, k: 0, e: p });
+    }
   }
   for (const b of state.buildings) {
-    if (b.hp > 0 && visibleToPlayer(b)) drawList.push({ d: b.x + b.y, k: 1, e: b });
+    if (b.hp > 0 && visibleToPlayer(b) && inView(b.x, b.y, (b.w + b.h) / 2 + 60)) {
+      drawList.push({ d: b.x + b.y, k: 1, e: b });
+    }
   }
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
     if (UNIT_TYPES[u.type].flying && !u.landed) continue; // airborne drawn above
+    if (!inView(u.x, u.y, 70)) continue;
     let d = u.x + u.y;
     // a craft parked ON its pad must paint after the pad building, or the
     // north parking slots vanish under the airfield graphic
@@ -2154,12 +2170,9 @@ function draw() {
     }
     drawList.push({ d, k: 2, e: u });
   }
-  // static terrain props (trees, boulders) join the sort; cull to the view
-  const cx0 = cam.x - 60, cx1 = cam.x + canvas.width / cam.zoom + 60;
-  const cy0 = cam.y - 90, cy1 = cam.y + canvas.height / cam.zoom + 60;
+  // static terrain props (trees, boulders) join the sort
   for (const p of terrainProps) {
-    const px = isoX(p.x, p.y), py = isoY(p.x, p.y);
-    if (px < cx0 || px > cx1 || py < cy0 || py > cy1) continue;
+    if (!inView(p.x, p.y, 0)) continue;
     if (tileState(p.x, p.y) === 0) continue;
     drawList.push({ d: p.x + p.y, k: 3, e: p });
   }
@@ -2176,7 +2189,8 @@ function draw() {
   // airborne units above the ground layer, depth-sorted among themselves
   drawList.length = 0;
   for (const u of state.units) {
-    if (u.hp > 0 && !u.garrisoned && visibleToPlayer(u) && UNIT_TYPES[u.type].flying && !u.landed) {
+    if (u.hp > 0 && !u.garrisoned && visibleToPlayer(u) && UNIT_TYPES[u.type].flying && !u.landed &&
+        inView(u.x, u.y, 90)) {
       drawList.push({ d: u.x + u.y, k: 2, e: u });
     }
   }
@@ -2187,10 +2201,47 @@ function draw() {
   Particles.draw(ctx);
   drawOverlays();
   ctx.restore();
-  drawMinimap();
+  // the radar repaints everything; 20Hz is plenty for blips
+  if (frameNo % 3 === 0) drawMinimap();
 }
 
 const drawList = []; // reused every frame (GC)
+
+// ---------- sprite cache ----------
+// Vector art is expensive (gradients + dozens of path ops per entity per
+// frame). Render each entity's sprite to an offscreen canvas and blit it,
+// re-rendering only every `interval` frames (staggered animation clock) or
+// when its look signature changes (facing bucket, power, team color...).
+const spriteCache = new Map(); // key -> {cv, g, stamp, sig, used}
+let frameNo = 0;
+
+function cachedSprite(key, w, h, ax, ay, sig, interval, render) {
+  let e = spriteCache.get(key);
+  if (!e || e.cv.width !== w || e.cv.height !== h) {
+    const cv = document.createElement('canvas');
+    cv.width = w;
+    cv.height = h;
+    e = { cv, g: cv.getContext('2d'), stamp: -1e9, sig: null, used: 0 };
+    spriteCache.set(key, e);
+  }
+  e.used = frameNo;
+  if (e.sig !== sig || frameNo - e.stamp >= interval) {
+    e.sig = sig;
+    e.stamp = frameNo;
+    e.g.clearRect(0, 0, w, h);
+    e.g.save();
+    e.g.translate(ax, ay);
+    render(e.g);
+    e.g.restore();
+  }
+  return e;
+}
+
+function purgeSpriteCache() {
+  for (const [key, e] of spriteCache) {
+    if (frameNo - e.used > 900) spriteCache.delete(key);
+  }
+}
 
 // ---------- terrain props: upright trees and boulders ----------
 // Purely visual — collision stays the TERRAIN blob circle. Generated once
@@ -2224,10 +2275,20 @@ function buildTerrainProps() {
   }
 }
 
+// props are static: one shared cached sprite per (kind, variant, size bucket)
 function drawPropIso(p) {
-  const ix = isoX(p.x, p.y), iy = isoY(p.x, p.y);
-  const s = p.s;
-  if (p.kind === 'tree') {
+  const s2 = Math.round(p.s * 2) / 2;
+  const cw = Math.ceil(s2 * 5 + 12), chh = Math.ceil(s2 * 3.6 + 14);
+  const ax = cw / 2, ay = Math.ceil(s2 * 2.9 + 6);
+  const spr = cachedSprite(p.kind + '|' + p.v + '|' + s2, cw, chh, ax, ay, 'static', 1e9,
+    g => renderProp(g, p.kind, s2, p.v));
+  ctx.drawImage(spr.cv, isoX(p.x, p.y) - ax, isoY(p.x, p.y) - ay);
+}
+
+function renderProp(ctx, kind, s, v) {
+  const ix = 0, iy = 0;
+  const p = { v };
+  if (kind === 'tree') {
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
     ctx.ellipse(ix + 2.5, iy + 1, s * 1.15, s * 0.5, 0, 0, Math.PI * 2);
@@ -2341,15 +2402,23 @@ function drawBuildingIso(b) {
   const bt = bstatsOf(b);
   const ix = isoX(b.x, b.y), iy = isoY(b.x, b.y);
   const topY = iy - (b.w + b.h) / 4; // screen y of the footprint's north corner
-  ctx.save();
-  ctx.translate(ix, iy);
-  isoShear(ctx); // building art draws in its local ground-plane frame
-  Art.building(b.type, ctx, state.time + (b.id % 89) * 0.71, {
-    w: b.w, h: b.h, color: COLORS[b.owner], on: !powerOf(b.owner).low,
-    fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
-    turret: b.turret, // towers with their own weapon art track their target
+  const on = !powerOf(b.owner).low;
+  // building art comes from the sprite cache: refreshed at ~10Hz for its
+  // animations, immediately when power/owner/turret-heading change
+  const bw2 = b.w + b.h;
+  const cw = Math.ceil(bw2 + 80), chh = Math.ceil(bw2 * 0.5 + 100);
+  const ax = cw / 2, ay = Math.ceil(bw2 * 0.25 + 60);
+  const qt = b.turret !== undefined ? Math.round(b.turret / 0.2) : -99;
+  const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt;
+  const spr = cachedSprite(b.id, cw, chh, ax, ay, sig, 12, g => {
+    isoShear(g); // building art draws in its local ground-plane frame
+    Art.building(b.type, g, state.time + (b.id % 89) * 0.71, {
+      w: b.w, h: b.h, color: COLORS[b.owner], on,
+      fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
+      turret: b.turret, // towers with their own weapon art track their target
+    });
   });
-  ctx.restore();
+  ctx.drawImage(spr.cv, ix - ax, iy - ay);
 
   if (bt.dmg && bt.weapon !== 'pulse' && !bt.ownWeaponArt) {
       const on = !powerOf(b.owner).low;
@@ -2469,48 +2538,60 @@ function drawUnitIso(u) {
   // airborne craft ride a purely-visual screen altitude; sy anchors the sprite
   const alt = (t.flying && !grounded) ? FLY_H : 0;
   const sy = iy - alt;
-  ctx.save();
   // your own gaslight phantoms look ghostly to you; enemy ones look real
   if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
   if (alt) {
-    // shadow stays on the ground while the craft flies above it
+    // shadow stays on the ground while the craft flies above it (live)
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
     ctx.beginPath();
     ctx.ellipse(ix + 5, iy + 3, rs * 0.9, rs * 0.45, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  ctx.translate(ix, sy + bob);
-  ctx.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
-  if (!alt) Art.shadow(ctx, t.r * 1.15, t.r * 0.6, 0, 1.5); // ground-plane contact shadow
-  ctx.save();
-  ctx.scale(1, 0.5); // squash the glow into a ground pool
-  Art.teamGlow(ctx, t.r + 8, drawCol);
-  ctx.restore();
-  if (Art.hasIso(u.type)) {
-    // dedicated iso sprite: an upright billboard that handles its own
-    // heading (mirroring, rotating decks and barrels internally)
-    Art.drawIso(u.type, ctx, state.time + (u.id % 97) * 0.63, {
-      color: drawCol,
-      moving: u.order.type !== 'idle',
-      firing: u.cooldown > t.cooldown - 0.15,
-      dist: u.travel,
-      carrying: u.carrying > 0,
-      facing: u.facing || 0,
-      hdg: isoAngle(u.facing || 0),
-    });
-  } else {
-    // aircraft & friends keep their top-down art, rotated to the projected
-    // heading and foreshortened for the iso camera
-    ctx.scale(1, 0.66);
-    ctx.rotate(isoAngle(u.facing || 0));
-    Art.draw(u.type, ctx, state.time + (u.id % 97) * 0.63, {
-      color: drawCol,
-      moving: u.order.type !== 'idle',
-      firing: u.cooldown > t.cooldown - 0.15,
-      dist: u.travel,
-    });
-  }
-  ctx.restore();
+  // body sprite from the cache: 32 facing buckets in the signature, walk /
+  // idle animation refreshed on the staggered ~15Hz clock
+  const moving = u.order.type !== 'idle';
+  const firing = u.cooldown > t.cooldown - 0.15;
+  const qf = Math.round((u.facing || 0) / (Math.PI / 16)) & 31;
+  // gait bucket: walk/tread animation re-renders as distance accrues, so
+  // idle armies cost nothing and marching ones repaint ~10x/s
+  const gait = Math.floor((u.travel || 0) / 7) & 7;
+  const sig = drawCol + '|' + qf + '|' + gait + '|' + ((moving ? 1 : 0) | (firing ? 2 : 0) |
+    (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (alt ? 16 : 0));
+  const cw = Math.ceil(rs * 3.4 + 26), chh = Math.ceil(rs * 4 + 30);
+  const ax = cw / 2, ay = Math.ceil(rs * 2.8 + 16);
+  const spr = cachedSprite(u.id, cw, chh, ax, ay, sig, 30, g => {
+    g.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
+    if (!alt) Art.shadow(g, t.r * 1.15, t.r * 0.6, 0, 1.5); // contact shadow
+    g.save();
+    g.scale(1, 0.5); // squash the glow into a ground pool
+    Art.teamGlow(g, t.r + 8, drawCol);
+    g.restore();
+    if (Art.hasIso(u.type)) {
+      // dedicated iso sprite: an upright billboard that handles its own
+      // heading (mirroring, rotating decks and barrels internally)
+      Art.drawIso(u.type, g, state.time + (u.id % 97) * 0.63, {
+        color: drawCol,
+        moving,
+        firing,
+        dist: u.travel,
+        carrying: u.carrying > 0,
+        facing: u.facing || 0,
+        hdg: isoAngle(u.facing || 0),
+      });
+    } else {
+      // aircraft & friends keep their top-down art, rotated to the
+      // projected heading and foreshortened for the iso camera
+      g.scale(1, 0.66);
+      g.rotate(isoAngle(u.facing || 0));
+      Art.draw(u.type, g, state.time + (u.id % 97) * 0.63, {
+        color: drawCol,
+        moving,
+        firing,
+        dist: u.travel,
+      });
+    }
+  });
+  ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
   if (u.carrying > 0) {
     ctx.fillStyle = '#3fd7d0';
     ctx.fillRect(ix - 3, sy - rs - 7, 6, 5);
@@ -2885,7 +2966,13 @@ function frame(now) {
   }
 
   draw();
-  requestAnimationFrame(frame);
+}
+
+// single scheduler chain: frame() itself never re-schedules, so calling it
+// manually (tests, tools) can't stack extra rAF loops
+function rafLoop(now) {
+  frame(now);
+  requestAnimationFrame(rafLoop);
 }
 
 // ---------- boot: canvas sizing + prerendered ground ----------
@@ -3361,4 +3448,4 @@ let lastTime = performance.now();
 let panelTimer = 0;
 let wasLowPower = false;
 
-requestAnimationFrame(frame);
+requestAnimationFrame(rafLoop);

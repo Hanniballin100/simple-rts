@@ -1969,7 +1969,7 @@
       ctx.save(); ctx.translate(-8, 20); ctx.rotate(Math.PI / 4);
       ctx.fillRect(-3, -3, 6, 6);
       ctx.restore();
-      if (o.on && Math.random() < 0.07 && window.Particles) Particles.smoke(o.wx + 15, o.wy - 12, 2, 22);
+      if (o.on && Math.random() < 0.3 && window.Particles) Particles.smoke(o.wx + 15, o.wy - 12, 2, 22);
     } else if (o.fam === 'glob') {
       // fusion hall with the torus standing UPRIGHT in a cradle on the roof
       const pulse = o.on ? 0.5 + 0.5 * Math.sin(t * 3) : 0.08;
@@ -2083,7 +2083,7 @@
         rr(ctx, -2.4, -H2 + 10 + drop, 4.8, 4, 1);
         ctx.fill();
       });
-      if (o.on && Math.random() < 0.09 && window.Particles) {
+      if (o.on && Math.random() < 0.4 && window.Particles) {
         Particles.spawn({ kind: 'smoke', x: o.wx + (Math.random() - 0.5) * 8, y: o.wy, vx: 0, vz: 20, r: 2.5, grow: 7, life: 0.9, maxLife: 0.9 });
       }
     } else {
@@ -2314,7 +2314,7 @@
         ctx.fillStyle = '#20242a';
         ctx.beginPath(); ctx.ellipse(0, -26, 2.4, 1, 0, 0, TAU); ctx.fill();
       });
-      if (o.on && Math.random() < 0.05 && window.Particles) Particles.smoke(o.wx - 24, o.wy - 14, 2, 26);
+      if (o.on && Math.random() < 0.25 && window.Particles) Particles.smoke(o.wx - 24, o.wy - 14, 2, 26);
       ctx.fillStyle = 'rgba(18,16,12,0.55)';
       ctx.beginPath(); ctx.ellipse(-4, 16, 7, 3.5, 0.4, 0, TAU); ctx.fill();
       drum3d(ctx, -20, 18, 4, '#23262b', 2);
@@ -2955,7 +2955,7 @@
     ctx.strokeStyle = `rgba(200,240,250,${0.3 + shim * 0.3})`;
     ctx.lineWidth = 0.8;
     ctx.beginPath(); ctx.arc(0, 0, 4 + shim * 2, 0, TAU); ctx.stroke();
-    if (o.on && Math.random() < 0.1 && window.Particles) {
+    if (o.on && Math.random() < 0.45 && window.Particles) {
       Particles.spawn({ kind: 'smoke', x: o.wx, y: o.wy, vx: (Math.random() - 0.5) * 6, vy: -24, r: 2, grow: 6, life: 0.7, maxLife: 0.7 });
     }
   };
