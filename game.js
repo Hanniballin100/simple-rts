@@ -274,6 +274,7 @@ function makeBuilding(owner, type, x, y) {
   };
   if (t.slots) b.garrison = []; // unit ids stationed inside
   state.buildings.push(b);
+  markPathDirty(); // footprints reshape the walkable grid
   return b;
 }
 
@@ -284,8 +285,8 @@ function makePatch(x, y, amount = 900) {
 function setupWorld(map) {
   mapDecor = map.decor || [];
   initFog();
+  buildTerrainProps(); // before renderGround — props bake into the ground
   renderGround();
-  buildTerrainProps();
 
   // bases + starting workers, spaced toward the map center
   // (income factions bring no workers — their structures provide)
@@ -574,11 +575,267 @@ function segHitsRect(x1, y1, x2, y2, cx, cy, ex, ey) {
   return true;
 }
 
+// ============================================================
+// pathfinding: a coarse passability grid over static obstacles (water,
+// rock, buildings) + A* with line-of-sight smoothing. moveToward() steers
+// for the next waypoint; the existing local avoidance handles the rest.
+// Spatial indexes over TERRAIN and buildings also serve the per-frame
+// collision scans that used to walk every obstacle on the map.
+// ============================================================
+
+const PATH_CELL = 24;
+const OB_CELL = 240;
+let pgW = 0, pgH = 0;
+let pgPass = new Uint8Array(0);
+let pfG, pfF, pfFrom, pfVer, pfClosed;
+let pfVersion = 0;
+const pfHeap = [];
+let pathDirty = true;
+let pathEpoch = 0;
+let pathBudget = 0;
+let terrainIndex = new Map();
+let bldIndex = new Map();
+const EMPTY_ARR = [];
+
+function markPathDirty() { pathDirty = true; }
+
+function terrainNear(x, y) {
+  return terrainIndex.get(((x / OB_CELL) | 0) * 8192 + ((y / OB_CELL) | 0)) || EMPTY_ARR;
+}
+function bldNear(x, y) {
+  return bldIndex.get(((x / OB_CELL) | 0) * 8192 + ((y / OB_CELL) | 0)) || EMPTY_ARR;
+}
+
+function ensurePathGrid() {
+  if (!pathDirty) return;
+  pathDirty = false;
+  pathEpoch++;
+  // coarse obstacle indexes (entries repeated into every cell they touch)
+  terrainIndex = new Map();
+  for (const o of TERRAIN) {
+    const m = o.r + 60;
+    for (let gy = ((o.y - m) / OB_CELL) | 0; gy <= ((o.y + m) / OB_CELL) | 0; gy++) {
+      for (let gx = ((o.x - m) / OB_CELL) | 0; gx <= ((o.x + m) / OB_CELL) | 0; gx++) {
+        const k = gx * 8192 + gy;
+        let a = terrainIndex.get(k);
+        if (!a) terrainIndex.set(k, a = []);
+        a.push(o);
+      }
+    }
+  }
+  bldIndex = new Map();
+  for (const b of state.buildings) {
+    if (b.hp <= 0) continue;
+    const mx = b.w / 2 + 60, my = b.h / 2 + 60;
+    for (let gy = ((b.y - my) / OB_CELL) | 0; gy <= ((b.y + my) / OB_CELL) | 0; gy++) {
+      for (let gx = ((b.x - mx) / OB_CELL) | 0; gx <= ((b.x + mx) / OB_CELL) | 0; gx++) {
+        const k = gx * 8192 + gy;
+        let a = bldIndex.get(k);
+        if (!a) bldIndex.set(k, a = []);
+        a.push(b);
+      }
+    }
+  }
+  // passability grid
+  pgW = Math.ceil(WORLD_W / PATH_CELL);
+  pgH = Math.ceil(WORLD_H / PATH_CELL);
+  const n = pgW * pgH;
+  if (pgPass.length !== n) {
+    pgPass = new Uint8Array(n);
+    pfG = new Float64Array(n);
+    pfF = new Float64Array(n);
+    pfFrom = new Int32Array(n);
+    pfVer = new Int32Array(n);
+    pfClosed = new Int32Array(n);
+    pfVersion = 0;
+  }
+  pgPass.fill(1);
+  const CL = 12; // clearance for the fattest ground unit
+  for (const o of TERRAIN) {
+    if (TERRAIN_TYPES[o.type].passes) continue;
+    const rr2 = o.r + CL;
+    const x0 = Math.max(0, ((o.x - rr2) / PATH_CELL) | 0), x1 = Math.min(pgW - 1, ((o.x + rr2) / PATH_CELL) | 0);
+    const y0 = Math.max(0, ((o.y - rr2) / PATH_CELL) | 0), y1 = Math.min(pgH - 1, ((o.y + rr2) / PATH_CELL) | 0);
+    for (let gy = y0; gy <= y1; gy++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const cx2 = gx * PATH_CELL + PATH_CELL / 2, cy2 = gy * PATH_CELL + PATH_CELL / 2;
+        if ((cx2 - o.x) ** 2 + (cy2 - o.y) ** 2 < rr2 * rr2) pgPass[gy * pgW + gx] = 0;
+      }
+    }
+  }
+  for (const b of state.buildings) {
+    if (b.hp <= 0) continue;
+    const ex = b.w / 2 + 10, ey = b.h / 2 + 10;
+    const x0 = Math.max(0, ((b.x - ex) / PATH_CELL) | 0), x1 = Math.min(pgW - 1, ((b.x + ex) / PATH_CELL) | 0);
+    const y0 = Math.max(0, ((b.y - ey) / PATH_CELL) | 0), y1 = Math.min(pgH - 1, ((b.y + ey) / PATH_CELL) | 0);
+    for (let gy = y0; gy <= y1; gy++) {
+      for (let gx = x0; gx <= x1; gx++) {
+        const cx2 = gx * PATH_CELL + PATH_CELL / 2, cy2 = gy * PATH_CELL + PATH_CELL / 2;
+        if (Math.abs(cx2 - b.x) < ex && Math.abs(cy2 - b.y) < ey) pgPass[gy * pgW + gx] = 0;
+      }
+    }
+  }
+}
+
+function cellIdxAt(x, y) {
+  const gx = clamp((x / PATH_CELL) | 0, 0, pgW - 1);
+  const gy = clamp((y / PATH_CELL) | 0, 0, pgH - 1);
+  return gy * pgW + gx;
+}
+
+// nearest walkable cell to a point (goals often sit ON a building or shore)
+function freeCellNear(x, y) {
+  const c = cellIdxAt(x, y);
+  if (pgPass[c]) return c;
+  const gx0 = c % pgW, gy0 = (c / pgW) | 0;
+  for (let r = 1; r <= 9; r++) {
+    for (let gy = gy0 - r; gy <= gy0 + r; gy++) {
+      if (gy < 0 || gy >= pgH) continue;
+      for (let gx = gx0 - r; gx <= gx0 + r; gx++) {
+        if (gx < 0 || gx >= pgW) continue;
+        if (Math.max(Math.abs(gx - gx0), Math.abs(gy - gy0)) !== r) continue;
+        if (pgPass[gy * pgW + gx]) return gy * pgW + gx;
+      }
+    }
+  }
+  return -1;
+}
+
+function heapPush(i) {
+  pfHeap.push(i);
+  let c = pfHeap.length - 1;
+  while (c > 0) {
+    const p = (c - 1) >> 1;
+    if (pfF[pfHeap[p]] <= pfF[pfHeap[c]]) break;
+    const tmp = pfHeap[p]; pfHeap[p] = pfHeap[c]; pfHeap[c] = tmp;
+    c = p;
+  }
+}
+function heapPop() {
+  const top = pfHeap[0];
+  const last = pfHeap.pop();
+  if (pfHeap.length) {
+    pfHeap[0] = last;
+    let c = 0;
+    for (;;) {
+      let s = c;
+      const l = c * 2 + 1, r = l + 1;
+      if (l < pfHeap.length && pfF[pfHeap[l]] < pfF[pfHeap[s]]) s = l;
+      if (r < pfHeap.length && pfF[pfHeap[r]] < pfF[pfHeap[s]]) s = r;
+      if (s === c) break;
+      const tmp = pfHeap[s]; pfHeap[s] = pfHeap[c]; pfHeap[c] = tmp;
+      c = s;
+    }
+  }
+  return top;
+}
+
+// is the straight world-space segment fully walkable on the grid?
+function losClear(x0, y0, x1, y1) {
+  const steps = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / (PATH_CELL * 0.5));
+  for (let i = 1; i <= steps; i++) {
+    const x = x0 + (x1 - x0) * i / steps, y = y0 + (y1 - y0) * i / steps;
+    if (!pgPass[cellIdxAt(x, y)]) return false;
+  }
+  return true;
+}
+
+const DIRS8 = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+// A* from (sx,sy) to (tx,ty); returns smoothed world waypoints or null
+function astar(sx, sy, tx, ty) {
+  ensurePathGrid();
+  const goal = freeCellNear(tx, ty);
+  if (goal < 0) return null;
+  const start = cellIdxAt(sx, sy); // start may sit in a blocked cell: escape allowed
+  if (start === goal) return [];
+  pfVersion++;
+  pfHeap.length = 0;
+  pfG[start] = 0;
+  pfF[start] = 0;
+  pfFrom[start] = -1;
+  pfVer[start] = pfVersion;
+  heapPush(start);
+  const gxT = goal % pgW, gyT = (goal / pgW) | 0;
+  let expansions = 0;
+  while (pfHeap.length) {
+    const cur = heapPop();
+    if (pfClosed[cur] === pfVersion) continue;
+    pfClosed[cur] = pfVersion;
+    if (cur === goal) {
+      // reconstruct cell path, then line-of-sight smooth it
+      const pts = [];
+      for (let i = cur; i >= 0; i = pfFrom[i]) {
+        pts.push({ x: (i % pgW) * PATH_CELL + PATH_CELL / 2, y: ((i / pgW) | 0) * PATH_CELL + PATH_CELL / 2 });
+      }
+      pts.reverse();
+      const smooth = [];
+      let ax = sx, ay = sy, k = 0;
+      while (k < pts.length) {
+        let j = Math.min(pts.length - 1, k + 40);
+        for (; j > k; j--) {
+          if (losClear(ax, ay, pts[j].x, pts[j].y)) break;
+        }
+        smooth.push(pts[j]);
+        ax = pts[j].x; ay = pts[j].y;
+        k = j + 1;
+      }
+      return smooth;
+    }
+    if (++expansions > 9000) return null;
+    const gx = cur % pgW, gy = (cur / pgW) | 0;
+    for (let di = 0; di < 8; di++) {
+      const dx = DIRS8[di][0], dy = DIRS8[di][1];
+      const nx = gx + dx, ny = gy + dy;
+      if (nx < 0 || ny < 0 || nx >= pgW || ny >= pgH) continue;
+      const ni = ny * pgW + nx;
+      if (!pgPass[ni]) continue;
+      // no cutting corners diagonally past a blocked cell
+      if (dx && dy && (!pgPass[gy * pgW + nx] || !pgPass[ny * pgW + gx])) continue;
+      const ng = pfG[cur] + (dx && dy ? 1.4142 : 1);
+      if (pfVer[ni] === pfVersion && ng >= pfG[ni]) continue;
+      pfVer[ni] = pfVersion;
+      pfG[ni] = ng;
+      pfFrom[ni] = cur;
+      const ddx = Math.abs(nx - gxT), ddy = Math.abs(ny - gyT);
+      pfF[ni] = ng + Math.max(ddx, ddy) + 0.4142 * Math.min(ddx, ddy);
+      heapPush(ni);
+    }
+  }
+  return null;
+}
+
+// the unit's current steering point for target (tx,ty): manages its cached
+// path, advances waypoints, and re-plans when the target or world changed.
+// Returns null to steer straight (final leg, failed path, or over budget).
+function pathPoint(u, tx, ty) {
+  ensurePathGrid();
+  let p = u.path;
+  if (!p || p.epoch !== pathEpoch || Math.hypot(p.tx - tx, p.ty - ty) > 56) {
+    if (u.pathWait && u.pathWait > state.time) return null; // budget backoff
+    if (pathBudget <= 0) { u.pathWait = state.time + 0.35; return null; }
+    pathBudget--;
+    const pts = astar(u.x, u.y, tx, ty);
+    u.path = p = { tx, ty, pts, i: 0, epoch: pathEpoch };
+    u.pathWait = 0;
+  }
+  if (!p.pts) return null; // unreachable / failed: straight steering
+  while (p.i < p.pts.length && Math.hypot(p.pts[p.i].x - u.x, p.pts[p.i].y - u.y) < PATH_CELL) p.i++;
+  return p.i < p.pts.length ? p.pts[p.i] : null;
+}
+
 function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   const d = Math.hypot(tx - u.x, ty - u.y);
   if (d <= stopDist) return true;
   u.wdWant = true; // actively trying to move — eligible for the wedge-breaker
   const t = UNIT_TYPES[u.type];
+  // grid path: steer for the next waypoint instead of beelining into lakes
+  // and base walls (arrival is still measured against the true target)
+  let sx2 = tx, sy2 = ty;
+  if (!t.flying && d > PATH_CELL * 1.5) {
+    const wp = pathPoint(u, tx, ty);
+    if (wp) { sx2 = wp.x; sy2 = wp.y; }
+  }
   let speed = t.speed;
   // rain/storm zones slow ground units; a tractor beam slows anything it holds
   if (!t.flying) {
@@ -586,20 +843,21 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       if ((z.kind === 'rain' || z.kind === 'storm') && z.caster !== u.owner && dist(z, u) <= z.r) { speed *= 0.6; break; }
     }
     // pushing through a forest is slow going
-    for (const o of TERRAIN) {
+    for (const o of terrainNear(u.x, u.y)) {
       if (TERRAIN_TYPES[o.type].passes && dist(o, u) <= o.r) { speed *= TERRAIN_TYPES[o.type].slow; break; }
     }
   }
   if (u.slowUntil && u.slowUntil > state.time) speed *= 0.55;
+  const sd = Math.hypot(sx2 - u.x, sy2 - u.y) || 1;
   const step = Math.min(speed * dt, d);
-  let nx = u.x + (tx - u.x) / d * step;
-  let ny = u.y + (ty - u.y) / d * step;
+  let nx = u.x + (sx2 - u.x) / sd * step;
+  let ny = u.y + (sy2 - u.y) / sd * step;
 
   // committed building detour: keep heading for the chosen corner even on
   // frames where the direct step wouldn't collide, or the unit flip-flops
   // between corner-seeking and target-seeking at the footprint's rim
   if (!t.flying && u.dodge) {
-    if (Math.abs(u.dodge.tx - tx) > 40 || Math.abs(u.dodge.ty - ty) > 40 ||
+    if (Math.abs(u.dodge.tx - sx2) > 40 || Math.abs(u.dodge.ty - sy2) > 40 ||
         !state.buildings.some(b => b.id === u.dodge.bld && b.hp > 0)) {
       delete u.dodge; // destination changed or building died: re-plan
     } else {
@@ -619,20 +877,28 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   // ground units steer around impassable terrain and buildings (air flies
   // over, forests let you through); ignoreId skips the building being walked to
   if (!t.flying) {
-    const hits = (x, y) => TERRAIN.some(o => !TERRAIN_TYPES[o.type].passes && Math.hypot(x - o.x, y - o.y) < o.r + t.r);
-    const ob = TERRAIN.find(o => !TERRAIN_TYPES[o.type].passes && Math.hypot(nx - o.x, ny - o.y) < o.r + t.r);
+    const hits = (x, y) => {
+      for (const o of terrainNear(x, y)) {
+        if (!TERRAIN_TYPES[o.type].passes && Math.hypot(x - o.x, y - o.y) < o.r + t.r) return true;
+      }
+      return false;
+    };
+    let ob = null;
+    for (const o of terrainNear(nx, ny)) {
+      if (!TERRAIN_TYPES[o.type].passes && Math.hypot(nx - o.x, ny - o.y) < o.r + t.r) { ob = o; break; }
+    }
     if (ob) {
       // destination sits inside the obstacle and we're touching it: close enough
       if (Math.hypot(tx - ob.x, ty - ob.y) < ob.r + t.r &&
           Math.hypot(u.x - ob.x, u.y - ob.y) < ob.r + t.r + 6) { delete u.veer; return true; }
       const away = Math.atan2(u.y - ob.y, u.x - ob.x);
-      const desired = Math.atan2(ty - u.y, tx - u.x);
+      const desired = Math.atan2(sy2 - u.y, sx2 - u.x);
       const diff = a => Math.abs(((a - desired + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
       // commit to one side of this rock: when the target sits straight behind it
       // the two ways around score nearly equal, and re-picking every frame left
       // units grinding in place against the rim
-      if (!u.veer || u.veer.ob !== ob.seed || Math.abs(u.veer.tx - tx) > 40 || Math.abs(u.veer.ty - ty) > 40) {
-        u.veer = { ob: ob.seed, side: diff(away + Math.PI / 2) < diff(away - Math.PI / 2) ? 1 : -1, tx, ty };
+      if (!u.veer || u.veer.ob !== ob.seed || Math.abs(u.veer.tx - sx2) > 40 || Math.abs(u.veer.ty - sy2) > 40) {
+        u.veer = { ob: ob.seed, side: diff(away + Math.PI / 2) < diff(away - Math.PI / 2) ? 1 : -1, tx: sx2, ty: sy2 };
       }
       const slide = side => {
         const tang = away + side * Math.PI / 2;
@@ -652,8 +918,11 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       }
     } else {
       delete u.veer;
-      const bld = state.buildings.find(b => b.hp > 0 && b.id !== ignoreId &&
-        Math.abs(nx - b.x) < b.w / 2 + t.r && Math.abs(ny - b.y) < b.h / 2 + t.r);
+      let bld = null;
+      for (const b of bldNear(nx, ny)) {
+        if (b.hp > 0 && b.id !== ignoreId &&
+            Math.abs(nx - b.x) < b.w / 2 + t.r && Math.abs(ny - b.y) < b.h / 2 + t.r) { bld = b; break; }
+      }
       if (bld) {
         const ex = bld.w / 2 + t.r, ey = bld.h / 2 + t.r;
         // destination inside this building and we're already hugging it: arrived
@@ -666,7 +935,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
         // the shortest unit -> corner -> destination path (re-chosen only when
         // the building or destination changes, so we can't jitter between sides)
         if (!u.dodge || u.dodge.bld !== bld.id ||
-            Math.abs(u.dodge.tx - tx) > 40 || Math.abs(u.dodge.ty - ty) > 40) {
+            Math.abs(u.dodge.tx - sx2) > 40 || Math.abs(u.dodge.ty - sy2) > 40) {
           // a corner we can't reach in a straight line is no corner at all
           // (unless we're stuck inside — then any exit goes); a corner whose
           // ONWARD leg crosses just means another corner gets rounded after it,
@@ -674,21 +943,26 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
           const cross = (x1, y1, x2, y2) => segHitsRect(x1, y1, x2, y2, bld.x, bld.y, ex - 2, ey - 2);
           // a corner buried inside a NEIGHBORING building (tight tower rows,
           // city blocks) is unreachable — steer for a free corner instead
-          const buried = c => state.buildings.some(b2 => b2.hp > 0 && b2.id !== bld.id &&
-            b2.id !== ignoreId && Math.abs(c.x - b2.x) < b2.w / 2 + t.r + 2 &&
-            Math.abs(c.y - b2.y) < b2.h / 2 + t.r + 2);
+          const buried = c => {
+            for (const b2 of bldNear(c.x, c.y)) {
+              if (b2.hp > 0 && b2.id !== bld.id && b2.id !== ignoreId &&
+                  Math.abs(c.x - b2.x) < b2.w / 2 + t.r + 2 &&
+                  Math.abs(c.y - b2.y) < b2.h / 2 + t.r + 2) return true;
+            }
+            return false;
+          };
           let best = null, bestCost = Infinity;
-          for (const sx2 of [-1, 1]) {
-            for (const sy2 of [-1, 1]) {
-              const c = { x: bld.x + sx2 * (ex + 8), y: bld.y + sy2 * (ey + 8) };
-              const cost = Math.hypot(c.x - u.x, c.y - u.y) + Math.hypot(tx - c.x, ty - c.y)
+          for (const csx of [-1, 1]) {
+            for (const csy of [-1, 1]) {
+              const c = { x: bld.x + csx * (ex + 8), y: bld.y + csy * (ey + 8) };
+              const cost = Math.hypot(c.x - u.x, c.y - u.y) + Math.hypot(sx2 - c.x, sy2 - c.y)
                 + (cross(u.x, u.y, c.x, c.y) ? 1e5 : 0)
                 + (buried(c) ? 5e4 : 0)
-                + (cross(c.x, c.y, tx, ty) ? (ex + ey) * 2 : 0);
+                + (cross(c.x, c.y, sx2, sy2) ? (ex + ey) * 2 : 0);
               if (cost < bestCost) { bestCost = cost; best = c; }
             }
           }
-          u.dodge = { bld: bld.id, x: best.x, y: best.y, tx, ty };
+          u.dodge = { bld: bld.id, x: best.x, y: best.y, tx: sx2, ty: sy2 };
         }
         const dd = Math.hypot(u.dodge.x - u.x, u.dodge.y - u.y);
         nx = u.x + (u.dodge.x - u.x) / (dd || 1) * Math.min(step, dd);
@@ -1072,6 +1346,7 @@ function updateUnit(u, dt) {
         u.travel - (u.wdTravel || 0) < 5) {
       delete u.dodge;
       delete u.veer;
+      delete u.path; // stale route may be the reason we're pinned — re-plan
       u.wdStrikes = (u.wdStrikes || 0) + 1;
       if (u.wdStrikes >= 2 && !stats.flying) {
         // still pinned after a replan: pick the cardinal direction with the
@@ -1082,9 +1357,9 @@ function updateUnit(u, dt) {
           let clear = 0;
           for (; clear < 60; clear += 10) {
             const px2 = u.x + Math.cos(a) * (clear + 10), py2 = u.y + Math.sin(a) * (clear + 10);
-            const hit = state.buildings.some(b => b.hp > 0 &&
+            const hit = bldNear(px2, py2).some(b => b.hp > 0 &&
               Math.abs(px2 - b.x) < b.w / 2 + stats.r && Math.abs(py2 - b.y) < b.h / 2 + stats.r) ||
-              TERRAIN.some(t2 => !TERRAIN_TYPES[t2.type].passes && Math.hypot(px2 - t2.x, py2 - t2.y) < t2.r + stats.r);
+              terrainNear(px2, py2).some(t2 => !TERRAIN_TYPES[t2.type].passes && Math.hypot(px2 - t2.x, py2 - t2.y) < t2.r + stats.r);
             if (hit) break;
           }
           if (clear > bestClear) { bestClear = clear; bestA = a; }
@@ -1307,8 +1582,10 @@ function updateUnit(u, dt) {
 
   // separation only within the same layer (ground vs ground, air vs air);
   // aircraft parked on a pad hold their slot, and fixed-wing craft are never
-  // shoved — they are always moving anyway
+  // shoved — they are always moving anyway. Each unit resolves overlap on
+  // alternating frames — half the cost, visually identical
   if (u.landed || stats.plane) return;
+  if (((u.id + frameNo) & 1) === 0) return;
   const myFlying = !!stats.flying;
   const sgx = (u.x / SEP_CELL) | 0, sgy = (u.y / SEP_CELL) | 0;
   for (let cx2 = sgx - 1; cx2 <= sgx + 1; cx2++) {
@@ -2127,8 +2404,23 @@ function draw() {
   ctx.save();
   ctx.scale(cam.zoom, cam.zoom);
   ctx.translate(-cam.x, -cam.y);
-  // ground is prerendered already-projected; blit it in iso space
-  ctx.drawImage(groundCanvas, -WORLD_H, 0, isoSpanW(), isoSpanH());
+  // ground is prerendered already-projected; blit ONLY the visible slice
+  // (scaling the whole multi-thousand-pixel canvas each frame is slow)
+  {
+    const gsc = groundCanvas.width / isoSpanW();
+    const vw = canvas.width / cam.zoom, vh = canvas.height / cam.zoom;
+    let gx0 = (cam.x + WORLD_H) * gsc, gy0 = cam.y * gsc;
+    let gw = vw * gsc, gh = vh * gsc;
+    let dx0 = cam.x, dy0 = cam.y;
+    // clamp the source rect to the canvas (out-of-range sources glitch)
+    if (gx0 < 0) { dx0 -= gx0 / gsc; gw += gx0; gx0 = 0; }
+    if (gy0 < 0) { dy0 -= gy0 / gsc; gh += gy0; gy0 = 0; }
+    gw = Math.min(gw, groundCanvas.width - gx0);
+    gh = Math.min(gh, groundCanvas.height - gy0);
+    if (gw > 0 && gh > 0) {
+      ctx.drawImage(groundCanvas, gx0, gy0, gw, gh, dx0, dy0, gw / gsc, gh / gsc);
+    }
+  }
 
   frameNo++;
   if (frameNo % 600 === 0) purgeSpriteCache();
@@ -2170,17 +2462,12 @@ function draw() {
     }
     drawList.push({ d, k: 2, e: u });
   }
-  // static terrain props (trees, boulders) join the sort
-  for (const p of terrainProps) {
-    if (!inView(p.x, p.y, 0)) continue;
-    if (tileState(p.x, p.y) === 0) continue;
-    drawList.push({ d: p.x + p.y, k: 3, e: p });
-  }
   drawList.sort((a, b) => a.d - b.d || a.k - b.k);
+  // sprites blit crisp & fast without resampling (retro-appropriate)
+  ctx.imageSmoothingEnabled = false;
   for (const it of drawList) {
     if (it.k === 0) drawPatchIso(it.e);
     else if (it.k === 1) drawBuildingIso(it.e);
-    else if (it.k === 3) drawPropIso(it.e);
     else drawUnitIso(it.e);
   }
 
@@ -2275,16 +2562,7 @@ function buildTerrainProps() {
   }
 }
 
-// props are static: one shared cached sprite per (kind, variant, size bucket)
-function drawPropIso(p) {
-  const s2 = Math.round(p.s * 2) / 2;
-  const cw = Math.ceil(s2 * 5 + 12), chh = Math.ceil(s2 * 3.6 + 14);
-  const ax = cw / 2, ay = Math.ceil(s2 * 2.9 + 6);
-  const spr = cachedSprite(p.kind + '|' + p.v + '|' + s2, cw, chh, ax, ay, 'static', 1e9,
-    g => renderProp(g, p.kind, s2, p.v));
-  ctx.drawImage(spr.cv, isoX(p.x, p.y) - ax, isoY(p.x, p.y) - ay);
-}
-
+// static prop painter (baked into the ground image at map generation)
 function renderProp(ctx, kind, s, v) {
   const ix = 0, iy = 0;
   const p = { v };
@@ -2547,19 +2825,21 @@ function drawUnitIso(u) {
     ctx.ellipse(ix + 5, iy + 3, rs * 0.9, rs * 0.45, 0, 0, Math.PI * 2);
     ctx.fill();
   }
-  // body sprite from the cache: 32 facing buckets in the signature, walk /
-  // idle animation refreshed on the staggered ~15Hz clock
+  // body sprite from a SHARED cache: keyed by type + color + 32-facing
+  // bucket + gait pose + state flags + a coarse ambient-time bucket, so an
+  // army marching one way reuses a handful of sprites instead of each unit
+  // repainting its own vector art
   const moving = u.order.type !== 'idle';
   const firing = u.cooldown > t.cooldown - 0.15;
-  const qf = Math.round((u.facing || 0) / (Math.PI / 16)) & 31;
-  // gait bucket: walk/tread animation re-renders as distance accrues, so
-  // idle armies cost nothing and marching ones repaint ~10x/s
-  const gait = Math.floor((u.travel || 0) / 7) & 7;
-  const sig = drawCol + '|' + qf + '|' + gait + '|' + ((moving ? 1 : 0) | (firing ? 2 : 0) |
-    (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (alt ? 16 : 0));
+  const qf = Math.round((u.facing || 0) / (Math.PI / 8)) & 15;
+  const gait = Math.floor((u.travel || 0) / 9) & 3;
+  const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' +
+    ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (alt ? 16 : 0));
+  const qFacing = qf * (Math.PI / 8); // render the bucket's representative pose
   const cw = Math.ceil(rs * 3.4 + 26), chh = Math.ceil(rs * 4 + 30);
   const ax = cw / 2, ay = Math.ceil(rs * 2.8 + 16);
-  const spr = cachedSprite(u.id, cw, chh, ax, ay, sig, 30, g => {
+  // interval 32: idle/ambient animations repaint in place at ~2Hz
+  const spr = cachedSprite(key, cw, chh, ax, ay, 'u', 32, g => {
     g.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
     if (!alt) Art.shadow(g, t.r * 1.15, t.r * 0.6, 0, 1.5); // contact shadow
     g.save();
@@ -2569,25 +2849,25 @@ function drawUnitIso(u) {
     if (Art.hasIso(u.type)) {
       // dedicated iso sprite: an upright billboard that handles its own
       // heading (mirroring, rotating decks and barrels internally)
-      Art.drawIso(u.type, g, state.time + (u.id % 97) * 0.63, {
+      Art.drawIso(u.type, g, state.time, {
         color: drawCol,
         moving,
         firing,
-        dist: u.travel,
+        dist: gait * 7 + 3,
         carrying: u.carrying > 0,
-        facing: u.facing || 0,
-        hdg: isoAngle(u.facing || 0),
+        facing: qFacing,
+        hdg: isoAngle(qFacing),
       });
     } else {
       // aircraft & friends keep their top-down art, rotated to the
       // projected heading and foreshortened for the iso camera
       g.scale(1, 0.66);
-      g.rotate(isoAngle(u.facing || 0));
-      Art.draw(u.type, g, state.time + (u.id % 97) * 0.63, {
+      g.rotate(isoAngle(qFacing));
+      Art.draw(u.type, g, state.time, {
         color: drawCol,
         moving,
         firing,
-        dist: u.travel,
+        dist: gait * 7 + 3,
       });
     }
   });
@@ -2900,6 +3180,8 @@ function frame(now) {
     clampCam();
 
     state.time += dt;
+    ensurePathGrid();
+    pathBudget = 12; // A* computations allowed this frame (rest retry later)
     rebuildSepGrid();
     for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
     for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
@@ -2944,7 +3226,9 @@ function frame(now) {
       }
     }
     state.units = state.units.filter(u => u.hp > 0);
+    const nBld = state.buildings.length;
     state.buildings = state.buildings.filter(b => b.hp > 0);
+    if (state.buildings.length !== nBld) markPathDirty(); // rubble opens lanes
     Particles.update(dt);
 
     const beforeLen = selection.length;
@@ -3190,6 +3474,21 @@ function renderGround() {
       g.fillStyle = '#1e2c19';
       blobPath(g, o, 0.85); g.fill();
     }
+  }
+  g.restore();
+
+  // upright trees & boulders baked straight into the ground image: hundreds
+  // of per-frame prop blits cost real time, and static scenery doesn't need
+  // the depth sort (units draw over them — a fair trade for the speed)
+  const props = terrainProps.slice().sort((a, b) => (a.x + a.y) - (b.x + b.y));
+  g.save();
+  g.scale(gs, gs);
+  g.translate(WORLD_H, 0);
+  for (const p of props) {
+    g.save();
+    g.translate(isoX(p.x, p.y), isoY(p.x, p.y));
+    renderProp(g, p.kind, p.s, p.v);
+    g.restore();
   }
   g.restore();
 }
