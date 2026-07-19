@@ -37,6 +37,10 @@ let selection = [];
 let placing = null;          // building type being placed
 let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
+let wallDrag = null;         // { x0, y0 } while dragging out a wall stretch (RA2-style)
+let plantArmed = false;      // 'E' pressed, next left-click sends infantry to plant an IED
+const PLANT_CD = 18;         // seconds before an infantryman can plant another IED
+const WALL_STEP = 26;        // world spacing between segments of a dragged wall line
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let panDrag = null;          // middle- or right-mouse camera drag
 let mmDown = false;          // dragging on minimap
@@ -480,6 +484,30 @@ function tryPlace(owner, x, y) {
   makeBuilding(owner, c.type, x, y);
   state.construction[owner] = null;
   return true;
+}
+
+// lay a whole run of wall segments between two points (RA2 drag placement).
+// Segments are spaced WALL_STEP apart along the drag; each is placed only if
+// affordable, uncapped, unobstructed and inside the build radius. A click with
+// no drag lays a single segment.
+function commitWallLine(x0, y0, x1, y1) {
+  const ex = Math.round(x1 / WALL_STEP) * WALL_STEP, ey = Math.round(y1 / WALL_STEP) * WALL_STEP;
+  const dx = ex - x0, dy = ey - y0;
+  const n = Math.max(0, Math.round(Math.hypot(dx, dy) / WALL_STEP));
+  const st = bstats(PLAYER, 'wall');
+  let placed = 0;
+  for (let i = 0; i <= n; i++) {
+    const x = x0 + dx * (i / (n || 1)), y = y0 + dy * (i / (n || 1));
+    if (state.minerals[PLAYER] < st.cost || atStructCap(PLAYER, 'wall')) break;
+    if (placementBlocked(PLAYER, 'wall', x, y) || !withinBuildRadius(PLAYER, x, y)) continue;
+    state.minerals[PLAYER] -= st.cost;
+    makeBuilding(PLAYER, 'wall', x, y);
+    placed++;
+  }
+  if (placed) sfx('click');
+  // keep the wall tool armed for another stretch unless we've run dry or capped
+  if (state.minerals[PLAYER] < st.cost || atStructCap(PLAYER, 'wall')) placing = null;
+  refreshPanel(); refreshSidebar();
 }
 
 function tickConstruction(owner, dt) {
@@ -1779,6 +1807,24 @@ function updateUnit(u, dt) {
       } else if (moveToward(u, o.x, o.y, dt, 6)) u.order = { type: 'idle' };
       break;
 
+    case 'plant':
+      // walk to the spot, then bury one IED (costs the faction's mine price,
+      // then this infantryman goes on a plant cooldown)
+      if (moveToward(u, o.x, o.y, dt, 6)) {
+        const st = bstats(u.owner, 'mine');
+        if ((u.plantReady || 0) <= state.time && state.minerals[u.owner] >= st.cost &&
+            !placementBlocked(u.owner, 'mine', o.x, o.y)) {
+          state.minerals[u.owner] -= st.cost;
+          makeBuilding(u.owner, 'mine', o.x, o.y);
+          u.plantReady = state.time + PLANT_CD;
+          if (u.owner === PLAYER) sfx('click');
+        } else if (u.owner === PLAYER && state.minerals[u.owner] < st.cost) {
+          eva('Insufficient funds');
+        }
+        u.order = { type: 'idle' };
+      }
+      break;
+
     case 'loiter': // circling a point (scouting overwatch / stranded plane)
       flyOrbit(u, o.x, o.y, dt, 72);
       if (stats.role === 'combat') autoAcquire(u, dt);
@@ -2856,6 +2902,10 @@ function refreshPanel() {
     elSelInfo.textContent = 'Attack-move — left-click a destination, Esc to cancel';
     return;
   }
+  if (plantArmed) {
+    elSelInfo.textContent = 'Plant IED — left-click where to bury it, Esc to cancel';
+    return;
+  }
   if (abilityTargeting) {
     elSelInfo.textContent = abilityTargeting === 'zone'
       ? 'Weather Modification — click a target area, Esc to cancel'
@@ -2953,6 +3003,14 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = 'Attack-Move [A]';
       btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
+      elActions.appendChild(btn);
+    }
+    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine)) {
+      const ready = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && (s.plantReady || 0) <= state.time);
+      const btn = document.createElement('button');
+      btn.textContent = 'Plant IED [E]';
+      btn.disabled = !ready;
+      btn.onclick = () => { plantArmed = true; attackMoveArmed = false; refreshPanel(); };
       elActions.appendChild(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.transit)) {
@@ -3753,6 +3811,19 @@ function drawOverlays() {
     ctx.stroke();
   }
 
+  if (plantArmed) {
+    const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
+    ctx.strokeStyle = 'rgba(255,180,60,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(rx, ry, 20, 10, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([3, 4]);
+    ctx.beginPath(); ctx.ellipse(rx, ry, 34, 17, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = 'rgba(255,190,80,0.95)';
+    ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('IED', rx, ry - 13);
+  }
+
   if (placing) {
     ctx.save();
     isoShear(ctx); // ghost + radii are world-space ground markings
@@ -3760,8 +3831,20 @@ function drawOverlays() {
     const ok = !placementBlocked(PLAYER, placing, mouse.x, mouse.y) &&
       (t.anywhere || withinBuildRadius(PLAYER, mouse.x, mouse.y));
     ctx.globalAlpha = 0.5;
-    ctx.fillStyle = ok ? '#4da3ff' : '#ff5f5f';
-    ctx.fillRect(mouse.x - t.w / 2, mouse.y - t.h / 2, t.w, t.h);
+    if (wallDrag) {
+      // ghost the whole stretch of wall segments being dragged out
+      const ex = Math.round(mouse.x / WALL_STEP) * WALL_STEP, ey = Math.round(mouse.y / WALL_STEP) * WALL_STEP;
+      const dx = ex - wallDrag.x0, dy = ey - wallDrag.y0;
+      const n = Math.max(0, Math.round(Math.hypot(dx, dy) / WALL_STEP));
+      for (let i = 0; i <= n; i++) {
+        const x = wallDrag.x0 + dx * (i / (n || 1)), y = wallDrag.y0 + dy * (i / (n || 1));
+        ctx.fillStyle = (!placementBlocked(PLAYER, 'wall', x, y) && withinBuildRadius(PLAYER, x, y)) ? '#4da3ff' : '#ff5f5f';
+        ctx.fillRect(x - t.w / 2, y - t.h / 2, t.w, t.h);
+      }
+    } else {
+      ctx.fillStyle = ok ? '#4da3ff' : '#ff5f5f';
+      ctx.fillRect(mouse.x - t.w / 2, mouse.y - t.h / 2, t.w, t.h);
+    }
     if (t.atkRange) {
       ctx.strokeStyle = '#4da3ff';
       ctx.beginPath();
@@ -4268,12 +4351,32 @@ canvas.addEventListener('mousedown', e => {
       refreshSidebar();
       return;
     }
+    if (plantArmed) {
+      plantArmed = false;
+      // the nearest ready infantryman walks over and buries one IED
+      const sappers = selection.filter(u => u.kind === 'unit' && u.owner === PLAYER && u.hp > 0 &&
+        UNIT_TYPES[u.type].plantMine && (u.plantReady || 0) <= state.time);
+      if (sappers.length) {
+        sappers.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
+        sappers[0].order = { type: 'plant', x: p.x, y: p.y };
+        sfx('click');
+      } else {
+        eva('No IED ready');
+      }
+      refreshPanel();
+      return;
+    }
     if (placing) {
+      // RA2-style walls lay in stretches: press-drag lays a whole run at once
+      // (committed on mouseup). Gates place one at a time.
+      if (placing === 'wall') {
+        wallDrag = { x0: Math.round(p.x / WALL_STEP) * WALL_STEP, y0: Math.round(p.y / WALL_STEP) * WALL_STEP };
+        return;
+      }
       const instant = bstats(PLAYER, placing).instant;
       if (tryPlace(PLAYER, p.x, p.y)) {
         sfx('click');
-        // instant field structures stay armed so you can drag out a wall line
-        // or minefield; stop once you run dry or hit the cap
+        // gates stay armed so you can drop several; stop when dry or capped
         if (!instant || state.minerals[PLAYER] < bstats(PLAYER, placing).cost || atStructCap(PLAYER, placing)) {
           placing = null;
         }
@@ -4295,11 +4398,13 @@ canvas.addEventListener('mousedown', e => {
     const pi = screenToIso(e);
     mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
-    if (placing || attackMoveArmed || abilityTargeting || superTargeting) {
+    if (placing || attackMoveArmed || abilityTargeting || superTargeting || plantArmed || wallDrag) {
       placing = null;
       attackMoveArmed = false;
       abilityTargeting = null;
       superTargeting = null;
+      plantArmed = false;
+      wallDrag = null;
       refreshPanel();
       return;
     }
@@ -4337,6 +4442,8 @@ window.addEventListener('mouseup', e => {
     return;
   }
   if (e.button !== 0) return;
+  // commit a dragged wall stretch (single click with no drag lays one segment)
+  if (wallDrag) { commitWallLine(wallDrag.x0, wallDrag.y0, mouse.x, mouse.y); wallDrag = null; return; }
   mmDown = false;
   if (!mouse.sel) return;
   const s = mouse.sel;
@@ -4372,7 +4479,7 @@ window.addEventListener('keydown', e => {
   if (!started) return;
   const k = e.key.toLowerCase();
 
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; refreshPanel(); }
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; plantArmed = false; wallDrag = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
 
@@ -4385,6 +4492,12 @@ window.addEventListener('keydown', e => {
 
   if (k === 'a' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
     attackMoveArmed = true;
+    refreshPanel();
+  }
+
+  if (k === 'e' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && (s.plantReady || 0) <= state.time)) {
+    plantArmed = true;
+    attackMoveArmed = false;
     refreshPanel();
   }
 

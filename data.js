@@ -78,7 +78,7 @@ const FACTIONS = {
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: ['leveler'],
-    structs: ['wall', 'gate', 'mine', 'superweapon'],
+    structs: ['wall', 'gate', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
@@ -98,7 +98,7 @@ const FACTIONS = {
     worker: 'salvagerig', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
     air: ['wballoon', 'fpv'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'cropduster', 'engineer'], advanced: ['cruisetruck'],
-    structs: ['wall', 'gate', 'mine', 'superweapon'],
+    structs: ['wall', 'gate', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
       sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
@@ -119,7 +119,7 @@ const FACTIONS = {
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'satellite', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
@@ -140,7 +140,7 @@ const FACTIONS = {
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
@@ -160,7 +160,7 @@ const FACTIONS = {
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['sapper', 'magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'dowser', 'engineer'], advanced: ['ptero', 'ironmole', 'vrildisc'],
-    structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
+    structs: ['wall', 'gate', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
       sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
@@ -181,7 +181,7 @@ const FACTIONS = {
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
     extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
       sig: { name: 'Cloning Vats', desc: 'Target one of your units: an exact copy emerges from your barracks.', kind: 'unit', cd: 90 },
@@ -201,7 +201,7 @@ const FACTIONS = {
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
     extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake', 'draco'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
       sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
@@ -252,11 +252,11 @@ const UNIT_TYPES = {
   salvagerig: { name: 'Salvage Rig',  role: 'worker', builtAt: 'hq', hp: 130, speed: 72, dmg: 4, atkRange: 90, cooldown: 0.9, sight: 200, cost: 80,  r: 12, buildTime: 7,  carry: 8,  shape: 'square', limit: 5 },
   borerig:    { name: 'Bore Rig',     role: 'worker', builtAt: 'hq', hp: 240, speed: 45, dmg: 8, atkRange: 24, cooldown: 1.1, sight: 170, cost: 120, r: 13, buildTime: 10, carry: 16, shape: 'square', limit: 5 },
   // basic infantry
-  militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5 },
-  partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4 },
+  militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5, plantMine: true },
+  partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4, plantMine: true },
   agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6 },
   mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7 },
-  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true },
+  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true, plantMine: true },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
   // anti-air infantry: full damage vs air, dmgVsGround when shooting ground
