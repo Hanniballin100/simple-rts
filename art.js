@@ -1202,6 +1202,50 @@
       ctx.fillRect(-8.2, s * 6 - 0.8, 1.8, 1.6);
     }
   };
+  D.a10 = (ctx, t, o) => {
+    // A-10 Warthog: olive straight-wing attack jet, nose at +x
+    ctx.fillStyle = '#5c6450';                       // straight wings
+    rr(ctx, -4, -16, 11, 32, 2); ctx.fill();
+    ctx.strokeStyle = '#3a4034'; ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.fillStyle = '#33372c';                       // underwing stores
+    for (const s of [-1, 1]) for (const wy of [8, 13]) { rr(ctx, -2, s * wy - 1, 5, 2, 0.6); ctx.fill(); }
+    const g = ctx.createLinearGradient(0, -4, 0, 4); // fuselage
+    g.addColorStop(0, '#6d7562'); g.addColorStop(1, '#3f4638');
+    ctx.fillStyle = g; rr(ctx, -14, -4, 27, 8, 3); ctx.fill();
+    ctx.strokeStyle = '#3a4034'; ctx.lineWidth = 0.8; ctx.stroke();
+    for (const s of [-1, 1]) {                        // high rear engine pods
+      ctx.fillStyle = '#4a5142'; rr(ctx, -13, s * 4 - 2, 8, 4, 1.6); ctx.fill();
+      ctx.fillStyle = '#181c16'; ctx.beginPath(); ctx.arc(-13, s * 4, 1.4, 0, TAU); ctx.fill();
+    }
+    ctx.fillStyle = '#4a5142';                        // twin tails
+    for (const s of [-1, 1]) { rr(ctx, -16, s * 5 - 1, 4, 5, 1); ctx.fill(); }
+    ctx.fillStyle = o.color;
+    for (const s of [-1, 1]) ctx.fillRect(-15.5, s * 5 - 0.8, 2.4, 1.6);
+    ctx.fillStyle = '#16211a'; rr(ctx, 6, -2.6, 5, 5.2, 2.2); ctx.fill(); // canopy
+    ctx.fillStyle = 'rgba(150,225,255,0.35)'; rr(ctx, 7, -2, 2, 2, 0.8); ctx.fill();
+    ctx.fillStyle = '#2a2e26'; ctx.fillRect(13, -1, 4, 2);               // GAU-8 cannon
+    if (o.firing) { ctx.fillStyle = 'rgba(255,220,120,0.95)'; ctx.beginPath(); ctx.arc(19, 0, 2.4, 0, TAU); ctx.fill(); }
+  };
+  D.reaper = (ctx, t, o) => {
+    // MQ-9 Reaper: long slender recon-strike UAV, nose at +x
+    ctx.fillStyle = '#8a8f96';                        // long thin wings
+    rr(ctx, 0, -18, 5, 36, 1.5); ctx.fill();
+    ctx.strokeStyle = '#5a6068'; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.fillStyle = '#3a3f46';                        // hellfires
+    for (const s of [-1, 1]) for (const wy of [9, 14]) { rr(ctx, 1, s * wy - 0.8, 5, 1.6, 0.6); ctx.fill(); }
+    const g = ctx.createLinearGradient(0, -3, 0, 3);  // fuselage
+    g.addColorStop(0, '#9aa0a8'); g.addColorStop(1, '#5f656d');
+    ctx.fillStyle = g; rr(ctx, -16, -3, 30, 6, 2.6); ctx.fill();
+    ctx.strokeStyle = '#4d525a'; ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.fillStyle = '#c8cdd5'; ctx.beginPath(); ctx.arc(13, 0, 3.4, 0, TAU); ctx.fill(); // sensor nose
+    ctx.fillStyle = '#2a2e34'; ctx.beginPath(); ctx.arc(14.5, 0, 1.4, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#7a8088'; ctx.lineWidth = 1.6; // V-tail
+    ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(-19, -5); ctx.moveTo(-14, 0); ctx.lineTo(-19, 5); ctx.stroke();
+    ctx.save(); ctx.translate(-16.5, 0); ctx.rotate(t * 28); // pusher prop
+    ctx.strokeStyle = 'rgba(190,195,205,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, -3.5); ctx.lineTo(0, 3.5); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = o.color; ctx.fillRect(-2, -1, 3, 2);
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.9)'; ctx.beginPath(); ctx.arc(6, -9, 1.8, 0, TAU); ctx.fill(); }
+  };
   D.biobomber = (ctx, t, o) => {
     const breathe = 1 + Math.sin(t * 2.2) * 0.05;
     ctx.save();

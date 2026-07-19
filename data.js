@@ -117,8 +117,8 @@ const FACTIONS = {
     desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Drones and Helicopters. The Air Force Base fields B-1 Lancers — and once the Black Site Lab opens, AC-130 Gunships and B-2 Spirits. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
-    air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    air: ['heli'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'haarp', 'reaper', 'a10', 'engineer', 'mechanic'], advanced: ['gunship'],
     structs: ['wall', 'gate', 'repairpad', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
@@ -327,6 +327,11 @@ const UNIT_TYPES = {
   // heavies — an orbiting AC-130 and the stealth-black flying wing
   b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
   b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
+  // Globalist strike wing (replaces the B-1/B-2): the A-10 makes low gun runs
+  // that shred ground and armour but can't touch aircraft and spray wide; the
+  // MQ-9 Reaper loiters high, sees far, and picks targets off with Hellfires
+  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 20, dmgVsGround: 20, atkRange: 150, cooldown: 0.45, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 16, plane: true, turn: 2.2, targets: 'ground', vehBonus: 1.9, splash: 14 },
+  reaper:  { name: 'MQ-9 Reaper', flyH: 36, role: 'combat', builtAt: 'airpad', hp: 130, speed: 150, dmg: 30, atkRange: 185, cooldown: 2.4, sight: 360, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 4, plane: true, turn: 2.0, splash: 20, bldgBonus: 1.3 },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
