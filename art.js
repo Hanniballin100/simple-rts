@@ -2618,9 +2618,91 @@
       ctx.restore();
     });
   };
+  // per-faction airpads — each looks like its name instead of a shared runway
+  function airpadGround(ctx, W, H, col) {
+    ctx.fillStyle = col;
+    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4); ctx.fill();
+    const sg = ctx.createLinearGradient(0, -H / 2, 0, H / 2);
+    sg.addColorStop(0, 'rgba(255,255,255,0.05)'); sg.addColorStop(1, 'rgba(0,0,0,0.16)');
+    ctx.fillStyle = sg; rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4); ctx.fill();
+  }
+  // Flat Earth Balloon Dock: grass tie-down field, gas cylinders, a mooring
+  // mast with a moored weather balloon bobbing on top
+  function airpadBalloonDock(ctx, t, o, W, H) {
+    airpadGround(ctx, W, H, '#434a30');
+    ctx.fillStyle = '#3a342a';
+    for (const [ax, ay] of [[-W / 2 + 16, -H / 2 + 14], [W / 2 - 16, -H / 2 + 14], [-W / 2 + 16, H / 2 - 14], [W / 2 - 16, H / 2 - 14]]) { ctx.beginPath(); ctx.arc(ax, ay, 2, 0, TAU); ctx.fill(); }
+    for (let i = 0; i < 3; i++) drum3d(ctx, -W / 2 + 15 + i * 7, H / 2 - 15, 3, '#8a8271', 8);
+    billboard(ctx, 6, -2, () => {
+      ctx.strokeStyle = '#7d746a'; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -26); ctx.stroke();
+      ctx.strokeStyle = 'rgba(120,110,95,0.6)'; ctx.lineWidth = 0.6; ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(-11, 0); ctx.moveTo(0, -24); ctx.lineTo(11, 0); ctx.stroke();
+      const bob = o.on ? Math.sin(t * 1.5) * 1.5 : 0;
+      const g = ctx.createRadialGradient(-2, -30 + bob, 1, 0, -28 + bob, 7); g.addColorStop(0, '#f4f7fa'); g.addColorStop(1, '#aab3bf');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, -28 + bob, 7, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#7c828c'; ctx.lineWidth = 0.7; ctx.stroke();
+    });
+    if (o.on) blinker(ctx, t, -W / 2 + 10, -H / 2 + 10, '#ff5f5f', 2);
+  }
+  // Resistance Drone Shop: a corrugated shed with a rack of quad-drones, a
+  // workbench with parts, a tire stack and welding sparks
+  function airpadDroneShop(ctx, t, o, W, H) {
+    airpadGround(ctx, W, H, '#3a352c');
+    isoBox(ctx, -W / 2 + 8, -H / 2 + 9, 32, H - 22, 15, '#5a5348', { r: 1 });
+    for (let i = 0; i < 4; i++) {
+      const dx = -W / 2 + 15 + (i % 2) * 11, dy = -H / 2 + 17 + ((i / 2) | 0) * 12;
+      ctx.strokeStyle = '#2c3128'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(dx - 2.5, dy - 2.5); ctx.lineTo(dx + 2.5, dy + 2.5); ctx.moveTo(dx - 2.5, dy + 2.5); ctx.lineTo(dx + 2.5, dy - 2.5); ctx.stroke();
+      ctx.fillStyle = 'rgba(160,170,150,0.5)'; for (const [px, py] of [[-2.5, -2.5], [2.5, -2.5], [-2.5, 2.5], [2.5, 2.5]]) { ctx.beginPath(); ctx.arc(dx + px, dy + py, 1.3, 0, TAU); ctx.fill(); }
+      ctx.fillStyle = '#8a5c2f'; ctx.fillRect(dx - 1, dy - 0.8, 2.2, 1.6);
+    }
+    ctx.fillStyle = '#4a4438'; rr(ctx, W / 2 - 32, -6, 20, 12, 1); ctx.fill();
+    ctx.fillStyle = '#6a6252'; ctx.fillRect(W / 2 - 29, -4, 5, 3); ctx.fillRect(W / 2 - 20, -3, 6, 2);
+    for (let i = 0; i < 3; i++) { ctx.fillStyle = '#22252a'; ctx.beginPath(); ctx.ellipse(W / 2 - 16, H / 2 - 13 - i * 2.2, 4, 2.4, 0, 0, TAU); ctx.fill(); }
+    if (o.on && Math.sin(t * 6) > 0.6) { ctx.fillStyle = 'rgba(255,240,170,0.9)'; ctx.beginPath(); ctx.arc(W / 2 - 22, 1, 1.4, 0, TAU); ctx.fill(); }
+    if (o.on) blinker(ctx, t, -W / 2 + 10, H / 2 - 10, '#ff5f5f', 2.4);
+  }
+  // Hollow Cavern Roost: a rocky rim around a dark cave mouth with a vril glow
+  function airpadCavernRoost(ctx, t, o, W, H) {
+    airpadGround(ctx, W, H, '#4a4238');
+    ctx.fillStyle = '#5c5347';
+    for (let i = 0; i < 10; i++) { const a = i / 10 * TAU; ctx.beginPath(); ctx.ellipse(Math.cos(a) * (W / 2 - 12), Math.sin(a) * (H / 2 - 10), 5.5, 4, a, 0, TAU); ctx.fill(); }
+    const g = ctx.createRadialGradient(0, 0, 3, 0, 0, 20); g.addColorStop(0, '#0c0a08'); g.addColorStop(1, '#3a332a');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 20, 13, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#6b6152';
+    for (let i = 0; i < 6; i++) { const a = 0.4 + i * 1.0; const rx = Math.cos(a) * 19, ry = Math.sin(a) * 12; ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(rx + 2, ry - 6); ctx.lineTo(rx + 4, ry); ctx.closePath(); ctx.fill(); }
+    if (o.on) { ctx.fillStyle = `rgba(125,255,214,${0.3 + 0.2 * Math.sin(t * 2)})`; ctx.beginPath(); ctx.ellipse(0, 1, 5, 3, 0, 0, TAU); ctx.fill(); }
+  }
+  // Greys Saucer Pad: dark alloy pad with glowing concentric tractor rings
+  function airpadSaucerPad(ctx, t, o, W, H) {
+    airpadGround(ctx, W, H, '#2c3038');
+    const pulse = o.on ? 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 3.2)) : 0.15;
+    for (const R of [22, 15, 8]) { ctx.strokeStyle = `rgba(125,255,214,${pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, R, R * 0.6, 0, 0, TAU); ctx.stroke(); }
+    for (let i = 0; i < 8; i++) { const a = i / 8 * TAU + t * 1.2; ctx.fillStyle = `rgba(125,255,214,${pulse})`; ctx.beginPath(); ctx.arc(Math.cos(a) * 22, Math.sin(a) * 13, 1.7, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = `rgba(190,255,245,${pulse})`; ctx.beginPath(); ctx.ellipse(0, 0, 4, 2.4, 0, 0, TAU); ctx.fill();
+  }
+  // Reptilian Roost Spire: a bone-nest ring around a jagged perch spire
+  function airpadRoostSpire(ctx, t, o, W, H) {
+    airpadGround(ctx, W, H, '#3a2f2a');
+    ctx.strokeStyle = '#6a5c4a'; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(0, 0, 20, 13, 0, 0, TAU); ctx.stroke();
+    ctx.fillStyle = '#4a3d34'; ctx.beginPath(); ctx.ellipse(0, 0, 16, 10, 0, 0, TAU); ctx.fill();
+    billboard(ctx, 0, 0, () => {
+      ctx.fillStyle = '#3a322c'; ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(0, -26); ctx.lineTo(6, 0); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#6a5c4a'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = '#5a4d40'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(0, -17); ctx.lineTo(-7, -13); ctx.moveTo(0, -12); ctx.lineTo(7, -9); ctx.stroke();
+      if (o.on) { ctx.fillStyle = `rgba(255,60,70,${0.5 + 0.4 * Math.sin(t * 3)})`; ctx.beginPath(); ctx.arc(0, -23, 2, 0, TAU); ctx.fill(); }
+    });
+  }
+
   B.airpad = (ctx, t, o) => {
     pad(ctx, o);
     const W = o.w, H = o.h;
+    const fac = o.faction;
+    if (fac === 'flat') { airpadBalloonDock(ctx, t, o, W, H); return; }
+    if (fac === 'resistance') { airpadDroneShop(ctx, t, o, W, H); return; }
+    if (fac === 'hollow') { airpadCavernRoost(ctx, t, o, W, H); return; }
+    if (fac === 'grey') { airpadSaucerPad(ctx, t, o, W, H); return; }
+    if (fac === 'reptilian') { airpadRoostSpire(ctx, t, o, W, H); return; }
+    // Globalist Air Force Base / Deep State Undisclosed Airstrip: the runway
     // flat tarmac — airfields hug the ground, no podium
     ctx.fillStyle = '#3a4148';
     rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);

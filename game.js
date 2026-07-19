@@ -3349,7 +3349,7 @@ function drawBuildingIso(b) {
     isoShear(g); // building art draws in its local ground-plane frame
     Art.building(b.type, g, state.time + (b.id % 89) * 0.71, {
       w: b.w, h: b.h, color: COLORS[b.owner], on,
-      fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
+      fam: FAMILY_STYLE[state.factions[b.owner]], faction: state.factions[b.owner], wx: b.x, wy: b.y,
       turret: b.turret, // towers with their own weapon art track their target
       conn: { e: !!(conn & 1), w: !!(conn & 2), n: !!(conn & 4), s: !!(conn & 8) },
       superKind, fireP,
