@@ -3564,9 +3564,10 @@ function drawUnitIso(u) {
         hdg: isoAngle(qFacing),
       });
     } else {
-      // aircraft & friends keep their top-down art, rotated to the
-      // projected heading and foreshortened for the iso camera
-      g.scale(1, 0.66);
+      // aircraft keep their top-down art, rotated to the projected heading.
+      // Rotate by isoAngle (NOT a post-rotation squash) so the nose points
+      // exactly along the craft's screen travel — a vertical foreshorten here
+      // would skew the heading and make planes look like they fly sideways.
       g.rotate(isoAngle(qFacing));
       Art.draw(u.type, g, state.time, {
         color: drawCol,
