@@ -37,6 +37,7 @@ let selection = [];
 let placing = null;          // building type being placed
 let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
+let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let panDrag = null;          // middle- or right-mouse camera drag
 let mmDown = false;          // dragging on minimap
 const groups = {};           // control groups 1-5
@@ -232,6 +233,7 @@ function powerOf(owner) {
   let cap = 0, used = 0;
   for (const b of state.buildings) {
     if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
+    if (b.empUntil > state.time) continue; // blacked-out structures are off the grid entirely
     const p = bstatsOf(b).power || 0;
     if (p > 0) cap += p; else used -= p;
   }
@@ -473,6 +475,92 @@ function tickConstruction(owner, dt) {
     c.ready = true;
     if (owner === PLAYER && !c.announced) { c.announced = true; eva('Construction complete'); }
   }
+}
+
+// ---------- superweapons ----------
+// each faction's tech-gated doomsday structure charges while it stands, then
+// fires one of the SUPER_DEFS effects at a targeted point and resets.
+
+function superReady(b) {
+  return bstatsOf(b).superweapon && b.done && (b.charge || 0) >= superChargeOf(b);
+}
+function superChargeOf(b) {
+  return (SUPER_DEFS[state.factions[b.owner]] || { charge: 180 }).charge;
+}
+function superKindOf(b) {
+  return (SUPER_DEFS[state.factions[b.owner]] || { kind: 'rocket' }).kind;
+}
+
+function fireSuperweapon(b, x, y) {
+  const owner = b.owner;
+  const kind = superKindOf(b);
+  b.charge = 0;
+  const seen = tileState(x, y) === 2;
+  if (kind === 'rocket') {
+    // Soviet missile-truck strike: one colossal blast lands after a beat
+    state.projectiles.push({ kind: 'superrocket', x, y, tx: x, ty: y, owner, t: 0,
+      dur: 2.2, hgt: 0, stats: { dmg: 320, splash: 130, bldgBonus: 1.5 } });
+  } else if (kind === 'orbital') {
+    // rods from god: instant, pinpoint, brutal
+    splashDamage(x, y, 90, 380, owner, { bldgBonus: 1.4 }, true);
+    Particles.bolt(x, y - 600, x, y, [180, 230, 255], 0);
+    Particles.boom(x, y, 2.4);
+    state.zones.push({ x, y, r: 90, until: state.time + 0.6, caster: owner, kind: 'orbital' });
+    if (seen) sfx('boom');
+  } else if (kind === 'quake') {
+    // The Big One: tears every structure in the zone apart
+    for (const t of state.buildings) {
+      if (t.owner === owner || t.owner === NEUTRAL || t.hp <= 0) continue;
+      const d = dist(t, { x, y });
+      if (d <= 240) dealDamage(null, t, 340 * (1 - 0.5 * d / 240), { bldgBonus: 1.6 });
+    }
+    state.zones.push({ x, y, r: 240, until: state.time + 2.5, caster: owner, kind: 'quake' });
+    if (seen) sfx('boom');
+  } else if (kind === 'emp') {
+    // Total Blackout: enemy structures in the zone go dark (no fire, no
+    // production, no power) for 20 seconds — non-damaging
+    for (const t of state.buildings) {
+      if (t.owner === owner || t.owner === NEUTRAL || t.hp <= 0) continue;
+      if (dist(t, { x, y }) <= 260) t.empUntil = state.time + 20;
+    }
+    state.zones.push({ x, y, r: 260, until: state.time + 20, caster: owner, kind: 'emp' });
+    if (owner === PLAYER) eva('Blackout deployed');
+  } else if (kind === 'barrage') {
+    // loitering-munition swarm: a cloud of drones circles in, then a rolling
+    // series of small strikes rains across the zone (weaker, on brand)
+    state.zones.push({ x, y, r: 170, until: state.time + 8, caster: owner, kind: 'barrage',
+      tick: 0.2, dmg: 55 });
+    if (owner === PLAYER) eva('Munitions inbound');
+  } else if (kind === 'ray') {
+    // Pyramid Death Ray: a sustained beam grinds the zone to nothing
+    state.zones.push({ x, y, r: 120, until: state.time + 5, caster: owner, kind: 'ray',
+      tick: 0.25, dmg: 70, srcId: b.id });
+    if (owner === PLAYER) eva('Death ray firing');
+  } else if (kind === 'coup') {
+    // Bloodline Coup: enemy units in the zone defect for 45s, then revert
+    for (const u of state.units) {
+      if (u.owner === owner || u.hp <= 0 || u.garrisoned || u.type === 'phantom') continue;
+      if (UNIT_TYPES[u.type].role === 'worker') continue; // only fighters turn
+      if (dist(u, { x, y }) <= 200) {
+        u.coupOrig = u.coupOrig !== undefined ? u.coupOrig : u.owner;
+        u.coupRevert = state.time + 45;
+        u.owner = owner;
+        u.disguised = false;
+        u.order = { type: 'idle' };
+        Particles.pulse(u.x, u.y, 20, [201, 167, 255]);
+      }
+    }
+    state.zones.push({ x, y, r: 200, until: state.time + 1.5, caster: owner, kind: 'coup' });
+    if (owner === PLAYER) eva('The bloodline commands them');
+  }
+  if (owner === PLAYER && kind !== 'emp' && kind !== 'barrage' && kind !== 'ray' && kind !== 'coup') {
+    eva('Superweapon fired');
+  }
+}
+
+// a building sits dark under EMP: no weapons, no production, no power output
+function isOffline(b) {
+  return b.empUntil > state.time;
 }
 
 function castWeather(owner, x, y) {
@@ -1216,6 +1304,22 @@ function updateProjectiles(dt) {
       }
       continue;
     }
+    if (p.kind === 'superrocket') {
+      // heavy rocket arcing down onto its mark
+      p.t += dt;
+      const f = p.t / p.dur;
+      p.hgt = Math.sin(Math.min(1, f) * Math.PI * 0.5 + Math.PI * 0.5) * 520 + 520 * (1 - f);
+      p.hgt = (1 - f) * 620; // straightforward descent from altitude
+      if (p.t >= p.dur) {
+        p.done = true;
+        splashDamage(p.tx, p.ty, p.stats.splash, p.stats.dmg, p.owner, p.stats, true);
+        Particles.boom(p.tx, p.ty, 3);
+        Particles.boom(p.tx + 20, p.ty - 10, 2);
+        Particles.boom(p.tx - 18, p.ty + 8, 2);
+        if (tileState(p.tx, p.ty) === 2) sfx('boom');
+      }
+      continue;
+    }
     p.t += dt;
     if (p.t >= p.dur) {
       p.done = true;
@@ -1262,6 +1366,26 @@ function updateZones(dt) {
           if (u.owner === z.caster || u.hp <= 0 || u.garrisoned || u.burrowed || UNIT_TYPES[u.type].flying) continue;
           if (dist(u, z) <= z.r + UNIT_TYPES[u.type].r) u.hp -= (z.dps || 5) * 0.4;
         }
+      }
+    } else if (z.kind === 'barrage') {
+      // loitering munitions: a small blast lands somewhere in the zone each tick
+      z.tick -= dt;
+      if (z.tick <= 0) {
+        z.tick = 0.35;
+        const a = Math.random() * Math.PI * 2, rad = Math.sqrt(Math.random()) * z.r;
+        const bx = z.x + Math.cos(a) * rad, by = z.y + Math.sin(a) * rad;
+        splashDamage(bx, by, 40, z.dmg, z.caster, { bldgBonus: 1.2 });
+        Particles.boom(bx, by, 0.8);
+        if (tileState(bx, by) === 2) sfx('boom');
+      }
+    } else if (z.kind === 'ray') {
+      // death ray: everything caught in the beam takes heavy sustained damage
+      z.tick -= dt;
+      if (z.tick <= 0) {
+        z.tick = 0.25;
+        splashDamage(z.x, z.y, z.r, z.dmg, z.caster, { bldgBonus: 1.5 }, true);
+        Particles.boom(z.x + (Math.random() - 0.5) * z.r, z.y + (Math.random() - 0.5) * z.r, 0.7);
+        if (tileState(z.x, z.y) === 2) sfx('boom');
       }
     }
   }
@@ -1929,6 +2053,21 @@ function updateBuilding(b, dt) {
     }
   }
 
+  // superweapon: charge while powered, halt when blacked out
+  if (bt.superweapon && b.done) {
+    if (!power.low && !isOffline(b)) b.charge = Math.min(superChargeOf(b), (b.charge || 0) + dt);
+    if (b.owner === PLAYER && !b.announcedReady && superReady(b)) {
+      b.announcedReady = true; eva('Superweapon ready');
+    }
+    if ((b.charge || 0) < superChargeOf(b)) b.announcedReady = false;
+  }
+
+  // blacked-out structures do nothing: no fire, no production
+  if (isOffline(b)) {
+    if (Math.random() < 0.25) Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.6, b.y - b.h / 2, 2);
+    return;
+  }
+
   // damaged buildings smolder
   if (b.hp < b.maxHp * 0.5 && Math.random() < 0.04) {
     Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.7, b.y - b.h / 2, 3);
@@ -2120,6 +2259,8 @@ function aiDesiredStructure(owner, counts, power) {
     : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', 'tech', f.tower, f.aaTower];
   // hangar factions add the AC-130's dedicated field once the lab is up
   if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
+  // once teched up, everyone wants their doomsday device (needs the extra power)
+  if ((f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
   const want = {};
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
@@ -2161,6 +2302,15 @@ function updateAI(owner, dt) {
   if (c && c.ready) {
     const spot = aiPickSpot(owner, c.type);
     if (spot) tryPlace(owner, spot.x, spot.y);
+  }
+
+  // fire a charged superweapon at the fattest enemy target cluster
+  const sw = state.buildings.find(b => b.owner === owner && b.hp > 0 && superReady(b) && !isOffline(b));
+  if (sw) {
+    const tgt = nearest(sw, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL &&
+      b.hp > 0 && b.type !== 'sleepercell' && !bstatsOf(b).noBlock))
+      || nearest(sw, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned && !hiddenFrom(u, owner)));
+    if (tgt) fireSuperweapon(sw, tgt.x, tgt.y);
   }
 
   // idle workers mine
@@ -2619,6 +2769,11 @@ function refreshPanel() {
       : 'Cloning Vats — click one of your units, Esc to cancel';
     return;
   }
+  if (superTargeting) {
+    const sw = state.buildings.find(b => b.id === superTargeting);
+    elSelInfo.textContent = (sw ? buildingName(sw) : 'Superweapon') + ' — click a target, Esc to cancel';
+    return;
+  }
   elSelInfo.style.color = '';
   if (selection.length === 0) { elSelInfo.textContent = 'Nothing selected'; return; }
 
@@ -2668,6 +2823,19 @@ function refreshPanel() {
         const btn = document.createElement('button');
         btn.textContent = `Evacuate (${first.garrison.length})`;
         btn.onclick = () => evacuate(first);
+        elActions.appendChild(btn);
+      }
+      return;
+    }
+    if (bt.superweapon) {
+      const need = superChargeOf(first), have = Math.min(need, first.charge || 0);
+      const ready = have >= need;
+      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP — ` +
+        (isOffline(first) ? 'BLACKED OUT' : ready ? 'READY TO FIRE' : `charging ${Math.floor(have)}/${need}s`);
+      if (first.owner === PLAYER && ready && !isOffline(first)) {
+        const btn = document.createElement('button');
+        btn.textContent = 'Launch [click target]';
+        btn.onclick = () => { superTargeting = first.id; refreshPanel(); };
         elActions.appendChild(btn);
       }
       return;
@@ -3265,6 +3433,25 @@ function drawProjectilesIso() {
     const hx = px, hy = py - (p.hgt || 0);
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath(); ctx.ellipse(px, py, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
+    if (p.kind === 'superrocket') {
+      // a big finned rocket plunging nose-down with a fire plume
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.fillStyle = '#d8d2c2';
+      ctx.beginPath();
+      ctx.moveTo(0, 10); ctx.lineTo(-4, -8); ctx.lineTo(4, -8);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#c0392b';
+      ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(-3, 3); ctx.lineTo(3, 3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#8b939e';
+      ctx.fillRect(-5, -9, 3, 5); ctx.fillRect(2, -9, 3, 5);
+      ctx.fillStyle = `rgba(255,${170 + Math.floor(Math.random() * 60)},70,0.9)`;
+      ctx.beginPath();
+      ctx.moveTo(-3, -8); ctx.lineTo(0, -18 - Math.random() * 8); ctx.lineTo(3, -8);
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+      continue;
+    }
     if (p.kind === 'rock') {
       ctx.fillStyle = '#8a7f6e';
       ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, Math.PI * 2); ctx.fill();
@@ -3335,6 +3522,51 @@ function drawZones() {
         ctx.arc(isoX(gx, gy), isoY(gx, gy) - i, 5 + i, 0, Math.PI * 2);
         ctx.fill();
       }
+    } else if (kind === 'emp') {
+      // dead blue radius with skittering static
+      ctx.fillStyle = 'rgba(90,140,220,0.12)';
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(140,200,255,0.4)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = 'rgba(180,220,255,0.5)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 5; i++) {
+        const a = (state.time * 2 + i * 1.3) % (Math.PI * 2);
+        const ex2 = z.x + Math.cos(a) * z.r * 0.8, ey2 = z.y + Math.sin(a) * z.r * 0.8;
+        ctx.beginPath();
+        ctx.moveTo(isoX(z.x, z.y), isoY(z.x, z.y));
+        ctx.lineTo(isoX(ex2, ey2), isoY(ex2, ey2));
+        ctx.stroke();
+      }
+    } else if (kind === 'quake') {
+      ctx.fillStyle = 'rgba(150,110,60,0.15)';
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(120,90,60,0.5)'; ctx.lineWidth = 2;
+      for (let r2 = 0.4; r2 <= 1; r2 += 0.3) {
+        ctx.beginPath(); ctx.ellipse(zx, zy, rx * r2, ry * r2, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+    } else if (kind === 'barrage') {
+      ctx.strokeStyle = 'rgba(255,180,90,0.5)'; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (kind === 'ray') {
+      // the beam column striking down into the zone
+      ctx.fillStyle = 'rgba(125,255,214,0.18)';
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      const flick = 0.6 + 0.4 * Math.sin(state.time * 40);
+      ctx.strokeStyle = `rgba(200,255,240,${flick})`;
+      ctx.lineWidth = 6 + Math.sin(state.time * 30) * 2;
+      ctx.beginPath(); ctx.moveTo(zx, zy - 400); ctx.lineTo(zx, zy); ctx.stroke();
+      ctx.fillStyle = `rgba(230,255,250,${flick})`;
+      ctx.beginPath(); ctx.ellipse(zx, zy, 14, 7, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'orbital') {
+      const flick = 0.6 + 0.4 * Math.sin(state.time * 50);
+      ctx.strokeStyle = `rgba(200,230,255,${flick})`;
+      ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.moveTo(zx, zy - 500); ctx.lineTo(zx, zy); ctx.stroke();
+    } else if (kind === 'coup') {
+      ctx.fillStyle = 'rgba(160,120,220,0.16)';
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(201,167,255,0.6)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
     }
   }
 }
@@ -3358,6 +3590,23 @@ function drawOverlays() {
     ctx.strokeStyle = '#7fff9f';
     ctx.lineWidth = 1;
     ctx.strokeRect(Math.min(s.x1, s.x2), Math.min(s.y1, s.y2), Math.abs(s.x2 - s.x1), Math.abs(s.y2 - s.y1));
+  }
+
+  // superweapon targeting reticle at the cursor (world-space ground ellipse)
+  if (superTargeting) {
+    const sw = state.buildings.find(b => b.id === superTargeting);
+    const R = { rocket: 130, orbital: 90, quake: 240, emp: 260, barrage: 170, ray: 120, coup: 200 }[sw ? superKindOf(sw) : 'rocket'] || 130;
+    const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
+    ctx.strokeStyle = 'rgba(255,95,95,0.85)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(rx, ry, R * Math.SQRT2, R * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([4, 6]);
+    ctx.beginPath(); ctx.ellipse(rx, ry, R * Math.SQRT2 * 0.6, R * Math.SQRT2 * 0.3, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.beginPath();
+    ctx.moveTo(rx - 16, ry); ctx.lineTo(rx + 16, ry);
+    ctx.moveTo(rx, ry - 10); ctx.lineTo(rx, ry + 10);
+    ctx.stroke();
   }
 
   if (placing) {
@@ -3512,7 +3761,15 @@ function frame(now) {
     updateProjectiles(dt);
     updateZones(dt);
     for (const u of state.units) {
-      if (u.expires && state.time > u.expires) u.hp = 0; // phantoms fade
+      if (u.expires && state.time > u.expires) u.hp = 0; // phantoms & hatchlings fade
+      // mind-controlled units revert to their real owner when the coup lapses
+      if (u.coupRevert && state.time > u.coupRevert && u.hp > 0) {
+        if (u.coupOrig !== undefined && state.factions[u.coupOrig]) {
+          u.owner = u.coupOrig;
+          u.order = { type: 'idle' };
+        }
+        delete u.coupRevert; delete u.coupOrig;
+      }
     }
     updateFog();
 
@@ -3848,6 +4105,13 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   if (e.button === 0) {
+    if (superTargeting) {
+      const sw = state.buildings.find(b => b.id === superTargeting && b.owner === PLAYER && b.hp > 0);
+      superTargeting = null;
+      if (sw && superReady(sw) && !isOffline(sw)) { fireSuperweapon(sw, p.x, p.y); sfx('click'); }
+      refreshPanel();
+      return;
+    }
     if (abilityTargeting) {
       const mode = abilityTargeting;
       abilityTargeting = null;
@@ -3878,10 +4142,11 @@ canvas.addEventListener('mousedown', e => {
     const pi = screenToIso(e);
     mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
-    if (placing || attackMoveArmed || abilityTargeting) {
+    if (placing || attackMoveArmed || abilityTargeting || superTargeting) {
       placing = null;
       attackMoveArmed = false;
       abilityTargeting = null;
+      superTargeting = null;
       refreshPanel();
       return;
     }
@@ -3954,7 +4219,7 @@ window.addEventListener('keydown', e => {
   if (!started) return;
   const k = e.key.toLowerCase();
 
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; refreshPanel(); }
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
 

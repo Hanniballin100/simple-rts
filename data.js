@@ -78,7 +78,7 @@ const FACTIONS = {
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: [],
-    structs: ['wall', 'gate', 'mine'],
+    structs: ['wall', 'gate', 'mine', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
@@ -88,6 +88,7 @@ const FACTIONS = {
       factory: 'Truck Garage', airpad: 'Balloon Dock', tech: 'Institute of Truth',
       watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
       wall: 'Ice Wall Segment', gate: 'Checkpoint Gate', mine: 'IED',
+      superweapon: 'Rocket Launch Pad',
     },
   },
   resistance: {
@@ -97,7 +98,7 @@ const FACTIONS = {
     worker: 'salvagerig', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
     air: ['wballoon', 'fpv'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'cropduster', 'engineer'], advanced: [],
-    structs: ['wall', 'gate', 'mine'],
+    structs: ['wall', 'gate', 'mine', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
       sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
@@ -108,6 +109,7 @@ const FACTIONS = {
       watchtower: 'Watchtower', aanest: 'AA Gun Nest',
       sleepercell: 'Sleeper Cell',
       wall: 'Scrap Barricade', gate: 'Checkpoint Gate', mine: 'IED',
+      superweapon: 'Loitering-Munition Battery',
     },
   },
   glob: {
@@ -117,7 +119,7 @@ const FACTIONS = {
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'b1', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
-    structs: ['wall', 'gate', 'mine', 'repairpad'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
@@ -127,6 +129,7 @@ const FACTIONS = {
       factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
       tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Spectre Hangar',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Service Bay',
+      superweapon: 'Orbital Kinetic Array',
     },
   },
   deep: {
@@ -136,7 +139,7 @@ const FACTIONS = {
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
-    structs: ['wall', 'gate', 'mine', 'repairpad'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
@@ -146,6 +149,7 @@ const FACTIONS = {
       factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
       tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Unmarked Hangar',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Motor Pool Annex',
+      superweapon: 'Blackout Command Node',
     },
   },
   hollow: {
@@ -155,7 +159,7 @@ const FACTIONS = {
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['sapper', 'magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'dowser', 'engineer'], advanced: ['ptero'],
-    structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'vrilreactor', 'geode'],
+    structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
       sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
@@ -166,6 +170,7 @@ const FACTIONS = {
       stalagmite: 'Stalagmite Spitter', geyser: 'Geyser Cannon',
       wall: 'Stone Rampart', gate: 'Stone Gate', mine: 'Sinkhole Trap',
       tunnelentrance: 'Tunnel Entrance', vrilreactor: 'Vril Reactor', geode: 'Crystal Geode',
+      superweapon: 'Seismic Resonator',
     },
   },
   grey: {
@@ -175,7 +180,7 @@ const FACTIONS = {
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
     extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer'],
-    structs: ['wall', 'gate', 'mine', 'repairpad'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
       sig: { name: 'Cloning Vats', desc: 'Target one of your units: an exact copy emerges from your barracks.', kind: 'unit', cd: 90 },
@@ -185,6 +190,7 @@ const FACTIONS = {
       factory: 'Assembler', airpad: 'Saucer Pad', tech: 'Hive Mind Nexus',
       pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
       wall: 'Alloy Barrier', gate: 'Alloy Gate', mine: 'Plasma Mine', repairpad: 'Nanite Bay',
+      superweapon: 'Great Pyramid',
     },
   },
   reptilian: {
@@ -194,7 +200,7 @@ const FACTIONS = {
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
     extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake'],
-    structs: ['wall', 'gate', 'mine', 'repairpad'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
       sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
@@ -204,8 +210,22 @@ const FACTIONS = {
       factory: 'Assembler', airpad: 'Roost Spire', tech: 'Gene Vault',
       pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
       wall: 'Alloy Barrier', gate: 'Alloy Gate', mine: 'Plasma Mine', repairpad: 'Regeneration Pit',
+      superweapon: 'Bloodline Throne',
     },
   },
+};
+
+// ---------- superweapons ----------
+// One tech-gated structure per faction (the shared `superweapon` building
+// type below); charge = seconds to ready, kind = what firing it does.
+const SUPER_DEFS = {
+  flat:       { charge: 180, kind: 'rocket',  desc: 'Heavy rocket strike — one colossal blast at the target point' },
+  resistance: { charge: 130, kind: 'barrage', desc: 'Loitering-munition swarm — waves of drones rain on the zone' },
+  glob:       { charge: 180, kind: 'orbital', desc: 'Orbital kinetic strike — instant, precise, devastating' },
+  deep:       { charge: 150, kind: 'emp',     desc: 'Total Blackout — enemy structures in the zone go dark for 20s' },
+  hollow:     { charge: 180, kind: 'quake',   desc: 'The Big One — a quake dismantles every structure in the zone' },
+  grey:       { charge: 180, kind: 'ray',     desc: 'Pyramid Death Ray — a sustained beam annihilates the zone' },
+  reptilian:  { charge: 190, kind: 'coup',    desc: 'Bloodline Coup — enemies in the zone fight for YOU for 45s' },
 };
 
 // ---------- units ----------
@@ -366,6 +386,9 @@ const BUILDING_TYPES = {
   mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 30, buildTime: 3, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true },
   // service structure: mends the owner's vehicles and aircraft sitting on it
   repairpad: { name: 'Repair Pad', hp: 380, w: 64, h: 64, cost: 120, buildTime: 12, sight: 180, power: -20, cap: 2, repairRate: 8 },
+  // the superweapon slot: same structure everywhere, very different payloads
+  // (see SUPER_DEFS); expensive, power-hungry, one per player
+  superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
   // neutral map structures — garrison infantry inside to claim them
@@ -416,6 +439,7 @@ const BUILDING_MODS = {
     tech:       { cost: 220, hp: 400 },
     watchtower: { cost: 65 },
     mine:       { cost: 20, buildTime: 2, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // IEDs are their thing
+    superweapon: { cost: 380, hp: 480 }, // cheaper and weaker, on brand
   },
   glob: { // premium infrastructure: pay double, get the best grid and armor
     hq:         { hp: 1100, power: 70 },

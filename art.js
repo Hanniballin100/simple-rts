@@ -3758,6 +3758,91 @@
     blinker(ctx, t, o.w / 2 - 5, -o.h / 2 + 5, '#7fff9f', 2.4);
   };
 
+  // ================= superweapons (one silhouette per family) =================
+  B.superweapon = (ctx, t, o) => {
+    pad(ctx, o);
+    const heat = o.on ? 0.5 + 0.5 * Math.sin(t * 2) : 0;
+    if (o.fam === 'flat') {
+      // Rocket Launch Pad: a Soviet TEL rack tilted skyward
+      isoBox(ctx, -20, -6, 40, 12, 6, '#4a5240');
+      ctx.save();
+      ctx.translate(-2, -4);
+      ctx.rotate(-0.9);
+      ctx.fillStyle = '#c7ccd2';
+      rr(ctx, -3, -26, 6, 30, 2); ctx.fill();
+      ctx.fillStyle = '#b04a3a';
+      ctx.beginPath(); ctx.moveTo(-3, -26); ctx.lineTo(0, -34); ctx.lineTo(3, -26); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#8a8271';
+      ctx.fillRect(-4, -6, 8, 3);
+      ctx.restore();
+      ctx.strokeStyle = '#8b7a3c'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(14, 4); ctx.lineTo(14, -22); ctx.lineTo(4, -22); ctx.stroke();
+      if (o.on) blinker(ctx, t, -18, 8, '#ff5f5f', 2);
+    } else if (o.fam === 'glob') {
+      // Orbital Kinetic Array: a slewing rail dish pointed at the sky
+      drum3d(ctx, 0, 3, 16, '#39424e', 7);
+      billboard(ctx, 0, 0, () => {
+        ctx.save();
+        ctx.rotate(0.3 * Math.sin(t * 0.6));
+        ctx.strokeStyle = '#5f6774'; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -22); ctx.stroke();
+        ctx.fillStyle = '#8b939e';
+        ctx.beginPath(); ctx.ellipse(0, -24, 11, 5, 0, 0, TAU); ctx.fill();
+        ctx.fillStyle = o.on ? `rgba(140,208,255,${0.5 + heat * 0.5})` : '#3a4652';
+        ctx.beginPath(); ctx.ellipse(0, -24, 7, 3, 0, 0, TAU); ctx.fill();
+        ctx.restore();
+      });
+      blinker(ctx, t, 14, 12, '#8cd0ff', 2);
+    } else if (o.fam === 'hollow') {
+      // Seismic Resonator: a brass thumper ringed with tuning forks
+      drum3d(ctx, 0, 2, 17, '#7a6440', 8);
+      for (let i = 0; i < 6; i++) {
+        const a = i * (TAU / 6);
+        billboard(ctx, Math.cos(a) * 13, 2 + Math.sin(a) * 7, () => {
+          ctx.strokeStyle = '#9a7c44'; ctx.lineWidth = 1.6;
+          ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -12); ctx.stroke();
+          ctx.fillStyle = o.on ? `rgba(255,150,70,${0.4 + heat * 0.4})` : '#5c4a2c';
+          ctx.beginPath(); ctx.arc(0, -13, 1.8, 0, TAU); ctx.fill();
+        });
+      }
+      const g = ctx.createRadialGradient(0, 2, 1, 0, 2, 10);
+      g.addColorStop(0, `rgba(255,150,70,${0.4 + heat * 0.5})`);
+      g.addColorStop(1, 'rgba(255,120,50,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(0, 2, 10, 0, TAU); ctx.fill();
+    } else {
+      // Great Pyramid: an upright chrome pyramid, capstone crackling with a
+      // death-ray charge (drawn as a screen-space billboard so it stands tall)
+      ctx.fillStyle = 'rgba(0,0,0,0.32)';
+      ctx.beginPath(); ctx.ellipse(3, 3, 30, 16, 0, 0, TAU); ctx.fill();
+      billboard(ctx, 0, 4, () => {
+        const bw = 30, ph = 46;
+        // right (lit) face
+        ctx.fillStyle = '#556273';
+        ctx.beginPath(); ctx.moveTo(0, -ph); ctx.lineTo(bw, 6); ctx.lineTo(0, 12); ctx.closePath(); ctx.fill();
+        // left (shaded) face
+        ctx.fillStyle = '#333c48';
+        ctx.beginPath(); ctx.moveTo(0, -ph); ctx.lineTo(-bw, 6); ctx.lineTo(0, 12); ctx.closePath(); ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, -ph); ctx.lineTo(0, 12); ctx.stroke();
+        // glowing course lines marching up the faces
+        ctx.strokeStyle = `rgba(125,255,214,${0.3 + heat * 0.45})`; ctx.lineWidth = 1.2;
+        for (let i = 1; i <= 3; i++) {
+          const f = i / 4;
+          const yy = -ph + (ph + 6) * f, hw = bw * f;
+          ctx.beginPath(); ctx.moveTo(-hw, yy); ctx.lineTo(hw, yy); ctx.stroke();
+        }
+        // capstone
+        ctx.fillStyle = o.on ? `rgba(180,255,235,${0.65 + heat * 0.35})` : '#4a6b60';
+        ctx.beginPath(); ctx.moveTo(-6, -ph + 12); ctx.lineTo(6, -ph + 12); ctx.lineTo(0, -ph - 6); ctx.closePath(); ctx.fill();
+        if (o.on) {
+          ctx.strokeStyle = `rgba(200,255,240,${0.4 + heat * 0.5})`; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(0, -ph - 4); ctx.lineTo((Math.random() - 0.5) * 14, -ph - 16 - heat * 6); ctx.stroke();
+        }
+      });
+    }
+  };
+
   // ================= hollow-earth infrastructure =================
   B.tunnelentrance = (ctx, t, o) => {
     // timber-framed shaft mouth ramping down into the dark
