@@ -537,6 +537,7 @@ function fireSuperweapon(b, x, y) {
   const owner = b.owner;
   const kind = superKindOf(b);
   b.charge = 0;
+  b.fireT = state.time; // drives the launch animation on the silo art
   const seen = tileState(x, y) === 2;
   if (kind === 'rocket') {
     // Soviet missile-truck strike: one colossal blast lands after a beat
@@ -3336,7 +3337,14 @@ function drawBuildingIso(b) {
   const ax = cw / 2, ay = Math.ceil(bw2 * 0.25 + 60);
   const qt = b.turret !== undefined ? Math.round(b.turret / 0.2) : -99;
   const conn = (b.type === 'wall' || b.type === 'gate') ? wallConn(b) : 0;
-  const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt + '|' + conn;
+  // superweapon silos animate a launch for ~1.8s after firing
+  let superKind = null, fireP = -1;
+  if (bstatsOf(b).superweapon) {
+    superKind = superKindOf(b);
+    if (b.fireT !== undefined) { const e = state.time - b.fireT; if (e >= 0 && e < 1.8) fireP = e / 1.8; }
+  }
+  const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt + '|' + conn +
+    (superKind ? '|' + superKind + '|' + (fireP >= 0 ? Math.round(fireP * 14) : 'x') : '');
   const spr = cachedSprite(b.id, cw, chh, ax, ay, sig, 12, g => {
     isoShear(g); // building art draws in its local ground-plane frame
     Art.building(b.type, g, state.time + (b.id % 89) * 0.71, {
@@ -3344,6 +3352,7 @@ function drawBuildingIso(b) {
       fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
       turret: b.turret, // towers with their own weapon art track their target
       conn: { e: !!(conn & 1), w: !!(conn & 2), n: !!(conn & 4), s: !!(conn & 8) },
+      superKind, fireP,
     });
   });
   ctx.drawImage(spr.cv, ix - ax, iy - ay);

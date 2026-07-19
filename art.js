@@ -3900,43 +3900,103 @@
     blinker(ctx, t, o.w / 2 - 6, -o.h / 2 + 6, '#7dd0ff', 2.2);
   };
 
-  // ================= superweapons (one silhouette per family) =================
+  // ================= superweapons (one per kind, with a launch animation) =====
+  // o.superKind: rocket | barrage | orbital | emp | quake | ray | coup
+  // o.fireP: -1 idle, else 0..1 progress through a ~1.8s launch sequence
   B.superweapon = (ctx, t, o) => {
     pad(ctx, o);
+    const kind = o.superKind || 'rocket';
+    const fp = o.fireP === undefined ? -1 : o.fireP;
+    const firing = fp >= 0;
     const heat = o.on ? 0.5 + 0.5 * Math.sin(t * 2) : 0;
-    if (o.fam === 'flat') {
-      // Rocket Launch Pad: a Soviet TEL rack tilted skyward
-      isoBox(ctx, -20, -6, 40, 12, 6, '#4a5240');
-      ctx.save();
-      ctx.translate(-2, -4);
-      ctx.rotate(-0.9);
-      ctx.fillStyle = '#c7ccd2';
-      rr(ctx, -3, -26, 6, 30, 2); ctx.fill();
-      ctx.fillStyle = '#b04a3a';
-      ctx.beginPath(); ctx.moveTo(-3, -26); ctx.lineTo(0, -34); ctx.lineTo(3, -26); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#8a8271';
-      ctx.fillRect(-4, -6, 8, 3);
-      ctx.restore();
-      ctx.strokeStyle = '#8b7a3c'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(14, 4); ctx.lineTo(14, -22); ctx.lineTo(4, -22); ctx.stroke();
-      if (o.on) blinker(ctx, t, -18, 8, '#ff5f5f', 2);
-    } else if (o.fam === 'glob') {
-      // Orbital Kinetic Array: a slewing rail dish pointed at the sky
+
+    if (kind === 'rocket') {
+      // Flat Earth Rocket Launch Pad: a TEL with a rack of skyward tubes that
+      // salvo-launch their rockets on fire
+      isoBox(ctx, -20, -7, 40, 14, 6, '#4a5240');
+      ctx.strokeStyle = '#3c4436'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(15, 5); ctx.lineTo(15, -3); ctx.lineTo(-15, -3); ctx.stroke(); // erector rail
+      for (let i = 0; i < 4; i++) {
+        const bx = -12 + i * 8, by = -3 + (i % 2) * 4;
+        billboard(ctx, bx, by, () => {
+          ctx.rotate(-0.5); // tilt back toward launch
+          ctx.fillStyle = '#3a4038'; rr(ctx, -2.2, -20, 4.4, 22, 1.5); ctx.fill();
+          ctx.strokeStyle = '#565f4a'; ctx.lineWidth = 0.6; ctx.stroke();
+          const lift = firing ? fp * 46 : 0; // rocket climbs out of the tube
+          if (lift < 42) {
+            ctx.fillStyle = '#d8dde2'; rr(ctx, -1.6, -19 - lift, 3.2, 15, 1.2); ctx.fill();
+            ctx.fillStyle = '#b04a3a';
+            ctx.beginPath(); ctx.moveTo(-1.6, -19 - lift); ctx.lineTo(0, -25 - lift); ctx.lineTo(1.6, -19 - lift); ctx.closePath(); ctx.fill();
+          }
+          if (firing && fp < 0.85) { // exhaust plume
+            ctx.fillStyle = `rgba(255,${(180 - fp * 90) | 0},70,${0.9 - fp * 0.6})`;
+            ctx.beginPath(); ctx.moveTo(-2.4, -3); ctx.lineTo(0, 8); ctx.lineTo(2.4, -3); ctx.closePath(); ctx.fill();
+          }
+        });
+      }
+      if (o.on && !firing) blinker(ctx, t, -18, 9, '#ff5f5f', 2);
+
+    } else if (kind === 'barrage') {
+      // Resistance Loitering-Munition Battery: a scrap rack of quad-drones that
+      // buzz off as a swarm when fired
+      isoBox(ctx, -18, -12, 36, 24, 5, '#4c4636');
+      ctx.fillStyle = shade('#4c4636', -0.3); rr(ctx, -15, -9, 30, 18, 2); ctx.fill();
+      for (let i = 0; i < 6; i++) {
+        const gx = -10 + (i % 3) * 10, gy = -5 + ((i / 3) | 0) * 10;
+        const away = firing ? fp * (10 + i * 3) : 0, lift = firing ? fp * 24 : 0;
+        billboard(ctx, gx, gy, () => {
+          ctx.translate((i % 2 ? 1 : -1) * away, -lift);
+          ctx.strokeStyle = '#2c3128'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(-3, -3); ctx.lineTo(3, 3); ctx.moveTo(-3, 3); ctx.lineTo(3, -3); ctx.stroke();
+          ctx.fillStyle = 'rgba(160,170,150,0.55)';
+          for (const [px, py] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) { ctx.beginPath(); ctx.arc(px, py, 1.8, 0, TAU); ctx.fill(); }
+          ctx.fillStyle = '#8a5c2f'; ctx.fillRect(-1.4, -1, 3, 2);
+        });
+      }
+      if (o.on && !firing) blinker(ctx, t, 15, -10, '#ff5f5f', 2.4);
+
+    } else if (kind === 'orbital') {
+      // Globalist Orbital Kinetic Array: a slewing rail dish that fires a rod
       drum3d(ctx, 0, 3, 16, '#39424e', 7);
       billboard(ctx, 0, 0, () => {
         ctx.save();
-        ctx.rotate(0.3 * Math.sin(t * 0.6));
+        ctx.rotate(firing ? 0 : 0.3 * Math.sin(t * 0.6));
         ctx.strokeStyle = '#5f6774'; ctx.lineWidth = 2;
         ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -22); ctx.stroke();
         ctx.fillStyle = '#8b939e';
         ctx.beginPath(); ctx.ellipse(0, -24, 11, 5, 0, 0, TAU); ctx.fill();
         ctx.fillStyle = o.on ? `rgba(140,208,255,${0.5 + heat * 0.5})` : '#3a4652';
         ctx.beginPath(); ctx.ellipse(0, -24, 7, 3, 0, 0, TAU); ctx.fill();
+        if (firing) { // blinding kinetic rod streaks skyward
+          ctx.strokeStyle = `rgba(210,238,255,${1 - fp})`; ctx.lineWidth = 3 + (1 - fp) * 4;
+          ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(0, -24 - fp * 100); ctx.stroke();
+        }
         ctx.restore();
       });
-      blinker(ctx, t, 14, 12, '#8cd0ff', 2);
-    } else if (o.fam === 'hollow') {
-      // Seismic Resonator: a brass thumper ringed with tuning forks
+      if (o.on && !firing) blinker(ctx, t, 14, 12, '#8cd0ff', 2);
+
+    } else if (kind === 'emp') {
+      // Deep State Blackout Command Node: a tesla coil that discharges arcs
+      isoBox(ctx, -11, -11, 22, 22, 10, '#2a2f38', { win: { rows: 1, paneH: 3, inset: 2, litRate: o.on ? 1 : 0, seed: 4 } });
+      billboard(ctx, 0, -2, () => {
+        ctx.strokeStyle = '#4a5560'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(0, -22); ctx.stroke();
+        for (let i = 0; i < 3; i++) { ctx.strokeStyle = '#5f6b78'; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(0, -10 - i * 4, 4 - i, 1.4, 0, 0, TAU); ctx.stroke(); }
+        ctx.fillStyle = o.on ? `rgba(150,200,255,${0.6 + heat * 0.4})` : '#3a4652';
+        ctx.beginPath(); ctx.ellipse(0, -24, 6, 2.8, 0, 0, TAU); ctx.fill();
+        if (firing && fp < 0.85) { // tesla discharge
+          ctx.strokeStyle = `rgba(180,220,255,${1 - fp})`; ctx.lineWidth = 1;
+          for (let i = 0; i < 6; i++) {
+            const a = i / 6 * TAU + t * 4;
+            ctx.beginPath(); ctx.moveTo(0, -24); ctx.lineTo(Math.cos(a) * 20 * fp, -24 + Math.sin(a) * 12 * fp); ctx.stroke();
+          }
+        }
+      });
+      if (o.on && !firing) blinker(ctx, t, 9, 9, '#8cd0ff', 2);
+
+    } else if (kind === 'quake') {
+      // Hollow Earth Seismic Resonator: brass thumper ringed with tuning forks;
+      // the piston slams and a shock ring rolls out on fire
       drum3d(ctx, 0, 2, 17, '#7a6440', 8);
       for (let i = 0; i < 6; i++) {
         const a = i * (TAU / 6);
@@ -3947,39 +4007,58 @@
           ctx.beginPath(); ctx.arc(0, -13, 1.8, 0, TAU); ctx.fill();
         });
       }
-      const g = ctx.createRadialGradient(0, 2, 1, 0, 2, 10);
-      g.addColorStop(0, `rgba(255,150,70,${0.4 + heat * 0.5})`);
-      g.addColorStop(1, 'rgba(255,120,50,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(0, 2, 10, 0, TAU); ctx.fill();
+      const slam = firing && fp < 0.3 ? -6 * (1 - fp / 0.3) : 0;
+      ctx.fillStyle = '#8a7248';
+      ctx.beginPath(); ctx.ellipse(0, 2 + slam, 7, 4, 0, 0, TAU); ctx.fill();
+      if (firing) {
+        ctx.strokeStyle = `rgba(255,150,70,${1 - fp})`; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(0, 2, 8 + fp * 32, (8 + fp * 32) * 0.5, 0, 0, TAU); ctx.stroke();
+      } else {
+        const g = ctx.createRadialGradient(0, 2, 1, 0, 2, 10);
+        g.addColorStop(0, `rgba(255,150,70,${0.4 + heat * 0.5})`); g.addColorStop(1, 'rgba(255,120,50,0)');
+        ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 2, 10, 0, TAU); ctx.fill();
+      }
+
+    } else if (kind === 'coup') {
+      // Reptilian Bloodline Throne: a bone-and-gold altar with a blood crystal
+      // that pulses a mind-control wave on fire
+      if (firing) {
+        ctx.strokeStyle = `rgba(220,60,70,${1 - fp})`; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(0, 4, 10 + fp * 36, (10 + fp * 36) * 0.5, 0, 0, TAU); ctx.stroke();
+      }
+      ctx.fillStyle = '#3a2f2a'; ctx.beginPath(); ctx.ellipse(0, 4, 20, 12, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#4a3d34'; ctx.beginPath(); ctx.ellipse(0, 3, 14, 8, 0, 0, TAU); ctx.fill();
+      billboard(ctx, 0, 2, () => {
+        ctx.strokeStyle = '#caa24a'; ctx.lineWidth = 2; // gold throne ribs
+        ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(-6, -20); ctx.moveTo(8, 0); ctx.lineTo(6, -20); ctx.stroke();
+        ctx.strokeStyle = '#d8cfb0'; ctx.lineWidth = 1.3; // bone struts
+        for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 3, -2); ctx.lineTo(i * 2.4, -18); ctx.stroke(); }
+        ctx.fillStyle = o.on ? `rgba(255,60,70,${0.6 + heat * 0.4})` : '#5c2a2e'; // blood crystal
+        ctx.beginPath(); ctx.moveTo(0, -22); ctx.lineTo(4, -14); ctx.lineTo(0, -8); ctx.lineTo(-4, -14); ctx.closePath(); ctx.fill();
+      });
+
     } else {
-      // Great Pyramid: an upright chrome pyramid, capstone crackling with a
-      // death-ray charge (drawn as a screen-space billboard so it stands tall)
+      // Greys Great Pyramid: chrome pyramid firing a sustained death ray
       ctx.fillStyle = 'rgba(0,0,0,0.32)';
       ctx.beginPath(); ctx.ellipse(3, 3, 30, 16, 0, 0, TAU); ctx.fill();
       billboard(ctx, 0, 4, () => {
         const bw = 30, ph = 46;
-        // right (lit) face
         ctx.fillStyle = '#556273';
         ctx.beginPath(); ctx.moveTo(0, -ph); ctx.lineTo(bw, 6); ctx.lineTo(0, 12); ctx.closePath(); ctx.fill();
-        // left (shaded) face
         ctx.fillStyle = '#333c48';
         ctx.beginPath(); ctx.moveTo(0, -ph); ctx.lineTo(-bw, 6); ctx.lineTo(0, 12); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = 'rgba(0,0,0,0.4)'; ctx.lineWidth = 1;
         ctx.beginPath(); ctx.moveTo(0, -ph); ctx.lineTo(0, 12); ctx.stroke();
-        // glowing course lines marching up the faces
         ctx.strokeStyle = `rgba(125,255,214,${0.3 + heat * 0.45})`; ctx.lineWidth = 1.2;
-        for (let i = 1; i <= 3; i++) {
-          const f = i / 4;
-          const yy = -ph + (ph + 6) * f, hw = bw * f;
-          ctx.beginPath(); ctx.moveTo(-hw, yy); ctx.lineTo(hw, yy); ctx.stroke();
-        }
-        // capstone
+        for (let i = 1; i <= 3; i++) { const f = i / 4; const yy = -ph + (ph + 6) * f, hw = bw * f; ctx.beginPath(); ctx.moveTo(-hw, yy); ctx.lineTo(hw, yy); ctx.stroke(); }
         ctx.fillStyle = o.on ? `rgba(180,255,235,${0.65 + heat * 0.35})` : '#4a6b60';
         ctx.beginPath(); ctx.moveTo(-6, -ph + 12); ctx.lineTo(6, -ph + 12); ctx.lineTo(0, -ph - 6); ctx.closePath(); ctx.fill();
-        if (o.on) {
+        if (firing) { // sustained beam blasts up from the capstone
+          ctx.strokeStyle = `rgba(150,255,225,${1 - fp * 0.5})`; ctx.lineWidth = 4 + Math.sin(t * 40) * 1.6;
+          ctx.beginPath(); ctx.moveTo(0, -ph - 4); ctx.lineTo(0, -ph - 78); ctx.stroke();
+        } else if (o.on) {
           ctx.strokeStyle = `rgba(200,255,240,${0.4 + heat * 0.5})`; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(0, -ph - 4); ctx.lineTo((Math.random() - 0.5) * 14, -ph - 16 - heat * 6); ctx.stroke();
+          ctx.beginPath(); ctx.moveTo(0, -ph - 4); ctx.lineTo(Math.sin(t * 20) * 7, -ph - 16 - heat * 6); ctx.stroke();
         }
       });
     }
