@@ -3774,14 +3774,32 @@
 
   B.wall = (ctx, t, o) => {
     const col = wallColByFam(o.fam);
-    isoBox(ctx, -o.w / 2, -o.h / 2, o.w, o.h, 11, col);
-    // coping course along the top slab
-    ctx.strokeStyle = shade(col, -0.35);
-    ctx.lineWidth = 1;
-    ctx.strokeRect(-o.w / 2 + 2, -o.h / 2 + 2, o.w - 4, o.h - 4);
-    if (o.fam === 'alien') { // faint energy seam
-      ctx.strokeStyle = 'rgba(125,255,214,0.35)';
-      ctx.strokeRect(-o.w / 2 + 5, -o.h / 2 + 5, o.w - 10, o.h - 10);
+    const c = o.conn || {};
+    const any = c.e || c.w || c.n || c.s;
+    // thin masonry panels reach toward each connected neighbour; a stouter
+    // pillar caps every junction and stands proud of the panels — so a run
+    // reads as one continuous rampart of posts-and-panels, not stray blocks
+    const PW = 6.5, HALF = 14, H = 10;
+    const PANEL = { r: 1, noShadow: true, roofCol: shade(col, 0.3) };
+    const POST = any ? 9 : 12;
+    // one combined contact shadow spanning the connected footprint
+    ctx.fillStyle = 'rgba(0,0,0,0.26)';
+    ctx.fillRect(-POST / 2 + 1.4, -POST / 2 + 2.6, POST, POST);
+    if (c.e) ctx.fillRect(2, -PW / 2 + 2.6, HALF, PW);
+    if (c.w) ctx.fillRect(-HALF + 1, -PW / 2 + 2.6, HALF, PW);
+    if (c.n) ctx.fillRect(-PW / 2 + 1.4, -HALF + 1, PW, HALF);
+    if (c.s) ctx.fillRect(-PW / 2 + 1.4, 2, PW, HALF);
+    // panels + a junction pillar, near-uniform height with a bright coping cap,
+    // drawn back-to-front (N/W behind, pillar, E/S in front)
+    if (c.n) isoBox(ctx, -PW / 2, -HALF, PW, HALF + 1, H, col, PANEL);
+    if (c.w) isoBox(ctx, -HALF, -PW / 2, HALF + 1, PW, H, col, PANEL);
+    isoBox(ctx, -POST / 2, -POST / 2, POST, POST, H + 1.5, col, { r: 1.6, noShadow: true, roofCol: shade(col, 0.34) });
+    if (c.e) isoBox(ctx, 0, -PW / 2, HALF, PW, H, col, PANEL);
+    if (c.s) isoBox(ctx, -PW / 2, 0, PW, HALF, H, col, PANEL);
+    // family accent: an energy seam winks on the alloy barrier's cap
+    if (o.fam === 'alien') {
+      ctx.fillStyle = `rgba(125,255,214,${0.45 + 0.25 * Math.sin(t * 3 + (o.wx || 0) * 0.06)})`;
+      ctx.fillRect(-2.2 - (H + 1.5), -2.2 - (H + 1.5), 4.4, 4.4);
     }
   };
 

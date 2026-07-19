@@ -844,6 +844,23 @@ function bldNear(x, y) {
   return bldIndex.get(((x / OB_CELL) | 0) * 8192 + ((y / OB_CELL) | 0)) || EMPTY_ARR;
 }
 
+// which cardinal neighbours a wall/gate connects to (bitmask e=1,w=2,n=4,s=8),
+// so wall art can draw a continuous rampart instead of stray blocks
+function wallConn(b) {
+  let m = 0;
+  const S = WALL_STEP, TOL = 15;
+  for (const o of bldNear(b.x, b.y)) {
+    if (o === b || o.hp <= 0 || o.owner !== b.owner) continue;
+    if (o.type !== 'wall' && o.type !== 'gate') continue;
+    const dx = o.x - b.x, dy = o.y - b.y;
+    if (Math.abs(dy) < TOL && dx > S - TOL && dx < S + TOL) m |= 1;        // E (+x)
+    else if (Math.abs(dy) < TOL && -dx > S - TOL && -dx < S + TOL) m |= 2; // W (-x)
+    else if (Math.abs(dx) < TOL && -dy > S - TOL && -dy < S + TOL) m |= 4; // N (-y)
+    else if (Math.abs(dx) < TOL && dy > S - TOL && dy < S + TOL) m |= 8;   // S (+y)
+  }
+  return m;
+}
+
 function ensurePathGrid() {
   if (!pathDirty) return;
   pathDirty = false;
@@ -3318,13 +3335,15 @@ function drawBuildingIso(b) {
   const cw = Math.ceil(bw2 + 80), chh = Math.ceil(bw2 * 0.5 + 100);
   const ax = cw / 2, ay = Math.ceil(bw2 * 0.25 + 60);
   const qt = b.turret !== undefined ? Math.round(b.turret / 0.2) : -99;
-  const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt;
+  const conn = (b.type === 'wall' || b.type === 'gate') ? wallConn(b) : 0;
+  const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt + '|' + conn;
   const spr = cachedSprite(b.id, cw, chh, ax, ay, sig, 12, g => {
     isoShear(g); // building art draws in its local ground-plane frame
     Art.building(b.type, g, state.time + (b.id % 89) * 0.71, {
       w: b.w, h: b.h, color: COLORS[b.owner], on,
       fam: FAMILY_STYLE[state.factions[b.owner]], wx: b.x, wy: b.y,
       turret: b.turret, // towers with their own weapon art track their target
+      conn: { e: !!(conn & 1), w: !!(conn & 2), n: !!(conn & 4), s: !!(conn & 8) },
     });
   });
   ctx.drawImage(spr.cv, ix - ax, iy - ay);
