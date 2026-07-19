@@ -1084,6 +1084,31 @@
     ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke();
     ctx.restore();
   };
+  D.pigeon = (ctx, t, o) => {
+    // "birds aren't real": a grey robo-pigeon with a red camera eye + antenna
+    const flap = Math.sin(t * 12);
+    ctx.fillStyle = '#6a7280';                       // flapping wings
+    for (const s of [-1, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(-1, 0);
+      ctx.quadraticCurveTo(-6, s * (6 + flap * 3), -11, s * (4 + flap * 2));
+      ctx.quadraticCurveTo(-5, s * 2, -2, 0);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.fillStyle = '#565e69';                       // tail
+    ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(-11, -2.6); ctx.lineTo(-11, 2.6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#8a929c';                       // body
+    ctx.beginPath(); ctx.ellipse(0, 0, 6, 3, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#9aa2ac';                       // head
+    ctx.beginPath(); ctx.arc(6, 0, 2.4, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#c98a3a';                       // beak
+    ctx.beginPath(); ctx.moveTo(8, -0.8); ctx.lineTo(10.5, 0); ctx.lineTo(8, 0.8); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = o.firing ? '#ff5f5f' : '#ff8f3f'; // camera eye
+    ctx.beginPath(); ctx.arc(6.6, -0.8, 0.8, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#3a3f48'; ctx.lineWidth = 0.6; // antenna
+    ctx.beginPath(); ctx.moveTo(5, -2); ctx.lineTo(4, -4.5); ctx.stroke();
+    ctx.fillStyle = '#ff5f5f'; ctx.beginPath(); ctx.arc(4, -4.7, 0.6, 0, TAU); ctx.fill();
+  };
   D.gunship = (ctx, t, o) => {
     // AC-130: big four-engine airframe with a broadside battery. The unit's
     // drawScale already enlarges it; a light internal bump keeps it dominant
@@ -4503,6 +4528,22 @@
   I.slinger = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5f5a78', head: ihHood, weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, '#8fe3d9') });
   I.beamer = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6a7280', head: ihGrey, weapon: iwStaff });
   I.preacher = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#4a4440', head: ctx2 => ihSkin(ctx2, '#c9a184'), weapon: iwSign });
+  I.prophet = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#c2a85e', head: ihFoil,
+    weapon: (c2, t2, o2) => {
+      // megaphone raised to the mouth
+      c2.save(); c2.translate(2.5, -9.5); c2.rotate(-0.55);
+      c2.fillStyle = '#c94a3a';
+      c2.beginPath(); c2.moveTo(0, -1.1); c2.lineTo(5.5, -3); c2.lineTo(5.5, 3); c2.lineTo(0, 1.1); c2.closePath(); c2.fill();
+      c2.strokeStyle = '#7a2f24'; c2.lineWidth = 0.5; c2.stroke();
+      c2.fillStyle = '#2a2e34'; c2.fillRect(-1.4, -1, 1.6, 2);
+      c2.restore();
+      // broadcast rings pulsing from the horn
+      c2.strokeStyle = `rgba(255,230,140,${0.3 + 0.3 * Math.sin(t2 * 6)})`;
+      c2.lineWidth = 0.7;
+      for (let i = 1; i <= 2; i++) { c2.beginPath(); c2.arc(6, -11, 2 + i * 1.6, -1, 1); c2.stroke(); }
+    },
+  });
   I.riot = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#3c434c', head: ihHelmet, weapon: iwShield });
   I.sapper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c5347', head: ihHardhat, weapon: iwPick });
   I.hybrid = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#23272e', head: ihLizard, weapon: iwPistol });
@@ -5094,6 +5135,62 @@
     },
   });
 
+  // Killdozer: home-armored bulldozer with a big front blade
+  I.killdozer = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 30,
+    under: (c, t, o) => {
+      treads(c, t, o, 26, 5, 10.5);
+      // front dozer blade, protruding at ground level
+      c.fillStyle = '#7a7266';
+      c.beginPath(); c.moveTo(13, -10); c.lineTo(19, -8.5); c.lineTo(19, 8.5); c.lineTo(13, 10); c.closePath(); c.fill();
+      c.strokeStyle = '#48433a'; c.lineWidth = 1; c.stroke();
+      c.fillStyle = '#9a9286'; c.fillRect(18, -8.5, 1.6, 17); // cutting edge
+      c.strokeStyle = '#5a5348'; c.lineWidth = 0.6;            // push arms
+      c.beginPath(); c.moveTo(8, -6); c.lineTo(14, -8); c.moveTo(8, 6); c.lineTo(14, 8); c.stroke();
+    },
+    tiers: [
+      { poly: [[12, -8], [12, 8], [-13, 8], [-13, -8]], h: 7, body: '#6a6252',
+        detail: (c) => {
+          c.fillStyle = shade('#6a6252', 0.1); rr(c, -11, -6, 20, 12, 1); c.fill(); // armor deck
+          c.strokeStyle = shade('#6a6252', -0.45); c.lineWidth = 0.6;
+          for (let i = -8; i <= 6; i += 4) { c.beginPath(); c.moveTo(i, -6); c.lineTo(i, 6); c.stroke(); }
+          c.fillStyle = '#48433a'; for (const [rx, ry] of [[-9, -5], [-9, 5], [6, -5], [6, 5]]) { c.beginPath(); c.arc(rx, ry, 0.9, 0, TAU); c.fill(); }
+        },
+      },
+      { poly: [[6, -5], [6, 5], [-6, 5], [-6, -5]], h: 5, body: shade('#6a6252', 0.15),
+        detail: (c) => {
+          c.fillStyle = '#181a18'; c.fillRect(3, -3.6, 1.6, 7.2);           // armored viewing slit
+          c.fillStyle = 'rgba(120,150,120,0.3)'; c.fillRect(3.2, -3, 1.1, 6);
+        },
+      },
+    ],
+  });
+  // Firework Battery: a flatbed of colourful bottle-rocket tubes angled skyward
+  I.fireworks = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24,
+    under: (c, t, o) => wheels(c, t, o, [[-8, -7.6], [-8, 7.6], [8, -7.6], [8, 7.6]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [10, 6], [-12, 6], [-12, -6], [10, -6]], h: 4, body: '#6d5b40',
+        detail: (c) => {
+          c.fillStyle = '#7d6b4c'; rr(c, 7, -5, 6, 10, 1.5); c.fill(); // cab
+          c.fillStyle = '#1c2026'; c.fillRect(11.5, -3.8, 1.6, 7.6);
+          c.fillStyle = shade('#6d5b40', -0.25); rr(c, -11, -5, 16, 10, 1); c.fill(); // bed
+        },
+      },
+    ],
+    above: (c, t, o) => {
+      // rack of firework tubes on the bed, each a different bright hue
+      const cols = ['#d84a4a', '#4a86d8', '#d8c24a', '#5ad84a', '#c24ad8'];
+      for (let i = 0; i < 5; i++) {
+        const bx = -7 + i * 3.4;
+        c.strokeStyle = '#3a3f48'; c.lineWidth = 2.6; c.lineCap = 'butt';
+        c.beginPath(); c.moveTo(bx, -1); c.lineTo(bx + 3, -9); c.stroke();
+        c.fillStyle = cols[i]; c.beginPath(); c.arc(bx + 3, -9.5, 1.3, 0, TAU); c.fill();
+        if (o.firing && i === ((t * 6) | 0) % 5) { c.fillStyle = 'rgba(255,230,140,0.95)'; c.beginPath(); c.arc(bx + 3.4, -10.5, 2.2, 0, TAU); c.fill(); }
+      }
+    },
+  });
+
   I.truck = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 26,
     under: (c, t, o) => wheels(c, t, o, [[-9, -7.6], [-9, 7.6], [3, -7.6], [3, 7.6], [9, -7.6], [9, 7.6]], 5.5, 3),
@@ -5450,6 +5547,25 @@
     ctx.fill();
     ctx.fillStyle = '#8cd0ff';
     ctx.fillRect(-1, 2.4, 1.4, 1.2);
+  };
+  I.barrageballoon = (ctx, t, o) => {
+    // fat tethered blimp with tail fins; its cables are the "weapon"
+    ctx.strokeStyle = 'rgba(150,150,140,0.6)'; ctx.lineWidth = 0.7; // tether
+    ctx.beginPath(); ctx.moveTo(0, 3); ctx.lineTo(0, -5); ctx.stroke();
+    const g = ctx.createRadialGradient(-3, -17, 2, 0, -13, 13);
+    g.addColorStop(0, '#cfd3d8'); g.addColorStop(1, '#8a9098');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(0, -13, 8.5, 11.5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#5f656d'; ctx.lineWidth = 0.8; ctx.stroke();
+    // three tail fins at the base
+    ctx.fillStyle = '#7a8088';
+    for (const dx of [-1, 0, 1]) {
+      ctx.beginPath(); ctx.moveTo(dx * 3, -3); ctx.lineTo(dx * 7, 2); ctx.lineTo(dx * 3, -0.5); ctx.closePath(); ctx.fill();
+    }
+    // warning band in team colour + gore seam
+    ctx.fillStyle = o.color; ctx.beginPath(); ctx.ellipse(0, -13, 8.5, 2, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(95,101,109,0.5)'; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.ellipse(0, -13, 3.6, 11.5, 0, 0, TAU); ctx.stroke();
   };
   I.balloon = (ctx, t, o) => {
     // big canvas bomber balloon with a bomb-toting basket

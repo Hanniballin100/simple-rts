@@ -1521,6 +1521,7 @@ function fireAt(u, target, t) {
     if (t.stealth) u.exposedUntil = state.time + 2.5; // muzzle flash gives it away
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing first-strike bonus
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
+    if (u.weakenedUntil > state.time) dmg *= 0.55; // shouted down by a Megaphone Prophet
     u.cooldown = t.cooldown;
     if (t.maxAmmo) u.ammo--;
     // turreted vehicles fire along the gun, not the chassis
@@ -1529,9 +1530,12 @@ function fireAt(u, target, t) {
     const wkind = t.weapon || 'gun';
 
     if (wkind === 'bomb' || wkind === 'lob') {
-      // physical projectile: aimed at where the target IS — it can be dodged
+      // physical projectile: aimed at where the target IS — it can be dodged.
+      // scatter spreads each shot around the aim point (Firework Battery)
+      let ptx = target.x, pty = target.y;
+      if (t.scatter) { const sa = Math.random() * Math.PI * 2, sr = Math.random() * t.scatter; ptx += Math.cos(sa) * sr; pty += Math.sin(sa) * sr; }
       spawnProjectile(wkind === 'bomb' ? 'bomb' : (t.projectile || 'rock'),
-        u.x, u.y, target.x, target.y, u.owner, t);
+        u.x, u.y, ptx, pty, u.owner, t);
       if (visible) sfx('shot');
     } else if (wkind === 'storm') {
       state.zones.push({ x: target.x, y: target.y, r: 60, until: state.time + 3, caster: u.owner, kind: 'storm', dmg: t.dmg });
@@ -1721,6 +1725,43 @@ function updateUnit(u, dt) {
         const at = UNIT_TYPES[a.type];
         if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
         if (dist(a, u) <= stats.buffAura.r) a.buffedUntil = state.time + 0.7;
+      }
+    }
+  }
+  // Megaphone Prophet: nearby enemies fire weaker (debuffAura); enemy infantry
+  // in range slowly desert to the prophet's side (convert)
+  if (stats.debuffAura) {
+    u.dbT = (u.dbT || 0) - dt;
+    if (u.dbT <= 0) {
+      u.dbT = 0.4;
+      for (const e of state.units) {
+        if (e.owner === u.owner || e.owner === NEUTRAL || e.hp <= 0 || e.garrisoned) continue;
+        if (dist(e, u) <= stats.debuffAura.r) e.weakenedUntil = state.time + 0.6;
+      }
+    }
+  }
+  if (stats.convert) {
+    u.cvT = (u.cvT || 0) + dt;
+    if (u.cvT >= stats.convert.every) {
+      u.cvT = 0;
+      const victim = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL && e.hp > 0 &&
+        !e.garrisoned && UNIT_TYPES[e.type].builtAt === 'barracks' && UNIT_TYPES[e.type].role === 'combat' &&
+        dist(e, u) <= stats.convert.r);
+      if (victim) {
+        victim.owner = u.owner; victim.disguised = false; victim.carrying = 0; victim.order = { type: 'idle' };
+        if (tileState(victim.x, victim.y) === 2) Particles.pulse(victim.x, victim.y, 30, [255, 230, 140]);
+      }
+    }
+  }
+  // Barrage Balloon: its tether cables shred enemy aircraft that stray near
+  if (stats.aaAura) {
+    u.aaT = (u.aaT || 0) - dt;
+    if (u.aaT <= 0) {
+      u.aaT = 0.25;
+      for (const e of state.units) {
+        if (e.owner === u.owner || e.owner === NEUTRAL || e.hp <= 0) continue;
+        if (!UNIT_TYPES[e.type].flying) continue;
+        if (dist(e, u) <= stats.aaAura.r) dealDamage(u, e, stats.aaAura.dps * 0.25, {});
       }
     }
   }

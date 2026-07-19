@@ -75,9 +75,9 @@ const FACTIONS = {
     name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
     desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth. Flimsy bargain buildings, kept fueled by a convoy of lightly armed Rigs of Truth. Deeply suspicious of the sky — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
     economy: { workers: 5 },
-    worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
-    air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
-    extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: ['leveler'],
+    worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
+    air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'watchtower', aaTower: 'laserpointer',
+    extras: ['prophet', 'fireworks', 'engineer'], advanced: ['leveler'],
     structs: ['wall', 'gate', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
@@ -272,7 +272,9 @@ const UNIT_TYPES = {
   mechanic:     { name: 'Repair Truck',       role: 'combat', builtAt: 'factory',  hp: 180, speed: 82,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 100, r: 12, buildTime: 8, repair: 9, shape: 'square' },
   menderorb:    { name: 'Mender Orb',         role: 'combat', builtAt: 'factory',  hp: 90,  speed: 100, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 8, flying: true, shape: 'blimp' },
   // specialist infantry
-  preacher: { name: 'Street Preacher',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 70, dmg: 6,  atkRange: 90,  cooldown: 1,   sight: 200, cost: 55, r: 9,  buildTime: 6, bldgBonus: 3 },
+  // Megaphone Prophet: no gun, but a cone of influence — nearby enemies fire
+  // weaker (debuffAura) and their infantry slowly desert to you (convert)
+  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 75, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 230, cost: 75, r: 9, buildTime: 6, debuffAura: { r: 160, weaken: 0.45 }, convert: { r: 140, every: 6 } },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
@@ -292,7 +294,9 @@ const UNIT_TYPES = {
   rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2 },
   marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 30, atkRange: 260, cooldown: 2.6, sight: 300, cost: 85, r: 9, buildTime: 7 },
   // vehicles
-  truck:     { name: 'Truck of Truth',   role: 'combat', builtAt: 'factory', hp: 280, speed: 58,  dmg: 22, atkRange: 30,  cooldown: 1.1,  sight: 200, cost: 120, r: 13, buildTime: 9,  bldgBonus: 2,   shape: 'square' },
+  // Killdozer: a home-armored bulldozer — crawling, nearly bulletproof
+  // (armor), and it plows through walls and buildings (heavy bldgBonus)
+  killdozer: { name: 'Killdozer',        role: 'combat', builtAt: 'factory', hp: 520, speed: 36,  dmg: 26, atkRange: 30,  cooldown: 1.2,  sight: 180, cost: 185, r: 14, buildTime: 12, bldgBonus: 3, armor: 0.5, shape: 'square' },
   // the all-purpose Toyota: cheap, fast, shoots at everything — and dents
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
   technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both' },
@@ -304,13 +308,20 @@ const UNIT_TYPES = {
   // (petrify: stunned N seconds — can't move or fire). Unique crowd control.
   basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 12, atkRange: 120, cooldown: 1.4,  sight: 220, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square', petrify: 2 },
   // artillery (minRange: can't fire when rushed; lobbed projectiles with splash)
-  catapult:      { name: 'Flatbed Catapult', role: 'combat', builtAt: 'factory', hp: 140, speed: 45, dmg: 34, atkRange: 280, minRange: 100, cooldown: 3.2, sight: 300, cost: 160, r: 13, buildTime: 11, bldgBonus: 1.5, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 36 },
+  // Firework Battery: a flatbed of bottle-rocket tubes that lobs a fast, wildly
+  // inaccurate saturation volley (scatter spreads each shot around the aim)
+  fireworks:     { name: 'Firework Battery', role: 'combat', builtAt: 'factory', hp: 130, speed: 46, dmg: 15, atkRange: 275, minRange: 90, cooldown: 0.9, sight: 300, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.4, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 26, scatter: 46 },
   haarp:         { name: 'HAARP Truck',      role: 'combat', builtAt: 'factory', hp: 150, speed: 50, dmg: 15, atkRange: 300, minRange: 120, cooldown: 3.5, sight: 320, cost: 180, r: 13, buildTime: 12, shape: 'square', weapon: 'storm' },
   magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 28, atkRange: 270, minRange: 100, cooldown: 3,   sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square', weapon: 'lob', projectile: 'magma', splash: 34, groundEffect: { kind: 'fire', r: 26, dur: 2.2, dps: 8 } },
   mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 32, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square', weapon: 'lob', projectile: 'plasma', splash: 40 },
   // air
   wballoon: { name: 'Weather Balloon',  role: 'scout',  builtAt: 'airpad', hp: 60,  speed: 90,  dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 360, cost: 40,  r: 9,  buildTime: 6,  flying: true, shape: 'blimp', detector: true },
   balloon:  { name: 'Balloon of Truth', role: 'combat', builtAt: 'airpad', hp: 420, speed: 40,  dmg: 40, atkRange: 36,  cooldown: 2.2,  sight: 240, cost: 200, r: 15, buildTime: 14, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 46 },
+  // Flat Earth air: the Pigeon Drone ("birds aren't real") is a cheap robo-bird
+  // scout that pecks at ground targets; the Barrage Balloon is a tethered
+  // area-denial anti-air balloon whose cables shred any aircraft nearby (aaAura)
+  pigeon:   { name: 'Pigeon Drone',     role: 'scout',  builtAt: 'airpad', hp: 55, speed: 128, dmg: 5, atkRange: 75, cooldown: 0.7, sight: 320, cost: 45, r: 8, buildTime: 5, flying: true, shape: 'tri', detector: true },
+  barrageballoon: { name: 'Barrage Balloon', role: 'combat', builtAt: 'airpad', hp: 220, speed: 30, dmg: 0, atkRange: 0, cooldown: 1, sight: 220, cost: 95, r: 12, buildTime: 8, flying: true, shape: 'blimp', aaAura: { r: 135, dps: 15 } },
   // globalist rotorcraft roll out of the Motor Pool alongside the SUVs
   drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'factory', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
   heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'factory', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
