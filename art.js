@@ -887,43 +887,38 @@
     ctx.beginPath(); ctx.arc(3, 0, 1.2, 0, TAU); ctx.fill();
   };
   D.heli = (ctx, t, o) => {
-    ctx.fillStyle = '#1b1e24';
-    rr(ctx, -16, -1.5, 12, 3, 1.2);
-    ctx.fill();
-    ctx.fillStyle = '#22262d';
-    rr(ctx, -17.5, -3.5, 3.5, 7, 1);
-    ctx.fill();
-    ctx.save();
-    ctx.translate(-15.8, 0);
-    ctx.rotate(t * 26);
-    ctx.strokeStyle = 'rgba(190,195,205,0.8)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(4, 0); ctx.stroke();
-    ctx.restore();
-    ctx.fillStyle = '#272b33';
-    rr(ctx, -2, -9.5, 7, 19, 1.5);
-    ctx.fill();
+    // black attack helicopter, top-down, nose at +x
+    // tail boom + fin
+    ctx.fillStyle = '#20242b';
+    rr(ctx, -18, -2, 14, 4, 1.5); ctx.fill();
+    ctx.fillStyle = '#2a2f37';
+    rr(ctx, -20, -4.5, 4, 9, 1.2); ctx.fill();
+    // tail rotor
+    ctx.save(); ctx.translate(-19, 0); ctx.rotate(t * 30);
+    ctx.strokeStyle = 'rgba(200,205,215,0.7)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-4.5, 0); ctx.lineTo(4.5, 0); ctx.stroke(); ctx.restore();
+    // stub weapon wings with missile pods
+    ctx.fillStyle = '#2a2f37';
+    rr(ctx, -3, -11, 7, 22, 2); ctx.fill();
     ctx.fillStyle = '#3a3f48';
-    rr(ctx, 0.5, -9.8, 4.5, 3, 1); ctx.fill();
-    rr(ctx, 0.5, 6.8, 4.5, 3, 1); ctx.fill();
-    ctx.fillStyle = '#1d2129';
-    rr(ctx, -7, -3.8, 19, 7.6, 3.6);
-    ctx.fill();
-    ctx.strokeStyle = '#59626f'; ctx.lineWidth = 0.9; ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.12)';
-    rr(ctx, -6, -3, 17, 3, 2.5);
-    ctx.fill();
-    ctx.fillStyle = '#1e4a5f';
-    rr(ctx, 6.5, -2.8, 5.2, 5.6, 2.4);
-    ctx.fill();
-    ctx.fillStyle = 'rgba(140,220,255,0.5)';
-    rr(ctx, 7.2, -2.2, 2.4, 2.2, 1);
-    ctx.fill();
-    rotor(ctx, t, 1, 0, 15);
-    if (Math.sin(t * 6) > 0.3) {
-      ctx.fillStyle = 'rgba(255,70,70,0.95)';
-      ctx.beginPath(); ctx.arc(-6, 0, 1.1, 0, TAU); ctx.fill();
-    }
+    rr(ctx, -1, -12, 4, 3.4, 1); ctx.fill(); rr(ctx, -1, 8.6, 4, 3.4, 1); ctx.fill();
+    ctx.fillStyle = '#14171c';
+    ctx.fillRect(2.6, -11.4, 1.2, 2.4); ctx.fillRect(2.6, 9, 1.2, 2.4); // pod muzzles
+    // fuselage with a top-lit spine for a 3D read
+    const g = ctx.createLinearGradient(0, -6, 0, 6);
+    g.addColorStop(0, '#3c434e'); g.addColorStop(0.5, '#252a31'); g.addColorStop(1, '#15181d');
+    ctx.fillStyle = g;
+    rr(ctx, -9, -5.4, 24, 10.8, 4.5); ctx.fill();
+    ctx.strokeStyle = '#565f6b'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.13)'; rr(ctx, -7, -1.8, 18, 2.2, 1); ctx.fill(); // spine highlight
+    // canopy glass at the nose
+    ctx.fillStyle = '#101f2a'; rr(ctx, 6.5, -3.4, 6.5, 6.8, 2.6); ctx.fill();
+    ctx.fillStyle = 'rgba(150,225,255,0.4)'; rr(ctx, 7.6, -2.6, 2.8, 2.2, 1); ctx.fill();
+    // chin sensor ball / gun
+    ctx.fillStyle = '#3a3f48'; ctx.beginPath(); ctx.arc(13.5, 0, 1.9, 0, TAU); ctx.fill();
+    // main rotor disc over the mast
+    rotor(ctx, t, 1.5, 0, 17);
+    if (Math.sin(t * 6) > 0.3) { ctx.fillStyle = 'rgba(255,70,70,0.95)'; ctx.beginPath(); ctx.arc(-6, 0, 1.1, 0, TAU); ctx.fill(); }
   };
   D.cavebat = (ctx, t, o) => {
     // a small swarm of three bats
