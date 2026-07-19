@@ -3981,6 +3981,40 @@
   I.riot = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#3c434c', head: ihHelmet, weapon: iwShield });
   I.sapper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c5347', head: ihHardhat, weapon: iwPick });
   I.hybrid = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#23272e', head: ihLizard, weapon: iwPistol });
+  I.rpgpartisan = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6b5a3f', head: ihFoil,
+    weapon: (c2, t2, o2) => { // shoulder-carried RPG tube
+      c2.save();
+      c2.translate(1.5, -8.6);
+      c2.fillStyle = '#4a4438';
+      c2.fillRect(-3.5, -1.2, 9, 2.4);
+      c2.fillStyle = '#8a5c2f'; // the warhead cone
+      c2.beginPath();
+      c2.moveTo(5.5, -1.6); c2.lineTo(8.2, 0); c2.lineTo(5.5, 1.6);
+      c2.closePath(); c2.fill();
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,220,140,0.9)'; // backblast
+        c2.beginPath();
+        c2.moveTo(-3.5, -1); c2.lineTo(-7, 0); c2.lineTo(-3.5, 1);
+        c2.closePath(); c2.fill();
+      }
+      c2.restore();
+    },
+  });
+  I.marksman = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#4c5a44', head: ihHood,
+    weapon: (c2, t2, o2) => { // scoped long rifle
+      c2.strokeStyle = '#2c2f36';
+      c2.lineWidth = 1.4;
+      c2.beginPath(); c2.moveTo(-1, -6.2); c2.lineTo(9.5, -7.4); c2.stroke();
+      c2.fillStyle = '#1c2026';
+      c2.fillRect(2.5, -8.6, 2.6, 1.4); // scope
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,240,170,0.95)';
+        c2.beginPath(); c2.arc(10.2, -7.5, 2, 0, TAU); c2.fill();
+      }
+    },
+  });
   I.engineer = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#c9862c', head: ihHardhat,
     pack: c2 => { // the trusty red toolbox
@@ -4034,6 +4068,26 @@
       ctx2.beginPath(); ctx2.arc(4.7, -8.2, 1.1, 0, TAU); ctx2.fill();
     },
   });
+  D.fpv = (ctx, t, o) => {
+    // racing quad: X-frame, four prop discs, strapped-on payload
+    ctx.strokeStyle = '#3c434c';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(-5, -5); ctx.lineTo(5, 5);
+    ctx.moveTo(-5, 5); ctx.lineTo(5, -5);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(160,170,180,0.5)';
+    for (const [px, py] of [[-5, -5], [5, -5], [-5, 5], [5, 5]]) {
+      ctx.beginPath(); ctx.ellipse(px, py, 3.2, 3.2, 0, 0, TAU); ctx.fill();
+    }
+    ctx.fillStyle = o.color;
+    rr(ctx, -3, -2, 6, 4, 1);
+    ctx.fill();
+    ctx.fillStyle = '#8a5c2f'; // the strapped payload
+    ctx.fillRect(-1.5, -1, 4.5, 2);
+    ctx.fillStyle = Math.sin(t * 9 + 1) > 0 ? '#ff5f5f' : '#5f8aff'; // fpv led
+    ctx.fillRect(-3.5, -1, 1.5, 2);
+  };
   D.menderorb = (ctx, t, o) => {
     // chrome medical orb with a pulsing green cross
     const g = ctx.createRadialGradient(-2, -2, 1, 0, 0, 8);

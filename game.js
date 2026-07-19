@@ -1086,6 +1086,11 @@ function dealDamage(attacker, target, dmg, stats) {
   if (target.kind === 'building' && stats.bldgBonus && state.factions[target.owner] !== 'grey') {
     dmg *= stats.bldgBonus;
   }
+  // shaped charges (RPGs) multiply against ground vehicles
+  if (target.kind === 'unit' && stats.vehBonus && !UNIT_TYPES[target.type].flying &&
+      UNIT_TYPES[target.type].builtAt === 'factory') {
+    dmg *= stats.vehBonus;
+  }
   // armored units (riot shields, tripod plating) shrug off part of everything
   if (target.kind === 'unit' && UNIT_TYPES[target.type].armor) {
     dmg *= 1 - UNIT_TYPES[target.type].armor;
