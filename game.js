@@ -3333,6 +3333,37 @@ function drawBuildingIso(b) {
       ctx.fillStyle = '#ffd75f';
       ctx.fillRect(ix - bw / 2, qy, bw * clamp(b.queue[0].t / b.queue[0].duration, 0, 1), 5);
     }
+
+    // superweapon status, always visible on the silo so you never have to
+    // select it to know: a charge bar + seconds-left countdown, becoming a
+    // pulsing READY beacon when it can fire (enemy silos only while scouted)
+    if (bt.superweapon && b.done && (b.owner === PLAYER || tileState(b.x, b.y) === 2)) {
+      const need = superChargeOf(b), have = Math.min(need, b.charge || 0);
+      const ready = have >= need, off = isOffline(b);
+      const bw = (b.w + b.h) / 2, qy = iy + (b.w + b.h) / 4 + 3;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(ix - bw / 2, qy + 7, bw, 5);
+      ctx.fillStyle = off ? '#6a6a6a' : ready ? '#5fce5f' : (b.owner === PLAYER ? '#4da3ff' : '#ff8f5f');
+      ctx.fillRect(ix - bw / 2, qy + 7, bw * clamp(have / need, 0, 1), 5);
+      const pulse = 0.5 + 0.5 * Math.sin(state.time * 4);
+      ctx.font = 'bold 11px sans-serif';
+      ctx.textAlign = 'center';
+      if (off) {
+        ctx.fillStyle = '#8ab4ff';
+        ctx.fillText('EMP — OFFLINE', ix, topY - 18);
+      } else if (ready) {
+        ctx.strokeStyle = b.owner === PLAYER ? `rgba(120,255,150,${0.35 + pulse * 0.45})` : `rgba(255,120,120,${0.35 + pulse * 0.45})`;
+        ctx.lineWidth = 2 + pulse * 2.5;
+        ctx.beginPath();
+        ctx.ellipse(ix, iy, b.w * 0.95, b.w * 0.48, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillStyle = b.owner === PLAYER ? `rgba(150,255,170,${0.65 + pulse * 0.35})` : `rgba(255,150,150,${0.65 + pulse * 0.35})`;
+        ctx.fillText(b.owner === PLAYER ? '⚠ READY TO FIRE' : '⚠ ENEMY SUPERWEAPON', ix, topY - 18);
+      } else {
+        ctx.fillStyle = 'rgba(220,230,240,0.9)';
+        ctx.fillText(Math.ceil(need - have) + 's', ix, topY - 18);
+      }
+    }
     ctx.globalAlpha = 1;
 }
 
