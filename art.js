@@ -4492,32 +4492,24 @@
     },
   });
   I.mechanic = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 22, wid: 13, hgt: 5, body: '#c9a23c',
-    path: boxPath(22, 13, 3),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-7, -7.1], [-7, 7.1], [7, -7.1], [7, 7.1]], 5, 2.6);
-      ctx2.fillStyle = '#d9b356';
-      rr(ctx2, 3.5, -5.6, 7, 11.2, 1.5); // cab
-      ctx2.fill();
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(8.7, -4.4, 1.8, 8.8);
-      ctx2.fillStyle = shade('#c9a23c', -0.35); // tool bed
-      rr(ctx2, -9.5, -5.2, 11, 10.4, 1);
-      ctx2.fill();
-      ctx2.fillStyle = '#8b939e'; // racked tools
-      for (let i = 0; i < 3; i++) ctx2.fillRect(-8.5 + i * 3.4, -4, 2, 8);
-    },
-    above: (ctx2, t2, o2) => {
-      // articulated crane arm, folded when idle
-      ctx2.strokeStyle = '#4a4438';
-      ctx2.lineWidth = 1.6;
-      ctx2.beginPath();
-      ctx2.moveTo(-2, -6);
-      ctx2.lineTo(1, -10.5);
-      ctx2.lineTo(4.5, -8.5);
-      ctx2.stroke();
-      ctx2.fillStyle = '#ffd75f';
-      ctx2.beginPath(); ctx2.arc(4.7, -8.2, 1.1, 0, TAU); ctx2.fill();
+    len: 22,
+    under: (c, t, o) => wheels(c, t, o, [[-7, -7.1], [-7, 7.1], [7, -7.1], [7, 7.1]], 5.5, 3),
+    tiers: [
+      { poly: [[11, -3], [11, 3], [8, 5.5], [-10, 5.5], [-11, 3], [-11, -3], [-10, -5.5], [8, -5.5]],
+        h: 5, body: '#c9a23c',
+        detail: (c) => {
+          c.fillStyle = '#d9b356'; rr(c, 3.5, -5.2, 7, 10.4, 1.5); c.fill();          // cab
+          c.fillStyle = '#1c2026'; c.fillRect(8.7, -4.2, 1.8, 8.4);
+          c.fillStyle = shade('#c9a23c', -0.38); rr(c, -9.5, -4.8, 11, 9.6, 1); c.fill(); // tool bed
+          c.fillStyle = '#8b939e'; for (let i = 0; i < 3; i++) c.fillRect(-8.5 + i * 3.4, -3.6, 2, 7.2); // tools
+        },
+      },
+    ],
+    above: (c) => {
+      // articulated crane arm (roof-relative)
+      c.strokeStyle = '#4a4438'; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(-2, -0.5); c.lineTo(1, -5); c.lineTo(4.5, -3); c.stroke();
+      c.fillStyle = '#ffd75f'; c.beginPath(); c.arc(4.7, -2.7, 1.1, 0, TAU); c.fill();
     },
   });
   D.probedrone = (ctx, t, o) => {
@@ -4659,7 +4651,9 @@
       ctx.restore();
       base = top;
     }
-    if (cfg.above) cfg.above(ctx, t, o);
+    // superstructure (billboards, dishes, weapon mounts) sits ON the roof:
+    // shift it up by the stacked hull height so `above` lifts stay roof-relative
+    if (cfg.above) { ctx.save(); ctx.translate(0, -base * (cfg.aboveLift !== undefined ? cfg.aboveLift : 1)); cfg.above(ctx, t, o); ctx.restore(); }
   }
 
   // --- ground vehicles: deck rotated in the ground plane with a cheap
@@ -4696,11 +4690,12 @@
     if (cfg.above) cfg.above(ctx, t, o);
   }
 
-  // rotating ground-plane barrel at a screen lift, along the unit's facing
+  // barrel at a screen lift, pointing along the unit's heading in TRUE iso
+  // (matches the 3D hulls); pass o.turret via {facing: angle} to aim a turret
   function isoBarrel(ctx, o, lift, len, w2 = 2.2, col = '#2b3138') {
     ctx.save();
     ctx.translate(0, -lift);
-    ctx.scale(1, 0.5);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);
     ctx.rotate(o.facing);
     ctx.fillStyle = col;
     ctx.fillRect(2.5, -w2 / 2, len, w2);
@@ -4729,45 +4724,41 @@
 
   const boxPath = (l, w2, r = 2.5) => (ctx2) => { rr(ctx2, -l / 2, -w2 / 2, l, w2, r); };
 
-  // mining rigs: boxy hauler, hopper astern, drill or intake at the bow
+  // mining rigs: 3D tracked hauler — hopper astern, raised cab, and either a
+  // drill or an intake grate at the bow
   function rigCfg(body, opts = {}) {
     return {
-      len: 24, wid: 16, hgt: 5, body,
-      path: boxPath(24, 16, 3),
-      detail: (ctx, t, o) => {
-        treads(ctx, t, o, 22, 3.4, 7.2);
-        ctx.fillStyle = shade(body, -0.28);
-        rr(ctx, -10, -5.5, 9, 11, 1.5); // hopper
-        ctx.fill();
-        if (o.carrying) { // hauled minerals glinting in the hopper
-          ctx.globalAlpha = 0.75;
-          ctx.fillStyle = '#3fd7d0';
-          rr(ctx, -8.5, -4, 6, 8, 1);
-          ctx.fill();
-          ctx.globalAlpha = 1;
-        }
-        ctx.fillStyle = shade(body, 0.18);
-        rr(ctx, 2, -6, 7, 12, 1.5); // cab block
-        ctx.fill();
-        ctx.fillStyle = '#1c2026';
-        ctx.fillRect(7.2, -4.5, 2.2, 9); // windshield strip
-        if (opts.drill) {
-          ctx.fillStyle = '#8b939e';
-          ctx.beginPath();
-          ctx.moveTo(12, -5); ctx.lineTo(19, 0); ctx.lineTo(12, 5);
-          ctx.closePath();
-          ctx.fill();
-          ctx.strokeStyle = '#5d646d';
-          ctx.lineWidth = 0.8;
-          for (let i = 0; i < 3; i++) {
-            const p = ((o.dist || 0) * 0.5 + i * 2.3) % 7;
-            ctx.beginPath();
-            ctx.moveTo(12 + p, -5 + p * 0.7);
-            ctx.lineTo(12 + p, 5 - p * 0.7);
-            ctx.stroke();
-          }
-        }
-      },
+      len: 24,
+      under: (c, t, o) => treads(c, t, o, 22, 4, 8.4),
+      tiers: [
+        { // hull
+          poly: [[12, -3], [12, 3], [9, 7], [-11, 7], [-12, 3], [-12, -3], [-11, -7], [9, -7]],
+          h: 5, body,
+          detail: (c, t, o) => {
+            // rear hopper bin, minerals glinting when hauling
+            c.fillStyle = shade(body, -0.3);
+            rr(c, -11, -6, 8, 12, 1.2); c.fill();
+            if (o.carrying) { c.globalAlpha = 0.8; c.fillStyle = '#3fd7d0'; rr(c, -10, -5, 6, 10, 0.8); c.fill(); c.globalAlpha = 1; }
+            if (opts.drill) { // bow auger
+              c.fillStyle = '#8b939e';
+              c.beginPath(); c.moveTo(9, -6); c.lineTo(17, 0); c.lineTo(9, 6); c.closePath(); c.fill();
+              c.strokeStyle = '#5d646d'; c.lineWidth = 0.8;
+              for (let i = 0; i < 3; i++) { const p = ((o.dist || 0) * 0.5 + i * 2.3) % 7; c.beginPath(); c.moveTo(9 + p, -6 + p * 0.7); c.lineTo(9 + p, 6 - p * 0.7); c.stroke(); }
+            } else { // bow intake grate
+              c.fillStyle = shade(body, -0.42); rr(c, 8, -4, 4.4, 8, 0.8); c.fill();
+              c.strokeStyle = shade(body, 0.05); c.lineWidth = 0.5;
+              for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(8.6 + i * 1.3, -3.6); c.lineTo(8.6 + i * 1.3, 3.6); c.stroke(); }
+            }
+          },
+        },
+        { // raised cab
+          poly: [[6, -5], [6, 5], [-1, 5], [-1, -5]], h: 4, body: shade(body, 0.16),
+          detail: (c) => {
+            c.fillStyle = '#1a1e24'; rr(c, -0.5, -4, 6, 8, 1); c.fill();
+            c.fillStyle = 'rgba(130,160,195,0.3)'; rr(c, 3.6, -3.5, 2, 7, 0.6); c.fill();
+          },
+        },
+      ],
     };
   }
   // Globalist Mining Rig: armored tracked hauler with a raised cab, a front
@@ -4809,142 +4800,132 @@
 
   // ---------- apex ground heavies ----------
   I.leveler = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 40, wid: 22, hgt: 8, body: '#5a6048',
-    path: boxPath(40, 22, 3),
-    detail: (ctx2, t2, o2) => {
-      treads(ctx2, t2, o2, 38, 5, 11);
-      // riveted deck plates
-      ctx2.fillStyle = shade('#5a6048', 0.1);
-      rr(ctx2, -15, -8, 30, 16, 2); ctx2.fill();
-      ctx2.strokeStyle = shade('#5a6048', -0.4); ctx2.lineWidth = 0.8;
-      for (let i = -12; i <= 12; i += 6) { ctx2.beginPath(); ctx2.moveTo(i, -8); ctx2.lineTo(i, 8); ctx2.stroke(); }
-      // diesel stacks belching
-      ctx2.fillStyle = '#2c2f36';
-      ctx2.beginPath(); ctx2.arc(-13, -5, 2, 0, TAU); ctx2.arc(-13, 5, 2, 0, TAU); ctx2.fill();
-    },
-    above: (ctx2, t2, o2) => {
-      // three broadside turrets down the spine, each with a barrel
-      for (const sx of [-9, 1, 11]) {
-        ctx2.save();
-        ctx2.translate(sx * 0.5, 0);
-        isoDome(ctx2, 9, 3.4, '#6a7052');
-        ctx2.restore();
-      }
-      isoBarrel(ctx2, o2, 9, 11, 2, '#2b3138');
-      isoBarrel(ctx2, { facing: o2.facing + 0.4 }, 9, 9, 1.8, '#2b3138');
-      isoBarrel(ctx2, { facing: o2.facing - 0.4 }, 9, 9, 1.8, '#2b3138');
-      // stubby AA pintle on top
-      isoDome(ctx2, 13, 2, '#4a5240');
-      if (o2.firing) {
-        ctx2.fillStyle = 'rgba(255,220,140,0.9)';
-        ctx2.beginPath(); ctx2.arc(0, -13, 2.5, 0, TAU); ctx2.fill();
-      }
+    len: 40,
+    under: (c, t, o) => treads(c, t, o, 38, 6, 12),
+    tiers: [
+      { poly: [[19, -5], [19, 5], [15, 10], [-19, 10], [-20, 0], [-19, -10], [15, -10]], h: 8, body: '#5a6048',
+        detail: (c) => {
+          c.fillStyle = shade('#5a6048', 0.1); rr(c, -15, -8, 30, 16, 2); c.fill();
+          c.strokeStyle = shade('#5a6048', -0.4); c.lineWidth = 0.8;
+          for (let i = -12; i <= 12; i += 6) { c.beginPath(); c.moveTo(i, -8); c.lineTo(i, 8); c.stroke(); }
+          c.fillStyle = '#2c2f36'; c.beginPath(); c.arc(-13, -5, 2, 0, TAU); c.arc(-13, 5, 2, 0, TAU); c.fill(); // diesel stacks
+        },
+      },
+    ],
+    above: (c, t, o) => {
+      // three broadside turrets down the spine + their barrels (roof-relative)
+      for (const sx of [-9, 1, 11]) { c.save(); c.translate(sx * 0.7, 0); isoDome(c, 1, 3.4, '#6a7052'); c.restore(); }
+      isoBarrel(c, o, 2, 11, 2, '#2b3138');
+      isoBarrel(c, { facing: o.facing + 0.4 }, 2, 9, 1.8, '#2b3138');
+      isoBarrel(c, { facing: o.facing - 0.4 }, 2, 9, 1.8, '#2b3138');
+      isoDome(c, 5, 2, '#4a5240'); // stubby AA pintle
+      if (o.firing) { c.fillStyle = 'rgba(255,220,140,0.9)'; c.beginPath(); c.arc(0, -5, 2.5, 0, TAU); c.fill(); }
     },
   });
   I.ironmole = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 40, wid: 20, hgt: 8, body: '#6a5c48',
-    path: boxPath(38, 20, 4),
-    detail: (ctx2, t2, o2) => {
-      treads(ctx2, t2, o2, 34, 5, 10);
-      // riveted brass hull bands
-      ctx2.fillStyle = '#7a6a4e';
-      rr(ctx2, -14, -7, 22, 14, 3); ctx2.fill();
-      ctx2.strokeStyle = '#4a3d28'; ctx2.lineWidth = 1;
-      for (let i = -10; i <= 6; i += 5) { ctx2.beginPath(); ctx2.moveTo(i, -7); ctx2.lineTo(i, 7); ctx2.stroke(); }
-      // the great auger: a stack of spinning conical flutes at the bow
-      ctx2.fillStyle = '#9aa2ae';
-      ctx2.beginPath(); ctx2.moveTo(9, -9); ctx2.lineTo(27, 0); ctx2.lineTo(9, 9); ctx2.closePath(); ctx2.fill();
-      ctx2.strokeStyle = '#4d5560'; ctx2.lineWidth = 1.2;
+    len: 40,
+    under: (c, t, o) => {
+      treads(c, t, o, 34, 6, 11);
+      // the great auger: a stack of spinning conical flutes protruding at the bow
+      c.fillStyle = '#9aa2ae';
+      c.beginPath(); c.moveTo(15, -9); c.lineTo(28, 0); c.lineTo(15, 9); c.closePath(); c.fill();
+      c.strokeStyle = '#4d5560'; c.lineWidth = 1.2;
       for (let i = 0; i < 6; i++) {
-        const p = ((o2.moving || o2.firing ? t2 * 30 : t2 * 6) + i * 3) % 18;
-        ctx2.beginPath();
-        ctx2.moveTo(9 + p, -9 + p * 0.5); ctx2.lineTo(9 + p, 9 - p * 0.5);
-        ctx2.stroke();
+        const p = ((o.moving || o.firing ? t * 30 : t * 6) + i * 3) % 15;
+        c.beginPath(); c.moveTo(15 + p, -9 + p * 0.55); c.lineTo(15 + p, 9 - p * 0.55); c.stroke();
       }
-      ctx2.fillStyle = '#c8cdd5';
-      ctx2.beginPath(); ctx2.arc(24, 0, 1.6, 0, TAU); ctx2.fill();
+      c.fillStyle = '#c8cdd5'; c.beginPath(); c.arc(26, 0, 1.6, 0, TAU); c.fill();
     },
-    above: (ctx2) => {
-      isoDome(ctx2, 8, 5, '#7a6a4e');
-      // vril lamp cupola
-      ctx2.fillStyle = 'rgba(125,255,214,0.7)';
-      ctx2.beginPath(); ctx2.arc(0, -9, 1.8, 0, TAU); ctx2.fill();
+    tiers: [
+      { poly: [[15, -4], [15, 4], [12, 9], [-18, 9], [-19, 0], [-18, -9], [12, -9]], h: 8, body: '#6a5c48',
+        detail: (c) => {
+          c.fillStyle = '#7a6a4e'; rr(c, -14, -7, 22, 14, 3); c.fill();
+          c.strokeStyle = '#4a3d28'; c.lineWidth = 1;
+          for (let i = -10; i <= 6; i += 5) { c.beginPath(); c.moveTo(i, -7); c.lineTo(i, 7); c.stroke(); }
+        },
+      },
+    ],
+    above: (c) => {
+      isoDome(c, 1, 5, '#7a6a4e');
+      c.fillStyle = 'rgba(125,255,214,0.7)'; c.beginPath(); c.arc(0, -2, 1.8, 0, TAU); c.fill(); // vril lamp
     },
   });
   I.cruisetruck = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 28, wid: 14, hgt: 5, body: '#5c5347',
-    path: boxPath(28, 14, 3),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-10, -7.6], [-10, 7.6], [-3, -7.6], [-3, 7.6], [10, -7.6], [10, 7.6]], 5, 2.6);
-      ctx2.fillStyle = '#6d6248';
-      rr(ctx2, 7, -5.6, 7, 11.2, 1.5); ctx2.fill(); // cab
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(12.2, -4.4, 1.8, 8.8);
-    },
-    above: (ctx2, t2, o2) => {
-      // an angled rack of scrap-built cruise missiles
-      ctx2.save();
-      ctx2.translate(-4, 0);
-      ctx2.rotate(-0.5);
+    len: 28,
+    under: (c, t, o) => wheels(c, t, o, [[-10, -7.6], [-10, 7.6], [-3, -7.6], [-3, 7.6], [10, -7.6], [10, 7.6]], 5, 2.8),
+    tiers: [
+      { poly: [[14, -3], [14, 3], [11, 6], [-14, 5.5], [-14, -5.5], [11, -6]], h: 5, body: '#5c5347',
+        detail: (c) => {
+          c.fillStyle = '#6d6248'; rr(c, 7, -5.6, 7, 11.2, 1.5); c.fill(); // cab
+          c.fillStyle = '#1c2026'; c.fillRect(12.2, -4.4, 1.8, 8.8);
+        },
+      },
+    ],
+    above: (c, t, o) => {
+      // an angled rack of scrap-built cruise missiles on the bed
+      c.save();
+      c.translate(-2, -0.5);
+      c.rotate(-0.5);
       for (const oy of [-3.5, 0, 3.5]) {
-        ctx2.fillStyle = '#8a8271';
-        rr(ctx2, -8, oy - 1.4, 16, 2.8, 1.2); ctx2.fill();
-        ctx2.fillStyle = '#b04a3a';
-        ctx2.beginPath(); ctx2.moveTo(8, oy - 1.4); ctx2.lineTo(11, oy); ctx2.lineTo(8, oy + 1.4); ctx2.closePath(); ctx2.fill();
+        c.fillStyle = '#8a8271'; rr(c, -8, oy - 1.4, 16, 2.8, 1.2); c.fill();
+        c.fillStyle = '#b04a3a'; c.beginPath(); c.moveTo(8, oy - 1.4); c.lineTo(11, oy); c.lineTo(8, oy + 1.4); c.closePath(); c.fill();
       }
-      ctx2.restore();
-      if (o2.firing) {
-        ctx2.fillStyle = 'rgba(255,220,140,0.9)';
-        ctx2.beginPath(); ctx2.arc(-11, 0, 3, 0, TAU); ctx2.fill();
-      }
+      c.restore();
+      if (o.firing) { c.fillStyle = 'rgba(255,220,140,0.9)'; c.beginPath(); c.arc(-11, -0.5, 3, 0, TAU); c.fill(); }
     },
   });
 
   I.truck = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 26, wid: 14, hgt: 5, body: '#6d5b40',
-    path: boxPath(26, 14, 3),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-9, -7.6], [-9, 7.6], [3, -7.6], [3, 7.6], [9, -7.6], [9, 7.6]], 5, 2.6);
-      ctx2.fillStyle = '#7d6b4c';
-      rr(ctx2, 6, -6, 7, 12, 1.5); // cab
-      ctx2.fill();
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(11, -4.5, 1.8, 9);
-    },
-    above: (ctx2, t2, o2) => {
-      // the TRUTH billboard mounted across the bed, always readable
-      ctx2.fillStyle = '#e8e4da';
-      rr(ctx2, -8.5, -13, 17, 6.5, 1);
-      ctx2.fill();
-      ctx2.strokeStyle = '#8a8271';
-      ctx2.lineWidth = 0.8;
-      ctx2.stroke();
-      ctx2.fillStyle = '#b04a3a';
-      ctx2.font = 'bold 4.5px Arial';
-      ctx2.textAlign = 'center';
-      ctx2.textBaseline = 'middle';
-      ctx2.fillText('TRUTH', 0, -9.6);
+    len: 26,
+    under: (c, t, o) => wheels(c, t, o, [[-9, -7.6], [-9, 7.6], [3, -7.6], [3, 7.6], [9, -7.6], [9, 7.6]], 5.5, 3),
+    tiers: [
+      { poly: [[13, -3], [13, 3], [10, 6.5], [-13, 6], [-13, -6], [10, -6.5]], h: 5, body: '#6d5b40',
+        detail: (c) => {
+          // cab up front
+          c.fillStyle = '#7d6b4c'; rr(c, 4, -6, 8, 12, 1.5); c.fill();
+          c.fillStyle = '#1c2026'; c.fillRect(11, -4.5, 1.8, 9);
+          // bed planks
+          c.strokeStyle = shade('#6d5b40', -0.42); c.lineWidth = 0.5;
+          for (let i = -11; i <= 1; i += 3) { c.beginPath(); c.moveTo(i, -5.5); c.lineTo(i, 5.5); c.stroke(); }
+        },
+      },
+    ],
+    above: (c) => {
+      // the TRUTH billboard standing above the bed, always readable
+      c.fillStyle = '#e8e4da'; rr(c, -8.5, -8, 17, 6.5, 1); c.fill();
+      c.strokeStyle = '#8a8271'; c.lineWidth = 0.8; c.stroke();
+      c.fillStyle = '#b04a3a'; c.font = 'bold 4.5px Arial'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('TRUTH', 0, -4.6);
     },
   });
   I.technical = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 22, wid: 12, hgt: 4, body: '#8a7a58',
-    path: boxPath(22, 12, 3),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-7, -6.6], [-7, 6.6], [7, -6.6], [7, 6.6]], 5, 2.6);
-      ctx2.fillStyle = '#9a8a66';
-      rr(ctx2, 3, -5.2, 7, 10.4, 1.5);
-      ctx2.fill();
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(8.2, -4, 1.8, 8);
-      ctx2.fillStyle = shade('#8a7a58', -0.3);
-      rr(ctx2, -9.5, -5, 11, 10, 1); // open bed
-      ctx2.fill();
-    },
-    above: (ctx2, t2, o2) => {
-      isoDome(ctx2, 5.5, 2, '#4a4438');
-      isoBarrel(ctx2, o2, 6, 8, 1.6);
-    },
+    len: 22,
+    under: (c, t, o) => wheels(c, t, o, [[-7, -6.6], [-7, 6.6], [7, -6.6], [7, 6.6]], 5.5, 3),
+    tiers: [
+      { poly: [[11, -3], [11, 3], [8, 5.5], [-10, 5.5], [-11, 3], [-11, -3], [-10, -5.5], [8, -5.5]],
+        h: 4, body: '#8a7a58',
+        detail: (c) => {
+          c.fillStyle = '#9a8a66'; rr(c, 3, -5, 7.5, 10, 1.5); c.fill();       // cab
+          c.fillStyle = '#1c2026'; c.fillRect(8.5, -4, 1.8, 8);
+          c.fillStyle = shade('#8a7a58', -0.38); rr(c, -9.5, -4.6, 11, 9.2, 1); c.fill(); // open bed
+        },
+      },
+    ],
   });
+  // bed-mounted pintle gun — swivels to track the target while the truck drives
+  T.technical = (ctx, t, o) => {
+    const a = o.turret !== undefined ? o.turret : (o.facing || 0);
+    ctx.save();
+    ctx.translate(0, -4.5);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    ctx.translate(-2, 0);                       // gun sits over the bed
+    ctx.fillStyle = '#39342b'; ctx.beginPath(); ctx.arc(0, 0, 2.1, 0, TAU); ctx.fill();
+    ctx.rotate(a);
+    ctx.fillStyle = '#20252c'; ctx.fillRect(0.5, -0.8, 9, 1.6);
+    ctx.fillStyle = '#5a636d'; ctx.fillRect(9, -0.8, 1.3, 1.6);
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.95)'; ctx.beginPath(); ctx.arc(11.5, 0, 2, 0, TAU); ctx.fill(); }
+    ctx.restore();
+  };
   I.suv = (ctx, t, o) => isoVehicle(ctx, t, o, {
     // two-box SUV: a lower gunmetal body with a raised near-black greenhouse,
     // built as stacked 3D tiers so it has real volume and a real car profile.
@@ -5016,62 +4997,51 @@
     ctx.restore();
   };
   I.blackvan = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 24, wid: 13, hgt: 6, body: '#23272e',
-    path: boxPath(24, 13, 3),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-7.5, -7.1], [-7.5, 7.1], [7.5, -7.1], [7.5, 7.1]], 5, 2.6);
-      ctx2.fillStyle = '#2c313a';
-      rr(ctx2, -11, -5.5, 22, 11, 2);
-      ctx2.fill();
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(9.5, -4.5, 2, 9);
-      // antenna strakes
-      ctx2.strokeStyle = '#59616c';
-      ctx2.lineWidth = 0.8;
-      ctx2.beginPath();
-      ctx2.moveTo(-9, -3); ctx2.lineTo(6, -3);
-      ctx2.moveTo(-9, 3); ctx2.lineTo(6, 3);
-      ctx2.stroke();
-    },
-    above: (ctx2, t2, o2) => {
+    len: 24,
+    under: (c, t, o) => wheels(c, t, o, [[-7.5, -7.1], [-7.5, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [11, 6], [-12, 6], [-12, -6], [11, -6]], h: 7, body: '#23272e',
+        detail: (c) => {
+          c.fillStyle = shade('#23272e', 0.12); rr(c, -11, -5, 20, 10, 1.5); c.fill(); // roof panel
+          c.fillStyle = '#1c2026'; c.fillRect(9.5, -4.5, 2, 9);                          // windshield
+          c.strokeStyle = '#59616c'; c.lineWidth = 0.6;                                  // antenna strakes
+          c.beginPath(); c.moveTo(-9, -3); c.lineTo(6, -3); c.moveTo(-9, 3); c.lineTo(6, 3); c.stroke();
+        },
+      },
+    ],
+    above: (c, t) => {
       // roof surveillance dish, slowly sweeping
-      ctx2.strokeStyle = '#8b939e';
-      ctx2.lineWidth = 1;
-      ctx2.beginPath(); ctx2.moveTo(0, -6); ctx2.lineTo(0, -9); ctx2.stroke();
-      ctx2.save();
-      ctx2.translate(0, -9.5);
-      ctx2.scale(Math.sin(t2 * 1.6), 1);
-      ctx2.strokeStyle = '#c8cdd5';
-      ctx2.lineWidth = 1.1;
-      ctx2.beginPath(); ctx2.arc(0, 0, 3.2, Math.PI * 0.15, Math.PI * 0.85, true); ctx2.stroke();
-      ctx2.restore();
+      c.strokeStyle = '#8b939e'; c.lineWidth = 1;
+      c.beginPath(); c.moveTo(0, -0.5); c.lineTo(0, -3.5); c.stroke();
+      c.save(); c.translate(0, -4); c.scale(Math.sin(t * 1.6), 1);
+      c.strokeStyle = '#c8cdd5'; c.lineWidth = 1.1;
+      c.beginPath(); c.arc(0, 0, 3.2, Math.PI * 0.15, Math.PI * 0.85, true); c.stroke();
+      c.restore();
     },
   });
   I.drill = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 26, wid: 16, hgt: 5, body: '#5c5347',
-    path: boxPath(26, 16, 3),
-    detail: (ctx2, t2, o2) => {
-      treads(ctx2, t2, o2, 24, 3.8, 8);
-      ctx2.fillStyle = '#6b6152';
-      rr(ctx2, -9, -5.5, 14, 11, 2);
-      ctx2.fill();
-      // the auger: cone with spinning flutes at the bow
-      ctx2.fillStyle = '#8b939e';
-      ctx2.beginPath();
-      ctx2.moveTo(11, -6.5); ctx2.lineTo(21, 0); ctx2.lineTo(11, 6.5);
-      ctx2.closePath();
-      ctx2.fill();
-      ctx2.strokeStyle = '#4d5560';
-      ctx2.lineWidth = 1;
+    len: 26,
+    under: (c, t, o) => {
+      treads(c, t, o, 24, 4.2, 8.5);
+      // the auger: cone with spinning flutes protruding from the bow (ground level)
+      c.fillStyle = '#8b939e';
+      c.beginPath(); c.moveTo(10, -6); c.lineTo(19, 0); c.lineTo(10, 6); c.closePath(); c.fill();
+      c.strokeStyle = '#4d5560'; c.lineWidth = 1;
       for (let i = 0; i < 4; i++) {
-        const p = ((o2.moving || o2.firing ? t2 * 26 : 0) + i * 2.5) % 10;
-        ctx2.beginPath();
-        ctx2.moveTo(11 + p, -6.5 + p * 0.62);
-        ctx2.lineTo(11 + p, 6.5 - p * 0.62);
-        ctx2.stroke();
+        const p = ((o.moving || o.firing ? t * 26 : 0) + i * 2.4) % 9;
+        c.beginPath(); c.moveTo(10 + p, -6 + p * 0.65); c.lineTo(10 + p, 6 - p * 0.65); c.stroke();
       }
     },
-    above: (ctx2) => isoDome(ctx2, 5.5, 3.4, '#6b6152'),
+    tiers: [
+      { poly: [[11, -3], [11, 3], [8, 7], [-12, 7], [-13, 0], [-12, -7], [8, -7]], h: 5, body: '#5c5347',
+        detail: (c) => {
+          c.fillStyle = '#6b6152'; rr(c, -9, -5.5, 14, 11, 2); c.fill();
+          c.strokeStyle = shade('#6b6152', -0.4); c.lineWidth = 0.5;
+          for (let i = -6; i <= 3; i += 3) { c.beginPath(); c.moveTo(i, -5); c.lineTo(i, 5); c.stroke(); }
+        },
+      },
+    ],
+    above: (c) => isoDome(c, 1, 3.4, '#6b6152'),
   });
   I.basilisk = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 30, wid: 13, hgt: 4.5, body: '#4a6a54',
@@ -5128,112 +5098,100 @@
     ctx.restore();
   };
   I.catapult = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 24, wid: 14, hgt: 4, body: '#6d5b40',
-    path: boxPath(24, 14, 2.5),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-8, -7.6], [-8, 7.6], [8, -7.6], [8, 7.6]], 5.5, 2.8);
-      ctx2.fillStyle = shade('#6d5b40', -0.25);
-      rr(ctx2, -10, -5, 20, 10, 1.5);
-      ctx2.fill();
-    },
-    above: (ctx2, t2, o2) => {
-      // throw arm along the heading, cocked or released
-      const hd2 = o2.hdg, dxu = Math.cos(hd2), dyu = Math.sin(hd2) * 0.62;
-      const cocked = !o2.firing;
-      const bx2 = -dxu * 6, by2 = -dyu * 6 - 3;
-      const tx2 = bx2 + dxu * (cocked ? 6 : 12), ty2 = by2 - (cocked ? 11 : 4) + dyu * 6;
-      ctx2.strokeStyle = '#7a5c37';
-      ctx2.lineWidth = 2.2;
-      ctx2.beginPath(); ctx2.moveTo(bx2, by2); ctx2.lineTo(tx2, ty2); ctx2.stroke();
-      ctx2.fillStyle = '#5b4a32';
-      ctx2.beginPath(); ctx2.arc(tx2, ty2, 2.6, 0, TAU); ctx2.fill();
-      if (cocked) {
-        ctx2.fillStyle = '#8a7f6e';
-        ctx2.beginPath(); ctx2.arc(tx2, ty2 - 1, 1.7, 0, TAU); ctx2.fill();
-      }
+    len: 24,
+    under: (c, t, o) => wheels(c, t, o, [[-8, -7.6], [-8, 7.6], [8, -7.6], [8, 7.6]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [10, 6], [-12, 6], [-12, -6], [10, -6]], h: 4, body: '#6d5b40',
+        detail: (c) => {
+          c.fillStyle = shade('#6d5b40', -0.25); rr(c, -10, -5, 20, 10, 1.5); c.fill(); // flatbed
+          c.strokeStyle = shade('#6d5b40', -0.42); c.lineWidth = 0.5;
+          for (let i = -8; i <= 8; i += 4) { c.beginPath(); c.moveTo(i, -5); c.lineTo(i, 5); c.stroke(); }
+        },
+      },
+    ],
+    above: (c, t, o) => {
+      // throw arm along the heading, cocked or released (roof-relative)
+      const dxu = Math.cos(o.hdg), dyu = Math.sin(o.hdg) * 0.62;
+      const cocked = !o.firing;
+      const bx = -dxu * 6, by = -dyu * 6 - 1;
+      const tx = bx + dxu * (cocked ? 6 : 12), ty = by - (cocked ? 11 : 4) + dyu * 6;
+      c.strokeStyle = '#7a5c37'; c.lineWidth = 2.2;
+      c.beginPath(); c.moveTo(bx, by); c.lineTo(tx, ty); c.stroke();
+      c.fillStyle = '#5b4a32'; c.beginPath(); c.arc(tx, ty, 2.6, 0, TAU); c.fill();
+      if (cocked) { c.fillStyle = '#8a7f6e'; c.beginPath(); c.arc(tx, ty - 1, 1.7, 0, TAU); c.fill(); }
     },
   });
   I.haarp = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 25, wid: 14, hgt: 5, body: '#4a5a66',
-    path: boxPath(25, 14, 2.5),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-8.5, -7.6], [-8.5, 7.6], [3, -7.6], [3, 7.6], [9, -7.6], [9, 7.6]], 5, 2.6);
-      ctx2.fillStyle = '#59616c';
-      rr(ctx2, 6.5, -5.5, 6, 11, 1.5);
-      ctx2.fill();
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(10.5, -4, 1.8, 8);
-    },
-    above: (ctx2, t2, o2) => {
-      // antenna farm bristling skyward off the bed
-      ctx2.strokeStyle = '#c8cdd5';
-      ctx2.lineWidth = 0.9;
+    len: 25,
+    under: (c, t, o) => wheels(c, t, o, [[-8.5, -7.6], [-8.5, 7.6], [3, -7.6], [3, 7.6], [9, -7.6], [9, 7.6]], 5, 2.8),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [10, 6], [-12, 6], [-12, -6], [10, -6]], h: 5, body: '#4a5a66',
+        detail: (c) => {
+          c.fillStyle = '#59616c'; rr(c, 6.5, -5.5, 6, 11, 1.5); c.fill(); // cab
+          c.fillStyle = '#1c2026'; c.fillRect(10.5, -4, 1.8, 8);
+          c.fillStyle = shade('#4a5a66', -0.2); rr(c, -10, -5, 14, 10, 1.5); c.fill(); // equipment bed
+        },
+      },
+    ],
+    above: (c, t, o) => {
+      // antenna farm bristling skyward off the bed (roof-relative)
+      c.strokeStyle = '#c8cdd5'; c.lineWidth = 0.9;
       for (let i = 0; i < 4; i++) {
         const ax = -6 + i * 3;
-        ctx2.beginPath();
-        ctx2.moveTo(ax, -4.5);
-        ctx2.lineTo(ax, -13 - (i % 2) * 2);
-        ctx2.stroke();
+        c.beginPath(); c.moveTo(ax, -0.5); c.lineTo(ax, -9 - (i % 2) * 2); c.stroke();
       }
-      ctx2.strokeStyle = 'rgba(140,208,255,0.5)';
-      ctx2.beginPath(); ctx2.moveTo(-6.5, -12.5); ctx2.lineTo(3.5, -12.5); ctx2.stroke();
-      if (o2.firing) {
-        ctx2.strokeStyle = 'rgba(160,200,245,0.8)';
-        ctx2.lineWidth = 1.2;
+      c.strokeStyle = 'rgba(140,208,255,0.5)';
+      c.beginPath(); c.moveTo(-6.5, -8.5); c.lineTo(3.5, -8.5); c.stroke();
+      if (o.firing) {
+        c.strokeStyle = 'rgba(160,200,245,0.8)'; c.lineWidth = 1.2;
         for (let i = 0; i < 3; i++) {
-          const ph = (t2 * 2 + i / 3) % 1;
-          ctx2.beginPath();
-          ctx2.arc(-1.5, -13, 3 + ph * 8, -2.6, -0.6);
-          ctx2.stroke();
+          const ph = (t * 2 + i / 3) % 1;
+          c.beginPath(); c.arc(-1.5, -9, 3 + ph * 8, -2.6, -0.6); c.stroke();
         }
       }
     },
   });
   function mortarCfg(body, tubeCol) {
     return {
-      len: 23, wid: 15, hgt: 4.5, body,
-      path: boxPath(23, 15, 3),
-      detail: (ctx2, t2, o2) => {
-        treads(ctx2, t2, o2, 21, 3.4, 7.4);
-        ctx2.fillStyle = shade(body, -0.22);
-        rr(ctx2, -8, -5.5, 16, 11, 2);
-        ctx2.fill();
-      },
-      above: (ctx2, t2, o2) => {
-        // stubby mortar tube: rear-mounted, angled high toward the heading
-        const dxu = Math.cos(o2.hdg), dyu = Math.sin(o2.hdg) * 0.62;
-        const bx2 = -dxu * 4, by2 = -dyu * 4 - 3.5;
-        const tx2 = bx2 + dxu * 6, ty2 = by2 - 8 + dyu * 3;
-        ctx2.strokeStyle = tubeCol;
-        ctx2.lineWidth = 4.4;
-        ctx2.lineCap = 'butt';
-        ctx2.beginPath(); ctx2.moveTo(bx2, by2); ctx2.lineTo(tx2, ty2); ctx2.stroke();
-        ctx2.fillStyle = '#14161a';
-        ctx2.beginPath(); ctx2.ellipse(tx2, ty2, 2.4, 1.9, 0, 0, TAU); ctx2.fill();
-        if (o2.firing) {
-          ctx2.fillStyle = 'rgba(255,210,120,0.9)';
-          ctx2.beginPath(); ctx2.arc(tx2, ty2 - 1.5, 3.4, 0, TAU); ctx2.fill();
-        }
-        isoDome(ctx2, 4.5, 2.2, shade(tubeCol, 0.1));
+      len: 23,
+      under: (c, t, o) => treads(c, t, o, 21, 3.8, 8),
+      tiers: [
+        { poly: [[11, -3], [11, 3], [8, 7], [-10, 7], [-11, 3], [-11, -3], [-10, -7], [8, -7]],
+          h: 5, body,
+          detail: (c) => {
+            c.fillStyle = shade(body, -0.22); rr(c, -8, -5.5, 15, 11, 2); c.fill();
+            c.strokeStyle = shade(body, -0.4); c.lineWidth = 0.5;
+            for (let i = -6; i <= 6; i += 4) { c.beginPath(); c.moveTo(i, -5); c.lineTo(i, 5); c.stroke(); }
+          },
+        },
+      ],
+      above: (c, t, o) => {
+        // mount ring on the roof + a stubby tube angled up toward the heading
+        isoDome(c, 0.5, 2.4, shade(tubeCol, 0.1));
+        const dxu = Math.cos(o.hdg), dyu = Math.sin(o.hdg) * 0.62;
+        const bx = dxu * 1.5, by = -dyu * 1.5 - 1;
+        const tx = bx + dxu * 6, ty = by - 9 + dyu * 3;
+        c.strokeStyle = tubeCol; c.lineWidth = 4.4; c.lineCap = 'butt';
+        c.beginPath(); c.moveTo(bx, by); c.lineTo(tx, ty); c.stroke();
+        c.fillStyle = '#14161a'; c.beginPath(); c.ellipse(tx, ty, 2.4, 1.9, 0, 0, TAU); c.fill();
+        if (o.firing) { c.fillStyle = 'rgba(255,210,120,0.9)'; c.beginPath(); c.arc(tx, ty - 1.5, 3.4, 0, TAU); c.fill(); }
       },
     };
   }
   I.magma = (ctx, t, o) => isoVehicle(ctx, t, o, mortarCfg('#5c5347', '#7a4a30'));
   I.mortarcrawler = (ctx, t, o) => isoVehicle(ctx, t, o, mortarCfg('#4a525e', '#3c6a5c'));
   I.smuggler = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 24, wid: 13, hgt: 6, body: '#6e6558',
-    path: boxPath(24, 13, 2.5),
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-7.5, -7.1], [-7.5, 7.1], [7.5, -7.1], [7.5, 7.1]], 5, 2.6);
-      ctx2.fillStyle = '#7d746a';
-      rr(ctx2, -11, -5.5, 16, 11, 1.5); // box body
-      ctx2.fill();
-      ctx2.fillStyle = '#8a8074';
-      rr(ctx2, 6, -5, 6, 10, 1.5); // cab
-      ctx2.fill();
-      ctx2.fillStyle = '#1c2026';
-      ctx2.fillRect(10.2, -4, 1.6, 8);
-    },
+    len: 24,
+    under: (c, t, o) => wheels(c, t, o, [[-7.5, -7.1], [-7.5, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [11, 6], [-12, 6], [-12, -6], [11, -6]], h: 6.5, body: '#6e6558',
+        detail: (c) => {
+          c.fillStyle = shade('#6e6558', -0.18); rr(c, -11, -5, 15, 10, 1.5); c.fill(); // cargo box
+          c.fillStyle = '#8a8074'; rr(c, 5, -5.5, 7, 11, 1.5); c.fill();                 // cab
+          c.fillStyle = '#1c2026'; c.fillRect(10.2, -4, 1.6, 8);
+        },
+      },
+    ],
   });
 
   // --- lighter-than-air: upright balloons and orbs ---
