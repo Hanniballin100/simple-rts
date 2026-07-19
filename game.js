@@ -274,6 +274,10 @@ function updateFog() {
   for (const b of state.buildings) {
     if (b.owner === PLAYER && b.hp > 0) markSight(b.x, b.y, bstatsOf(b).sight);
   }
+  // orbital uplink (Globalist Satellite): a finished one reveals the whole map
+  if (state.buildings.some(b => b.owner === PLAYER && b.hp > 0 && b.done && bstatsOf(b).revealMap)) {
+    vis.fill(2);
+  }
 }
 
 function visibleToPlayer(e) {
@@ -1189,6 +1193,29 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       }
     }
   }
+  // ground vehicles drive like vehicles: they only ever move FORWARD along the
+  // hull heading (never strafe sideways), swinging the nose toward the steering
+  // direction at a limited turn rate and easing off the throttle while the turn
+  // is still wide — so they arc toward the target and pivot in place to reverse,
+  // always moving the way they point. Infantry keep the instant facing snap.
+  const isVeh = t.shape === 'square' && !t.flying;
+  if (isVeh) {
+    const mdx0 = nx - u.x, mdy0 = ny - u.y;
+    const stepLen = Math.hypot(mdx0, mdy0);
+    if (stepLen > 0.01) {
+      const want = Math.atan2(mdy0, mdx0);
+      if (u.facing === undefined) u.facing = want;
+      const df = ((want - u.facing + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+      const turn = (t.turnRate || 3.6) * dt;
+      u.facing += clamp(df, -turn, turn);
+      // forward throttle: full when lined up, ~0 while broadside or reversing
+      const drive = stepLen * Math.max(0, Math.cos(df));
+      u.x = clamp(u.x + Math.cos(u.facing) * drive, 10, WORLD_W - 10);
+      u.y = clamp(u.y + Math.sin(u.facing) * drive, 10, WORLD_H - 10);
+      u.travel += drive;
+    }
+    return false;
+  }
   const px = u.x, py = u.y;
   u.x = clamp(nx, 10, WORLD_W - 10);
   u.y = clamp(ny, 10, WORLD_H - 10);
@@ -1412,7 +1439,10 @@ function tryAttack(u, target, dt) {
     moveToward(u, target.x, target.y, dt, range - 4, target.kind === 'building' ? target.id : null);
     return;
   }
-  u.facing = Math.atan2(target.y - u.y, target.x - u.x);
+  const aimA = Math.atan2(target.y - u.y, target.x - u.x);
+  // turreted vehicles keep their travel heading and swing only the gun
+  if (Art.hasIsoTurret(u.type)) { u.aimAngle = aimA; u.aimT = state.time; }
+  else u.facing = aimA;
   if (t.minRange && d < t.minRange) return; // artillery: too close to fire
   fireAt(u, target, t);
 }
@@ -1448,7 +1478,8 @@ function fireAt(u, target, t) {
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
     u.cooldown = t.cooldown;
     if (t.maxAmmo) u.ammo--;
-    const a = u.facing;
+    // turreted vehicles fire along the gun, not the chassis
+    const a = (Art.hasIsoTurret(u.type) && u.turret !== undefined) ? u.turret : u.facing;
     const visible = tileState(u.x, u.y) === 2 || tileState(target.x, target.y) === 2;
     const wkind = t.weapon || 'gun';
 
@@ -1477,10 +1508,10 @@ function fireAt(u, target, t) {
               dist(u, e) <= t.atkRange + entityRadius(e))
             .sort((x, y) => dist(u, x) - dist(u, y)).slice(0, t.multiTarget - 1)
           : [];
-        const uz = (t.flying && !u.landed) ? FLY_H : 0; // land dreadnoughts fire from the deck
+        const uz = unitAlt(u); // land dreadnoughts fire from the deck (alt 0)
         for (const tgt of [target, ...extras]) {
           dealDamage(u, tgt, dmg, t);
-          const tz = (tgt.kind === 'unit' && UNIT_TYPES[tgt.type].flying && !tgt.landed) ? FLY_H : 0;
+          const tz = tgt.kind === 'unit' ? unitAlt(tgt) : 0;
           Particles.shot(u.x + Math.cos(a + 1.5) * (t.r - 3), u.y + Math.sin(a + 1.5) * (t.r - 3),
             tgt.x, tgt.y, WEAPON_STYLE[state.factions[u.owner]], uz, tz);
         }
@@ -1494,7 +1525,7 @@ function fireAt(u, target, t) {
       if (t.leech) u.hp = Math.min(u.maxHp, u.hp + dmg * 0.8); // vivisection pays
       Particles.shot(u.x + Math.cos(a) * (t.r + 2), u.y + Math.sin(a) * (t.r + 2),
         target.x, target.y, WEAPON_STYLE[state.factions[u.owner]],
-        (t.flying && !u.landed) ? FLY_H : 0, (isAir && !target.landed) ? FLY_H : 0);
+        unitAlt(u), target.kind === 'unit' ? unitAlt(target) : 0);
       if (wkind === 'spray' && t.groundEffect && !isAir) {
         state.zones.push({
           x: target.x, y: target.y, r: t.groundEffect.r, until: state.time + t.groundEffect.dur,
@@ -1606,6 +1637,16 @@ function updateUnit(u, dt) {
 
   // petrified: a statue until the stone wears off
   if (u.petrifiedUntil > state.time) return;
+
+  // turreted vehicles: the gun slews toward its aim point (set in tryAttack
+  // while a target is engaged) and drifts back to the hull heading otherwise,
+  // so the chassis can steer freely while the weapon stays on target
+  if (Art.hasIsoTurret(u.type)) {
+    if (u.turret === undefined) u.turret = u.facing || 0;
+    const desired = (u.aimT > state.time - 0.4 && u.aimAngle !== undefined) ? u.aimAngle : (u.facing || 0);
+    const d = ((desired - u.turret + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    u.turret += clamp(d, -8 * dt, 8 * dt);
+  }
 
   // burrowed: a blind slow crawl — combat orders degrade to movement, and
   // fireAt below refuses to shoot until the unit surfaces
@@ -1885,7 +1926,7 @@ function updateUnit(u, dt) {
       u.welding = (u.welding || 0) - dt;
       if (u.welding <= 0) {
         u.welding = 0.3;
-        Particles.bolt(u.x, u.y, tgt.x, tgt.y, [140, 255, 170], UNIT_TYPES[u.type].flying ? FLY_H : 8);
+        Particles.bolt(u.x, u.y, tgt.x, tgt.y, [140, 255, 170], UNIT_TYPES[u.type].flying ? unitAlt(u) : 8);
       }
       break;
     }
@@ -2105,7 +2146,7 @@ function updateBuilding(b, dt) {
           dealDamage(b, foe, dmg, {});
           b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
           Particles.shot(b.x + Math.cos(b.turret) * (b.w / 2), b.y + Math.sin(b.turret) * (b.h / 2),
-            foe.x, foe.y, 'bullet', 10, (foeAir && !foe.landed) ? FLY_H : 0);
+            foe.x, foe.y, 'bullet', 10, foe.kind === 'unit' ? unitAlt(foe) : 0);
           if (tileState(b.x, b.y) === 2) sfx('shot');
         }
       }
@@ -2207,7 +2248,7 @@ function updateBuilding(b, dt) {
         Particles.shot(b.x + Math.cos(b.turret) * 10, b.y + Math.sin(b.turret) * 10,
           foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]],
           (Art.turretLift[b.type] || 8) + 2,
-          (foe.kind === 'unit' && UNIT_TYPES[foe.type].flying && !foe.landed) ? FLY_H : 0);
+          foe.kind === 'unit' ? unitAlt(foe) : 0);
         if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) {
           sfx(state.factions[b.owner] === 'glob' ? 'laser' : 'shot');
         }
@@ -2423,7 +2464,7 @@ function screenToWorld(e) {
 // sprite? (airborne craft render FLY_H above their ground position)
 function clickHitsUnit(u, wx, wy, pad = 4) {
   const t = UNIT_TYPES[u.type];
-  const alt = (t.flying && !u.landed) ? FLY_H : 0;
+  const alt = unitAlt(u);
   return Math.hypot(isoX(u.x, u.y) - isoX(wx, wy),
     isoY(u.x, u.y) - alt - isoY(wx, wy)) <= t.r * UNIT_DRAW_SCALE + pad;
 }
@@ -3367,6 +3408,15 @@ function drawBuildingIso(b) {
     ctx.globalAlpha = 1;
 }
 
+// screen-space flight altitude for a unit (0 when grounded or not airborne).
+// Aircraft ride their own band: helicopters/blimps/drones stay low at FLY_H,
+// while jets, bombers and capital craft carry a higher t.flyH.
+function unitAlt(u) {
+  const t = UNIT_TYPES[u.type];
+  if (!t.flying || u.landed) return 0;
+  return t.flyH || FLY_H;
+}
+
 function drawUnitIso(u) {
   const t = UNIT_TYPES[u.type];
   // reptilian skin suit: enemy infantry render in YOUR color until they attack
@@ -3374,11 +3424,13 @@ function drawUnitIso(u) {
   const grounded = !!u.landed; // rearming on the pad
   // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim
   const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
-  // rendered radius: sprites draw a touch larger than their collision size
-  const rs = t.r * UNIT_DRAW_SCALE;
+  // rendered radius: sprites draw a touch larger than their collision size;
+  // heavies (AC-130, Mothership, Leveler) scale up further via t.drawScale
+  const dscale = UNIT_DRAW_SCALE * (t.drawScale || 1);
+  const rs = t.r * dscale;
   const ix = isoX(u.x, u.y), iy = isoY(u.x, u.y);
   // airborne craft ride a purely-visual screen altitude; sy anchors the sprite
-  const alt = (t.flying && !grounded) ? FLY_H : 0;
+  const alt = unitAlt(u);
   const sy = iy - alt;
   // your own gaslight phantoms look ghostly to you; enemy ones look real
   if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
@@ -3398,16 +3450,16 @@ function drawUnitIso(u) {
   // repainting its own vector art
   const moving = u.order.type !== 'idle';
   const firing = u.cooldown > t.cooldown - 0.15;
-  const qf = Math.round((u.facing || 0) / (Math.PI / 8)) & 15;
-  const gait = Math.floor((u.travel || 0) / 9) & 3;
+  const qf = Math.round((u.facing || 0) / (Math.PI / 16)) & 31;
+  const gait = Math.floor((u.travel || 0) / 7) & 7;
   const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' +
     ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (alt ? 16 : 0));
-  const qFacing = qf * (Math.PI / 8); // render the bucket's representative pose
+  const qFacing = qf * (Math.PI / 16); // render the bucket's representative pose
   const cw = Math.ceil(rs * 3.4 + 26), chh = Math.ceil(rs * 4 + 30);
   const ax = cw / 2, ay = Math.ceil(rs * 2.8 + 16);
   // interval 32: idle/ambient animations repaint in place at ~2Hz
   const spr = cachedSprite(key, cw, chh, ax, ay, 'u', 32, g => {
-    g.scale(UNIT_DRAW_SCALE, UNIT_DRAW_SCALE);
+    g.scale(dscale, dscale);
     if (!alt) Art.shadow(g, t.r * 1.15, t.r * 0.6, 0, 1.5); // contact shadow
     g.save();
     g.scale(1, 0.5); // squash the glow into a ground pool
@@ -3442,6 +3494,15 @@ function drawUnitIso(u) {
   if (u.petrifiedUntil > state.time) ctx.filter = 'grayscale(1) brightness(0.8)';
   ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
   ctx.filter = 'none';
+  // live turret: rendered over the cached hull so the gun tracks its target
+  // independently of the chassis heading (cloaked/burrowed units stay bare)
+  if (Art.hasIsoTurret(u.type) && !isCloaked(u) && !u.burrowed) {
+    ctx.save();
+    ctx.translate(ix, sy + bob);
+    ctx.scale(dscale, dscale);
+    Art.drawIsoTurret(u.type, ctx, state.time, { facing: u.facing || 0, turret: u.turret, firing });
+    ctx.restore();
+  }
   if (u.carrying > 0) {
     ctx.fillStyle = '#3fd7d0';
     ctx.fillRect(ix - 3, sy - rs - 7, 6, 5);
@@ -3471,7 +3532,7 @@ function drawBeamsIso() {
     const tgt = state.units.find(un => un.id === b.beamId && un.hp > 0);
     if (!tgt || !visibleToPlayer(tgt)) continue;
     const bx = isoX(b.x, b.y), by = isoY(b.x, b.y) - (Art.turretLift[b.type] || 10);
-    const tx = isoX(tgt.x, tgt.y), ty = isoY(tgt.x, tgt.y) - (tgt.landed ? 0 : FLY_H);
+    const tx = isoX(tgt.x, tgt.y), ty = isoY(tgt.x, tgt.y) - unitAlt(tgt);
     const bg = ctx.createLinearGradient(bx, by, tx, ty);
     bg.addColorStop(0, 'rgba(125,255,214,0.85)');
     bg.addColorStop(1, 'rgba(125,255,214,0.25)');

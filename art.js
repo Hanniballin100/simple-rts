@@ -294,18 +294,30 @@
   }
 
   function wheels(ctx, t, o, positions, w = 6, h = 3) {
-    const roll = (o.dist !== undefined ? o.dist : t * 40) * 0.35;
+    // rotation phase from distance travelled (falls back to time when idle-less
+    // callers omit dist). A rotating spoke cross reads as "rolling" far better
+    // than a tiny scroll mark at this scale.
+    const ph = (o.dist !== undefined ? o.dist : t * 40) * 0.28;
     for (const [wx, wy] of positions) {
-      ctx.fillStyle = '#101317';
-      rr(ctx, wx - w / 2, wy - h / 2, w, h, 1.2);
-      ctx.fill();
-      ctx.strokeStyle = '#2c3138';
-      ctx.lineWidth = 0.8;
-      const p = ((roll % w) + w) % w;
-      ctx.beginPath();
-      ctx.moveTo(wx - w / 2 + p, wy - h / 2 + 0.4);
-      ctx.lineTo(wx - w / 2 + p, wy + h / 2 - 0.4);
-      ctx.stroke();
+      // tyre
+      ctx.fillStyle = '#0a0c0f';
+      ctx.beginPath(); ctx.ellipse(wx, wy, w / 2, h / 2 + 0.4, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#23272d'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.ellipse(wx, wy, w / 2, h / 2 + 0.4, 0, 0, TAU); ctx.stroke();
+      // rim highlight + rotating spokes
+      ctx.save();
+      ctx.translate(wx, wy);
+      ctx.strokeStyle = '#525a63'; ctx.lineWidth = 0.7;
+      for (let s = 0; s < 2; s++) {
+        const a = ph + s * (Math.PI / 2);
+        ctx.beginPath();
+        ctx.moveTo(-Math.cos(a) * w * 0.4, -Math.sin(a) * (h * 0.5));
+        ctx.lineTo(Math.cos(a) * w * 0.4, Math.sin(a) * (h * 0.5));
+        ctx.stroke();
+      }
+      ctx.fillStyle = '#6b7480';
+      ctx.beginPath(); ctx.arc(0, 0, 0.8, 0, TAU); ctx.fill();
+      ctx.restore();
     }
   }
 
@@ -3833,6 +3845,43 @@
     blinker(ctx, t, o.w / 2 - 5, -o.h / 2 + 5, '#7fff9f', 2.4);
   };
 
+  // globalist orbital uplink: glass control block + a big steerable dish
+  B.satellite = (ctx, t, o) => {
+    pad(ctx, o);
+    // radar ping sweeping out across the ground while powered
+    if (o.on) {
+      const f = (t * 0.45) % 1;
+      ctx.strokeStyle = `rgba(125,255,214,${0.38 * (1 - f)})`;
+      ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.arc(0, 0, 7 + f * 24, 0, TAU); ctx.stroke();
+    }
+    // glass control block (globalist tech style)
+    isoBox(ctx, -19, -19, 34, 34, 13, '#333c48',
+      { win: { rows: 2, paneH: 3.2, inset: 2.6, litRate: o.on ? 2 : 0, seed: 6 }, doorSE: { w: 9, h: 8 } });
+    // big steerable dish on a rooftop pedestal, rendered upright
+    billboard(ctx, 2, -12, () => {
+      ctx.strokeStyle = '#7d8590'; ctx.lineWidth = 2.6;         // pedestal mast
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -13); ctx.stroke();
+      ctx.save();
+      ctx.translate(0, -14);
+      ctx.rotate(Math.sin(t * 0.5) * 0.45 - 0.35);              // slow sky scan
+      const g = ctx.createLinearGradient(-10, 0, 8, 0);        // dish bowl
+      g.addColorStop(0, '#c8d0da'); g.addColorStop(1, '#79818c');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(0, 0, 10.5, 6.5, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#565e69'; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = 'rgba(86,94,105,0.7)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.ellipse(0, 0, 6.8, 4, 0, 0, TAU); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(0, 0, 3.4, 2, 0, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = '#4d5560'; ctx.lineWidth = 1.3;         // feed horn tripod
+      ctx.beginPath(); ctx.moveTo(-4, -1); ctx.lineTo(0, 7); ctx.moveTo(4, -1); ctx.lineTo(0, 7); ctx.stroke();
+      ctx.fillStyle = o.on ? '#7dffd6' : '#586b66';
+      ctx.beginPath(); ctx.arc(0, 7, 1.7, 0, TAU); ctx.fill();
+      ctx.restore();
+    });
+    blinker(ctx, t, o.w / 2 - 6, -o.h / 2 + 6, '#7dd0ff', 2.2);
+  };
+
   // ================= superweapons (one silhouette per family) =================
   B.superweapon = (ctx, t, o) => {
     pad(ctx, o);
@@ -4012,6 +4061,10 @@
   };
 
   const I = {};
+  // iso live turrets: drawn each frame OUTSIDE the cached hull sprite, so the
+  // weapon tracks its target independently of the chassis heading. Each fn
+  // renders at the unit's screen center; o carries { facing, turret, firing }.
+  const T = {};
 
   // --- heads (billboard, origin at head center, ~5px tall) ---
   function ihSkin(ctx, skin = '#d9b38c') {
@@ -4550,9 +4603,69 @@
     ctx.beginPath(); ctx.arc(0, 0, 9.2, 0, TAU); ctx.stroke();
   };
 
+  // --- 3D extruded hull: the footprint polygon (local +x = forward) is
+  // rotated by heading, squashed to the iso ground plane, then stacked
+  // straight UP the screen so the flanks read as real vertical faces —
+  // giving vehicles the same volume the upright infantry and buildings have.
+  // cfg: { poly:[[fx,fy]...], hgt, body, under?, detail?, above? }
+  //   under  — wheels/tracks, drawn on the ground and tucked under the hull
+  //   detail — top-face detailing (roof, panels), elevated onto the deck
+  //   above  — superstructure in screen space (billboards, dishes)
+  function isoHull3D(ctx, t, o, cfg) {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    // TRUE isometric projection (matches the map & unit movement): rotate the
+    // local footprint into world space by the heading, then apply the iso shear
+    // (screen = [wx - wy, (wx + wy)/2]). This is why the hull's nose points
+    // exactly along its travel direction instead of ~27° off it.
+    const proj = ([fx, fy]) => {
+      const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos;
+      return [wx - wy, (wx + wy) * 0.5];
+    };
+    // contact shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+    ctx.beginPath();
+    ctx.ellipse(1.5, 2, cfg.len * 0.62, cfg.len * 0.32, 0, 0, TAU);
+    ctx.fill();
+    // wheels/tracks on the ground (their inner tops get covered by the hull).
+    // Drawn in the true iso ground frame (shear + heading) so they sit under
+    // the flanks correctly at every angle.
+    if (cfg.under) {
+      ctx.save(); ctx.transform(1, 0.5, -1, 0.5, 0, 0); ctx.rotate(o.facing); cfg.under(ctx, t, o); ctx.restore();
+    }
+    // one or more stacked tiers (body, then a raised cabin, etc.). Each tier
+    // extrudes its footprint straight up the screen from `base` to `base+h`,
+    // shaded darker toward the bottom so the flanks read as lit vertical faces.
+    const tiers = cfg.tiers || [{ poly: cfg.poly, h: cfg.hgt !== undefined ? cfg.hgt : 6, body: cfg.body, detail: cfg.detail }];
+    let base = 0;
+    for (const tier of tiers) {
+      const g = tier.poly.map(proj);
+      const top = base + tier.h;
+      for (let z = top; z > base; z -= 1) {
+        const f = (z - base) / tier.h;
+        ctx.fillStyle = shade(tier.body, -0.14 - 0.32 * f);
+        ctx.beginPath();
+        g.forEach(([x, y], i) => (i ? ctx.lineTo(x, y - z) : ctx.moveTo(x, y - z)));
+        ctx.closePath(); ctx.fill();
+      }
+      // lit top face + its detailing, elevated onto this tier's deck
+      ctx.save();
+      ctx.translate(0, -top);
+      ctx.beginPath();
+      g.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fillStyle = tier.body; ctx.fill();
+      ctx.strokeStyle = shade(tier.body, -0.5); ctx.lineWidth = 1; ctx.stroke();
+      if (tier.detail) { ctx.transform(1, 0.5, -1, 0.5, 0, 0); ctx.rotate(o.facing); tier.detail(ctx, t, o); }
+      ctx.restore();
+      base = top;
+    }
+    if (cfg.above) cfg.above(ctx, t, o);
+  }
+
   // --- ground vehicles: deck rotated in the ground plane with a cheap
   // vertical extrusion (dark underside silhouette), upright parts on top ---
   function isoVehicle(ctx, t, o, cfg) {
+    if (cfg.poly || cfg.tiers) { isoHull3D(ctx, t, o, cfg); return; }
     const hgt = cfg.hgt !== undefined ? cfg.hgt : 4;
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath();
@@ -4657,7 +4770,38 @@
       },
     };
   }
-  I.harvester = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#7a6a4a'));
+  // Globalist Mining Rig: armored tracked hauler with a raised cab, a front
+  // intake grate and a rear hopper that glints when it's carrying (3D hull).
+  I.harvester = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24,
+    under: (c) => treads(c, t, o, 22, 4.4, 9),
+    tiers: [
+      { // armored hull (chamfered octagon)
+        poly: [[13, -3], [13, 3], [9, 7], [-9, 7], [-12, 3], [-12, -3], [-9, -7], [9, -7]],
+        h: 5.5, body: '#7a6a4a',
+        detail: (c) => {
+          // rear hopper bin (recessed), minerals glinting when hauling
+          c.fillStyle = shade('#7a6a4a', -0.35);
+          rr(c, -11, -6, 8, 12, 1.2); c.fill();
+          if (o.carrying) { c.globalAlpha = 0.85; c.fillStyle = '#3fd7d0'; rr(c, -10, -5, 6, 10, 0.8); c.fill(); c.globalAlpha = 1; }
+          // deck rivet seams
+          c.strokeStyle = shade('#7a6a4a', -0.42); c.lineWidth = 0.5;
+          for (let i = -2; i <= 5; i += 3.5) { c.beginPath(); c.moveTo(i, -6.2); c.lineTo(i, 6.2); c.stroke(); }
+          // front intake grate
+          c.fillStyle = '#43402f'; rr(c, 8, -4.4, 4.6, 8.8, 0.8); c.fill();
+          c.strokeStyle = '#6a6252'; c.lineWidth = 0.5;
+          for (let i = 0; i < 3; i++) { c.beginPath(); c.moveTo(8.6 + i * 1.4, -4); c.lineTo(8.6 + i * 1.4, 4); c.stroke(); }
+        },
+      },
+      { // raised cab
+        poly: [[7, -5], [7, 5], [0, 5], [0, -5]], h: 4.5, body: shade('#7a6a4a', 0.14),
+        detail: (c) => {
+          c.fillStyle = '#1a1e24'; rr(c, 0.5, -4, 6, 8, 1); c.fill();           // cab glass wrap
+          c.fillStyle = 'rgba(130,160,195,0.32)'; rr(c, 4.4, -3.5, 2, 7, 0.6); c.fill(); // windshield
+        },
+      },
+    ],
+  });
   I.blackrig = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#3a414c'));
   I.truthrig = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#6d6248'));
   I.salvagerig = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#5c5347'));
@@ -4802,21 +4946,75 @@
     },
   });
   I.suv = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 22, wid: 12, hgt: 5, body: '#1d2127',
-    path: (ctx2) => { rr(ctx2, -11, -6, 22, 12, 4.5); },
-    detail: (ctx2, t2, o2) => {
-      wheels(ctx2, t2, o2, [[-6.5, -6.6], [-6.5, 6.6], [6.5, -6.6], [6.5, 6.6]], 5, 2.6);
-      ctx2.fillStyle = '#0d0f13';
-      rr(ctx2, -6, -4.4, 12.5, 8.8, 2.5); // tinted glass roof band
-      ctx2.fill();
-      ctx2.strokeStyle = 'rgba(140,208,255,0.35)';
-      ctx2.lineWidth = 0.7;
-      ctx2.stroke();
-    },
-    above: (ctx2, t2, o2) => {
-      if (o2.firing) isoBarrel(ctx2, o2, 4.5, 6, 1.4); // window gun
-    },
+    // two-box SUV: a lower gunmetal body with a raised near-black greenhouse,
+    // built as stacked 3D tiers so it has real volume and a real car profile.
+    len: 26,
+    under: (c) => wheels(c, t, o, [[-7.5, -6.9], [-7.5, 6.9], [7, -6.9], [7, 6.9]], 7.2, 3.8),
+    tiers: [
+      { // lower body
+        poly: [[13, -3.4], [13, 3.4], [9, 6], [-12.5, 5.2], [-13.4, 0], [-12.5, -5.2], [9, -6]],
+        h: 4.5, body: '#333b45',
+        detail: (c) => {
+          // hood panel with a centre crease
+          c.fillStyle = shade('#333b45', 0.16);
+          rr(c, 7, -4.6, 5.6, 9.2, 1.6); c.fill();
+          c.strokeStyle = shade('#333b45', -0.4); c.lineWidth = 0.5;
+          c.beginPath(); c.moveTo(7.5, 0); c.lineTo(12.5, 0); c.stroke();
+          // blacked-out grille + headlights
+          c.fillStyle = '#12151a'; rr(c, 11.8, -3, 1.5, 6, 0.6); c.fill();
+          c.fillStyle = 'rgba(240,248,255,0.98)';
+          c.fillRect(12.4, -3.7, 1.1, 1.6); c.fillRect(12.4, 2.1, 1.1, 1.6);
+          // tail lights (rear body, visible behind the cabin)
+          c.fillStyle = 'rgba(255,72,56,0.95)';
+          c.fillRect(-12.9, -4.3, 1, 1.6); c.fillRect(-12.9, 2.7, 1, 1.6);
+        },
+      },
+      { // raised cabin / greenhouse
+        poly: [[7, -4.3], [7, 4.3], [-10.3, 4.1], [-11, 2], [-11, -2], [-10.3, -4.1]],
+        h: 4, body: '#1b1f26',
+        detail: (c) => {
+          // chrome window surround
+          c.strokeStyle = 'rgba(160,180,205,0.6)'; c.lineWidth = 0.7;
+          rr(c, -10.2, -3.9, 16.4, 7.8, 2); c.stroke();
+          // tinted side glass
+          c.fillStyle = 'rgba(120,155,195,0.34)';
+          rr(c, -9.6, -3.7, 15.4, 1.7, 0.7); c.fill();
+          rr(c, -9.6, 2, 15.4, 1.7, 0.7); c.fill();
+          // raked windshield glint at the front
+          c.fillStyle = '#232a34';
+          c.beginPath(); c.moveTo(6.6, -3.9); c.lineTo(6.6, 3.9); c.lineTo(4.3, 3.1); c.lineTo(4.3, -3.1); c.closePath(); c.fill();
+          c.strokeStyle = 'rgba(150,180,210,0.4)'; c.lineWidth = 0.4; c.stroke();
+        },
+      },
+    ],
   });
+  // black-ops remote weapon station on the roof — a compact, low-profile
+  // swivel mount (receiver + thin barrel + optic) that tracks the target
+  T.suv = (ctx, t, o) => {
+    const a = o.turret !== undefined ? o.turret : (o.facing || 0);
+    ctx.save();
+    ctx.translate(0, -9.2);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);  // true iso frame (on the cabin roof)
+    // fixed pedestal ring the mount sits on
+    ctx.fillStyle = '#15181d';
+    ctx.beginPath(); ctx.ellipse(0, 0, 2.5, 2.5, 0, 0, TAU); ctx.fill();
+    // rotating assembly: receiver box, thin barrel, optic block
+    ctx.rotate(a);
+    ctx.fillStyle = '#3b434e';
+    rr(ctx, -2.1, -1.6, 4.2, 3.2, 0.9); ctx.fill();
+    ctx.strokeStyle = shade('#3b434e', 0.5); ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.fillStyle = '#7d95a6';
+    ctx.fillRect(-1.3, -1.2, 1.5, 1.0);   // optic (glassy)
+    ctx.fillStyle = '#15191f';
+    ctx.fillRect(1.6, -0.65, 6.2, 1.3);   // barrel
+    ctx.fillStyle = '#9aa6b2';
+    ctx.fillRect(7.4, -0.65, 1.3, 1.3);   // muzzle
+    if (o.firing) {
+      ctx.fillStyle = 'rgba(255,230,140,0.95)';
+      ctx.beginPath(); ctx.arc(9.8, 0, 2.1, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+  };
   I.blackvan = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 24, wid: 13, hgt: 6, body: '#23272e',
     path: boxPath(24, 13, 3),
@@ -5288,6 +5486,9 @@
     // iso unit sprites: upright billboards that handle their own heading
     hasIso: type => !!I[type],
     drawIso(type, ctx, t, opts) { I[type](ctx, t, opts); },
+    // live vehicle turrets, drawn over the cached hull (see const T)
+    hasIsoTurret: type => !!T[type],
+    drawIsoTurret(type, ctx, t, opts) { T[type](ctx, t, opts); },
     hasBuilding: type => !!B[type],
     building(type, ctx, t, opts) {
       const fn = B[type];

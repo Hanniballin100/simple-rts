@@ -118,8 +118,8 @@ const FACTIONS = {
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'b1', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
+    extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
@@ -129,6 +129,7 @@ const FACTIONS = {
       factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
       tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Spectre Hangar',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Service Bay',
+      satellite: 'Orbital Uplink',
       superweapon: 'Orbital Kinetic Array',
     },
   },
@@ -324,31 +325,31 @@ const UNIT_TYPES = {
   // one-shot recon: fly it onto an enemy unit to implant a tracker — the
   // drone is spent, but the tag grants vision of that unit until it dies
   probedrone: { name: 'Probe Drone',    role: 'scout',  builtAt: 'airpad', hp: 45,  speed: 145, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 320, cost: 50,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', tracker: true },
-  saucer:   { name: 'Flying Saucer',    role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
-  drake:    { name: 'Sky Drake',        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
-  cropduster: { name: 'Crop Duster',    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
-  ptero:      { name: 'Pterodactyl',    role: 'combat', builtAt: 'airpad', hp: 170, speed: 120, dmg: 17, atkRange: 60,  cooldown: 0.9, sight: 270, cost: 160, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.7, req: 'tech' },
+  saucer:   { name: 'Flying Saucer', flyH: 32,   role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
+  drake:    { name: 'Sky Drake', flyH: 32,        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
+  cropduster: { name: 'Crop Duster', flyH: 30,    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
+  ptero:      { name: 'Pterodactyl', flyH: 32,    role: 'combat', builtAt: 'airpad', hp: 170, speed: 120, dmg: 17, atkRange: 60,  cooldown: 0.9, sight: 270, cost: 160, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.7, req: 'tech' },
   // the globalist air wing: a fast swing-wing strike jet, and two tech-gated
   // heavies — an orbiting AC-130 and the stealth-black flying wing
-  b1:      { name: 'B-1 Lancer',    role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
-  b2:      { name: 'B-2 Spirit',    role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
+  b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
+  b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
-  gunship: { name: 'AC-130 Gunship', role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
+  gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
   // ---------- apex heavies (AC-130 tier, all tech-gated) ----------
   // Flat: a diesel land-dreadnought — the gunship broadside battery on tracks,
   // raking several targets at once, with light anti-air from the same guns
-  leveler:  { name: 'The Leveler', role: 'combat', builtAt: 'factory', hp: 720, speed: 38, dmg: 13, atkRange: 215, cooldown: 0.28, sight: 300, cost: 520, r: 20, buildTime: 21, shape: 'square', targets: 'both', armor: 0.25, bldgBonus: 1.5, weapon: 'gunship', shellEvery: 9, shellDmg: 42, shellSplash: 32, multiTarget: 3, req: 'tech' },
+  leveler:  { name: 'The Leveler', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 720, speed: 38, dmg: 13, atkRange: 215, cooldown: 0.28, sight: 300, cost: 520, r: 20, buildTime: 21, shape: 'square', targets: 'both', armor: 0.25, bldgBonus: 1.5, weapon: 'gunship', shellEvery: 9, shellDmg: 42, shellSplash: 32, multiTarget: 3, req: 'tech' },
   // Hollow: a Jules-Verne borer — burrows across the map and erupts in the
   // enemy base with a huge emergence blast, then chews structures
   ironmole: { name: 'Iron Mole', role: 'combat', builtAt: 'factory', hp: 680, speed: 48, dmg: 42, atkRange: 32, cooldown: 1.4, sight: 200, cost: 500, r: 18, buildTime: 21, shape: 'square', armor: 0.3, bldgBonus: 3, burrow: true, emergeAoE: { r: 110, dmg: 95 }, req: 'tech' },
   // Hollow advanced air: brass-riveted Vril Disc with a channeled beam
-  vrildisc: { name: 'Vril Disc', role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
+  vrildisc: { name: 'Vril Disc', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   // Greys: a heavy capital saucer — hovers and rakes a broadside of plasma
-  mothership: { name: 'Mothership', role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 20, atkRange: 175, cooldown: 0.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'both', shape: 'saucer', weapon: 'gunship', shellEvery: 11, shellDmg: 40, shellSplash: 34, multiTarget: 3, req: 'tech' },
+  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 20, atkRange: 175, cooldown: 0.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'both', shape: 'saucer', weapon: 'gunship', shellEvery: 11, shellDmg: 40, shellSplash: 34, multiTarget: 3, req: 'tech' },
   // Reptilians: a winged Draconian overlord raining fire
-  draco:    { name: 'Draco', role: 'combat', builtAt: 'airpad', hp: 640, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 540, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, req: 'tech' },
+  draco:    { name: 'Draco', flyH: 34, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 640, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 540, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, req: 'tech' },
   // Resistance: a janky scrap missile truck — cheap-for-its-power siege apex
   cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 55, bldgBonus: 2, req: 'tech' },
   // faction-power units (never trainable)
@@ -404,6 +405,10 @@ const BUILDING_TYPES = {
   mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 25, buildTime: 0, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true, instant: true },
   // service structure: mends the owner's vehicles and aircraft sitting on it
   repairpad: { name: 'Repair Pad', hp: 380, w: 64, h: 64, cost: 120, buildTime: 12, sight: 180, power: -20, cap: 2, repairRate: 8 },
+  // globalist orbital surveillance: while a finished one stands, the whole map
+  // is revealed (terrain + visible units; cloaked units still need a detector).
+  // Pricey, power-hungry, tech-gated, one per player.
+  satellite: { name: 'Satellite Uplink', hp: 360, w: 60, h: 60, cost: 320, buildTime: 22, sight: 300, power: -70, cap: 1, req: 'tech', revealMap: true },
   // the superweapon slot: same structure everywhere, very different payloads
   // (see SUPER_DEFS); expensive, power-hungry, one per player
   superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },
