@@ -186,6 +186,37 @@ function entityRadius(e) {
   return e.w ? Math.max(e.w, e.h) / 2 : UNIT_TYPES[e.type].r;
 }
 
+// ---------- stealth & detection ----------
+// A stealthed unit (mine, cloaked infiltrator) or burrowed unit is invisible
+// and untargetable to an enemy owner unless one of that owner's `detector`
+// units has it inside its sight radius. Attacking breaks stealth briefly
+// (exposedUntil); burrow is only ever broken by detectors.
+
+let detMemo = { t: -1 };
+function detectorsOf(owner) {
+  if (detMemo.t !== state.time) detMemo = { t: state.time };
+  return detMemo[owner] || (detMemo[owner] =
+    state.units.filter(u => u.owner === owner && u.hp > 0 && !u.garrisoned && UNIT_TYPES[u.type].detector));
+}
+
+function isRevealed(e, owner) {
+  return detectorsOf(owner).some(d => dist(d, e) <= UNIT_TYPES[d.type].sight);
+}
+
+// is entity e hidden from `owner` right now? (covers the reptilian disguise,
+// stealth flags, and the burrow stance) — the universal targeting filter
+function hiddenFrom(e, owner) {
+  if (e.owner === owner) return false;
+  if (e.disguised) return true;
+  const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
+  const cloaked = e.burrowed ||
+    (stats.stealth && !(e.exposedUntil > state.time)) ||
+    (e.kind === 'unit' && e.transit); // underground in a tunnel: gone entirely
+  if (!cloaked) return false;
+  if (e.kind === 'unit' && e.transit) return true; // no detector reaches the tunnels
+  return !isRevealed(e, owner);
+}
+
 function canTarget(stats, target) {
   if (!stats.dmg) return false;
   const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
@@ -242,8 +273,16 @@ function updateFog() {
 
 function visibleToPlayer(e) {
   if (e.owner === PLAYER) return true;
+  if (hiddenFrom(e, PLAYER)) return false; // stealthed/burrowed and undetected
   const t = tileState(e.x, e.y);
   return e.kind === 'building' ? t >= 1 : t === 2;
+}
+
+// is this entity currently running silent? (drawn ghosted for its owner,
+// and for enemies whose detector has it pinned)
+function isCloaked(e) {
+  const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
+  return !!(e.burrowed || (stats.stealth && !(e.exposedUntil > state.time)));
 }
 
 function makeUnit(owner, type, x, y) {
@@ -395,9 +434,13 @@ function placementBlocked(owner, type, x, y) {
   if (x - t.w / 2 < 10 || y - t.h / 2 < 10 || x + t.w / 2 > WORLD_W - 10 || y + t.h / 2 > WORLD_H - 10) return true;
   // 32px between structures: wide enough for the fattest ground unit (26px
   // mining rig) to pass — tighter packing let bases seal their own workers
-  // into courtyards with no physical way out
-  return state.buildings.some(b => b.hp > 0 &&
-      Math.abs(b.x - x) < (b.w + t.w) / 2 + 32 && Math.abs(b.y - y) < (b.h + t.h) / 2 + 32)
+  // into courtyards with no physical way out. Wall segments are the
+  // exception: they snap flush against other wall pieces to form a line.
+  return state.buildings.some(b => {
+      if (b.hp <= 0 || bstatsOf(b).noBlock) return false; // mines don't crowd out anything
+      const gap = (t.wallKind && bstatsOf(b).wallKind) ? -2 : 32;
+      return Math.abs(b.x - x) < (b.w + t.w) / 2 + gap && Math.abs(b.y - y) < (b.h + t.h) / 2 + gap;
+    })
     || state.patches.some(p => p.amount > 0 && dist(p, { x, y }) < t.w / 2 + 30)
     || TERRAIN.some(o => dist(o, { x, y }) < o.r + Math.max(t.w, t.h) / 2 + 6);
 }
@@ -599,6 +642,15 @@ const EMPTY_ARR = [];
 
 function markPathDirty() { pathDirty = true; }
 
+// does this structure physically stop that owner's ground units? Mines are
+// buried (stop nothing); a gate opens for its owner and shuts on everyone else
+function blocksUnit(b, owner) {
+  const bt = bstatsOf(b);
+  if (bt.noBlock) return false;
+  if (bt.gate && b.owner === owner) return false;
+  return true;
+}
+
 function terrainNear(x, y) {
   return terrainIndex.get(((x / OB_CELL) | 0) * 8192 + ((y / OB_CELL) | 0)) || EMPTY_ARR;
 }
@@ -665,6 +717,10 @@ function ensurePathGrid() {
   }
   for (const b of state.buildings) {
     if (b.hp <= 0) continue;
+    // gates stay open on the shared grid (per-owner passability lives in the
+    // local collision check); buried mines never block anything
+    const gbt = bstatsOf(b);
+    if (gbt.gate || gbt.noBlock) continue;
     const ex = b.w / 2 + 10, ey = b.h / 2 + 10;
     const x0 = Math.max(0, ((b.x - ex) / PATH_CELL) | 0), x1 = Math.min(pgW - 1, ((b.x + ex) / PATH_CELL) | 0);
     const y0 = Math.max(0, ((b.y - ey) / PATH_CELL) | 0), y1 = Math.min(pgH - 1, ((b.y + ey) / PATH_CELL) | 0);
@@ -920,7 +976,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       delete u.veer;
       let bld = null;
       for (const b of bldNear(nx, ny)) {
-        if (b.hp > 0 && b.id !== ignoreId &&
+        if (b.hp > 0 && b.id !== ignoreId && blocksUnit(b, u.owner) &&
             Math.abs(nx - b.x) < b.w / 2 + t.r && Math.abs(ny - b.y) < b.h / 2 + t.r) { bld = b; break; }
       }
       if (bld) {
@@ -945,7 +1001,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
           // city blocks) is unreachable — steer for a free corner instead
           const buried = c => {
             for (const b2 of bldNear(c.x, c.y)) {
-              if (b2.hp > 0 && b2.id !== bld.id && b2.id !== ignoreId &&
+              if (b2.hp > 0 && b2.id !== bld.id && b2.id !== ignoreId && blocksUnit(b2, u.owner) &&
                   Math.abs(c.x - b2.x) < b2.w / 2 + t.r + 2 &&
                   Math.abs(c.y - b2.y) < b2.h / 2 + t.r + 2) return true;
             }
@@ -1187,8 +1243,10 @@ function planeAttack(u, target, t, dt) {
 function fireAt(u, target, t) {
   if (u.cooldown <= 0) {
     const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
-    const dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
+    let dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
     u.disguised = false; // skin suit drops the moment they open fire
+    if (t.stealth) u.exposedUntil = state.time + 2.5; // muzzle flash gives it away
+    if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing first-strike bonus
     u.cooldown = t.cooldown;
     if (t.maxAmmo) u.ammo--;
     const a = u.facing;
@@ -1216,7 +1274,7 @@ function fireAt(u, target, t) {
       } else {
         // the cannons rake up to multiTarget enemies inside the orbit at once
         const extras = (t.multiTarget || 1) > 1
-          ? enemiesOf(u.owner).filter(e => e !== target && !e.disguised && canTarget(t, e) &&
+          ? enemiesOf(u.owner).filter(e => e !== target && !hiddenFrom(e, u.owner) && canTarget(t, e) &&
               dist(u, e) <= t.atkRange + entityRadius(e))
             .sort((x, y) => dist(u, x) - dist(u, y)).slice(0, t.multiTarget - 1)
           : [];
@@ -1254,7 +1312,7 @@ function fireAt(u, target, t) {
 function nextTargetOrIdle(u, t) {
   if (t.flying && !(t.maxAmmo && u.ammo <= 0)) {
     const foe = nearest(u, enemiesOf(u.owner), e =>
-      !e.disguised && canTarget(t, e) &&
+      !hiddenFrom(e, u.owner) && canTarget(t, e) &&
       dist(u, e) <= Math.max(t.sight * 1.6, 450) && dist(u, e) >= (t.minRange || 0));
     if (foe) { orderAttack(u, foe); return; }
   }
@@ -1270,8 +1328,18 @@ function autoAcquire(u, dt) {
   if (u.scanT > 0) return;
   u.scanT = 0.3;
   const foe = nearest(u, enemiesOf(u.owner), e =>
-    !e.disguised && canTarget(t, e) && dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
+    !hiddenFrom(e, u.owner) && canTarget(t, e) && dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
   if (foe) orderAttack(u, foe);
+}
+
+// idle repair units drift to the nearest damaged ally and patch it up
+function repairAcquire(u, dt) {
+  u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
+  if (u.scanT > 0) return;
+  u.scanT = 0.4;
+  const ally = nearest(u, state.units, a => a.owner === u.owner && a !== u && a.hp > 0 &&
+    !a.garrisoned && !a.transit && a.hp < a.maxHp && !UNIT_TYPES[a.type].repair && dist(u, a) <= 220);
+  if (ally) u.order = { type: 'repair', targetId: ally.id };
 }
 
 function depositTarget(u) {
@@ -1317,7 +1385,7 @@ function padSlotsFree(owner, padType = 'airpad') {
 // squatting on fighter pads.
 function findPadFor(u) {
   const padType = UNIT_TYPES[u.type].builtAt;
-  let home = state.buildings.find(b => b.id === u.homeId && b.hp > 0 && b.done && b.type === padType);
+  let home = state.buildings.find(b => b.id === u.homeId && b.owner === u.owner && b.hp > 0 && b.done && b.type === padType);
   if (home) return home;
   home = nearest(u, state.buildings, b => b.owner === u.owner && b.type === padType &&
     b.hp > 0 && b.done && padLoad(b) < padCapOf(b));
@@ -1357,7 +1425,7 @@ function updateUnit(u, dt) {
           let clear = 0;
           for (; clear < 60; clear += 10) {
             const px2 = u.x + Math.cos(a) * (clear + 10), py2 = u.y + Math.sin(a) * (clear + 10);
-            const hit = bldNear(px2, py2).some(b => b.hp > 0 &&
+            const hit = bldNear(px2, py2).some(b => b.hp > 0 && blocksUnit(b, u.owner) &&
               Math.abs(px2 - b.x) < b.w / 2 + stats.r && Math.abs(py2 - b.y) < b.h / 2 + stats.r) ||
               terrainNear(px2, py2).some(t2 => !TERRAIN_TYPES[t2.type].passes && Math.hypot(px2 - t2.x, py2 - t2.y) < t2.r + stats.r);
             if (hit) break;
@@ -1392,12 +1460,12 @@ function updateUnit(u, dt) {
     if (u.defT <= 0) {
       u.defT = 0.35;
       const foe = nearest(u, enemiesOf(u.owner), e =>
-        !e.disguised && canTarget(stats, e) && dist(u, e) <= stats.atkRange + entityRadius(e));
+        !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.atkRange + entityRadius(e));
       u.defFoeId = foe ? foe.id : null;
     }
     if (u.defFoeId && u.cooldown <= 0) {
       const foe = findEntity(u.defFoeId);
-      if (foe && foe.hp > 0 && !foe.disguised && dist(u, foe) <= stats.atkRange + entityRadius(foe)) {
+      if (foe && foe.hp > 0 && !hiddenFrom(foe, u.owner) && dist(u, foe) <= stats.atkRange + entityRadius(foe)) {
         u.facing = Math.atan2(foe.y - u.y, foe.x - u.x);
         fireAt(u, foe, stats);
       } else {
@@ -1421,6 +1489,7 @@ function updateUnit(u, dt) {
           b.owner === u.owner && b.hp > 0 && b.done && bstatsOf(b).padCap && rectDist(u, b) < 130)) {
         u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
       }
+      if (stats.repair) { repairAcquire(u, dt); break; }
       if (stats.role === 'combat') autoAcquire(u, dt);
       break;
 
@@ -1439,13 +1508,13 @@ function updateUnit(u, dt) {
     case 'attackmove': {
       // keep engaging the cached foe; rescan on a stagger instead of every frame
       let foe = o.foeId ? findEntity(o.foeId) : null;
-      if (foe && (foe.hp <= 0 || foe.disguised || dist(u, foe) > stats.sight + 60 ||
+      if (foe && (foe.hp <= 0 || hiddenFrom(foe, u.owner) || dist(u, foe) > stats.sight + 60 ||
           dist(u, foe) < (stats.minRange || 0))) foe = null;
       u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
       if (!foe && u.scanT <= 0) {
         u.scanT = 0.25;
         foe = nearest(u, enemiesOf(u.owner), e =>
-          !e.disguised && canTarget(stats, e) && dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
+          !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
       }
       o.foeId = foe ? foe.id : null;
       if (foe) { tryAttack(u, foe, dt); break; }
@@ -1457,8 +1526,10 @@ function updateUnit(u, dt) {
 
     case 'attack': {
       const target = findEntity(o.targetId);
-      // covers targets finished off by projectiles (bombs) or someone else
-      if (!target || target.hp <= 0 || !canTarget(stats, target)) { nextTargetOrIdle(u, stats); break; }
+      // covers targets finished off by projectiles (bombs) or someone else,
+      // and targets that slipped back under cloak or into a tunnel
+      if (!target || target.hp <= 0 || !canTarget(stats, target) ||
+          hiddenFrom(target, u.owner)) { nextTargetOrIdle(u, stats); break; }
       tryAttack(u, target, dt);
       break;
     }
@@ -1506,6 +1577,59 @@ function updateUnit(u, dt) {
         u.x = px; u.y = py;          // settle square on the pad markings
         u.facing = -Math.PI / 2;     // parked nose-north, RA2 style
         u.order = { type: 'idle' };
+      }
+      break;
+    }
+
+    case 'capture': {
+      // engineer: walk onto an enemy structure and flip it to our flag
+      const b = findEntity(o.targetId);
+      if (!b || b.kind !== 'building' || b.hp <= 0 || b.owner === u.owner || b.owner === NEUTRAL) {
+        u.order = { type: 'idle' };
+        break;
+      }
+      if (moveToward(u, b.x, b.y, dt, entityRadius(b) * 0.7, b.id) ||
+          rectDist(u, b) <= stats.r + 8) {
+        // evict any old-owner garrison before the flag changes hands
+        if (b.garrison && b.garrison.length) {
+          let gi = 0;
+          for (const id of b.garrison) {
+            const g = state.units.find(x => x.id === id && x.hp > 0);
+            if (!g) continue;
+            const a = (gi++ / b.garrison.length) * Math.PI * 2;
+            g.garrisoned = null;
+            g.x = b.x + Math.cos(a) * (entityRadius(b) + 14);
+            g.y = b.y + Math.sin(a) * (entityRadius(b) + 14);
+            g.order = { type: 'idle' };
+          }
+          b.garrison = [];
+        }
+        const wasPlayers = b.owner === PLAYER;
+        b.owner = u.owner;
+        b.queue = [];
+        b.rally = null;
+        b.beamId = null;
+        u.hp = 0; // the engineer stays behind to run the place
+        if (u.owner === PLAYER) eva('Structure captured');
+        else if (wasPlayers) eva('They have taken one of our structures');
+      }
+      break;
+    }
+
+    case 'repair': {
+      // mobile repair unit: chase the patient, then weld it back together
+      const tgt = findEntity(o.targetId);
+      if (!tgt || tgt.kind !== 'unit' || tgt.hp <= 0 || tgt.hp >= tgt.maxHp || tgt.garrisoned) {
+        u.order = { type: 'idle' };
+        break;
+      }
+      if (dist(u, tgt) > 50) { moveToward(u, tgt.x, tgt.y, dt, 38); break; }
+      u.facing = Math.atan2(tgt.y - u.y, tgt.x - u.x);
+      tgt.hp = Math.min(tgt.maxHp, tgt.hp + stats.repair * dt);
+      u.welding = (u.welding || 0) - dt;
+      if (u.welding <= 0) {
+        u.welding = 0.3;
+        Particles.bolt(u.x, u.y, tgt.x, tgt.y, [140, 255, 170], UNIT_TYPES[u.type].flying ? FLY_H : 8);
       }
       break;
     }
@@ -1650,6 +1774,36 @@ function updateBuilding(b, dt) {
   const bt = bstatsOf(b);
   const power = powerOf(b.owner);
 
+  // buried mines: lie in wait, detonate when enemy ground forces roll over
+  // (setting hp to 0 hands off to the death handler, which fires `explodes`)
+  if (bt.trip && b.done) {
+    b.tripT = (b.tripT === undefined ? (b.id % 10) * 0.05 : b.tripT) - dt;
+    if (b.tripT <= 0) {
+      b.tripT = 0.25;
+      const prey = state.units.some(u => u.owner !== b.owner && u.hp > 0 && !u.garrisoned &&
+        !u.transit && !UNIT_TYPES[u.type].flying && dist(u, b) <= bt.trip + UNIT_TYPES[u.type].r);
+      if (prey) b.hp = 0;
+    }
+    return;
+  }
+
+  // repair pad: mends the owner's vehicles and aircraft sitting on it
+  if (bt.repairRate && b.done && !power.low) {
+    b.repT = (b.repT || 0) - dt;
+    if (b.repT <= 0) {
+      b.repT = 0.5;
+      for (const u of state.units) {
+        if (u.owner !== b.owner || u.hp <= 0 || u.hp >= u.maxHp || u.garrisoned) continue;
+        const ut = UNIT_TYPES[u.type];
+        if (ut.builtAt !== 'factory' && !ut.flying) continue;
+        if (rectDist(u, b) <= 30) {
+          u.hp = Math.min(u.maxHp, u.hp + bt.repairRate * 0.5);
+          if (Math.random() < 0.3) Particles.smoke(u.x + (Math.random() - 0.5) * 14, u.y, 1.5, 6);
+        }
+      }
+    }
+  }
+
   // damaged buildings smolder
   if (b.hp < b.maxHp * 0.5 && Math.random() < 0.04) {
     Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.7, b.y - b.h / 2, 3);
@@ -1661,7 +1815,7 @@ function updateBuilding(b, dt) {
     if (b.cooldown <= 0) {
       const squad = b.garrison.map(id => state.units.find(u => u.id === id && u.hp > 0)).filter(Boolean);
       const anyAA = squad.some(u => hitsAir(UNIT_TYPES[u.type]));
-      const foe = nearest(b, enemiesOf(b.owner), e => !e.disguised &&
+      const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) &&
         dist(b, e) <= GARRISON_RANGE + entityRadius(e) &&
         (anyAA || !(e.kind === 'unit' && UNIT_TYPES[e.type].flying)));
       if (foe) {
@@ -1690,7 +1844,7 @@ function updateBuilding(b, dt) {
     if (wkind === 'pulse') {
       // radiation field: hurts EVERY enemy ground unit in radius
       if (b.cooldown <= 0) {
-        const victims = state.units.filter(u => u.owner !== b.owner && u.hp > 0 && !u.disguised &&
+        const victims = state.units.filter(u => u.owner !== b.owner && u.hp > 0 && !hiddenFrom(u, b.owner) &&
           !UNIT_TYPES[u.type].flying && dist(b, u) <= bt.atkRange + UNIT_TYPES[u.type].r);
         if (victims.length) {
           b.cooldown = bt.cooldown;
@@ -1702,7 +1856,7 @@ function updateBuilding(b, dt) {
     } else if (wkind === 'chain') {
       // arcs to up to 2 extra targets at 60% falloff per hop
       if (b.cooldown <= 0) {
-        const foe = nearest(b, enemiesOf(b.owner), e => !e.disguised && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+        const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
         if (foe) {
           b.cooldown = bt.cooldown;
           b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
@@ -1714,7 +1868,7 @@ function updateBuilding(b, dt) {
             hit.add(cur.id);
             dmg *= 0.6;
             prev = cur;
-            cur = nearest(prev, state.units, un => un.owner !== b.owner && un.hp > 0 && !un.disguised &&
+            cur = nearest(prev, state.units, un => un.owner !== b.owner && un.hp > 0 && !hiddenFrom(un, b.owner) &&
               !UNIT_TYPES[un.type].flying && !hit.has(un.id) && dist(prev, un) <= 85);
           }
           if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) sfx('laser');
@@ -1724,7 +1878,7 @@ function updateBuilding(b, dt) {
       // patriot battery: launches a visible homing missile
       if (b.cooldown <= 0) {
         const foe = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
-          !un.disguised && !un.garrisoned && canTarget(bt, un) &&
+          !hiddenFrom(un, b.owner) && !un.garrisoned && canTarget(bt, un) &&
           dist(b, un) <= bt.atkRange + entityRadius(un));
         if (foe) {
           b.cooldown = bt.cooldown;
@@ -1739,8 +1893,8 @@ function updateBuilding(b, dt) {
     } else if (wkind === 'beam') {
       // continuous lock: drains and slows one aircraft
       let tgt = b.beamId ? state.units.find(un => un.id === b.beamId && un.hp > 0) : null;
-      if (!tgt || tgt.disguised || !canTarget(bt, tgt) || dist(b, tgt) > bt.atkRange + entityRadius(tgt) + 12) {
-        tgt = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 && !un.disguised &&
+      if (!tgt || hiddenFrom(tgt, b.owner) || !canTarget(bt, tgt) || dist(b, tgt) > bt.atkRange + entityRadius(tgt) + 12) {
+        tgt = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 && !hiddenFrom(un, b.owner) &&
           canTarget(bt, un) && dist(b, un) <= bt.atkRange + entityRadius(un));
       }
       if (tgt) {
@@ -1755,7 +1909,7 @@ function updateBuilding(b, dt) {
         b.beamId = null;
       }
     } else if (b.cooldown <= 0) {
-      const foe = nearest(b, enemiesOf(b.owner), e => !e.disguised && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+      const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
       if (foe) {
         dealDamage(b, foe, bt.dmg, bt);
         b.cooldown = bt.cooldown;
@@ -1901,6 +2055,7 @@ function updateAI(owner, dt) {
     if (!type) return;
     const ut = UNIT_TYPES[type];
     if (ut.role !== 'combat') return;               // scouts don't join the army
+    if (!ut.dmg) return;                            // engineers/repair crews stay home
     if (!counts[ut.builtAt]) return;                // no building that makes it
     if (ut.req && !counts[ut.req]) return;          // tech not researched yet
     mix.push([type, w]);
@@ -1929,7 +2084,7 @@ function updateAI(owner, dt) {
   }
 
   // defense (disguised reptilian infantry don't register as hostile)
-  const threat = nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned), u => !u.disguised && dist(hq, u) < 450);
+  const threat = nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned), u => !hiddenFrom(u, owner) && dist(hq, u) < 450);
   if (threat) {
     for (const s of army) {
       if (canTarget(UNIT_TYPES[s.type], threat)) orderAttack(s, threat);
@@ -1941,7 +2096,7 @@ function updateAI(owner, dt) {
   const idleArmy = army.filter(s => s.order.type === 'idle');
   if (ai.time > AI_GRACE_PERIOD && idleArmy.length >= ai.attackWaveSize) {
     const target = nearest(hq, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 && b.type !== 'sleepercell'))
-      || nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.disguised && !u.garrisoned));
+      || nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !hiddenFrom(u, owner) && !u.garrisoned));
     if (target) {
       for (const s of idleArmy) orderAttackMove(s, target.x, target.y);
       ai.attackWaveSize = Math.min(12, ai.attackWaveSize + 1);
@@ -1979,7 +2134,7 @@ function selectAt(x, y) {
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   // no own entity under the cursor: inspect a visible enemy instead
   // (disguised infiltrators are excluded — clicking would blow their cover)
-  const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !un.disguised && !un.garrisoned &&
+  const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !hiddenFrom(un, PLAYER) && !un.garrisoned &&
     visibleToPlayer(un) && clickHitsUnit(un, x, y, 4));
   const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== PLAYER && bd.hp > 0 &&
     visibleToPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
@@ -2032,10 +2187,15 @@ function issueCommand(x, y) {
     (e.kind === 'unit' ? clickHitsUnit(e, x, y, 6)
                        : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
   const patch = state.patches.find(p => p.amount > 0 && dist(p, pt) <= 20 && tileState(p.x, p.y) >= 1);
+  // a damaged friendly unit under the cursor: repair units tend to it
+  const ally = state.units.find(a => a.owner === PLAYER && a.hp > 0 && !a.garrisoned &&
+    a.hp < a.maxHp && clickHitsUnit(a, x, y, 6));
 
   units.forEach((u, i) => {
     const stats = UNIT_TYPES[u.type];
+    if (foe && stats.captures && foe.kind === 'building') { u.order = { type: 'capture', targetId: foe.id }; return; }
     if (foe && canTarget(stats, foe)) { orderAttack(u, foe); return; }
+    if (ally && stats.repair && ally !== u) { u.order = { type: 'repair', targetId: ally.id }; return; }
     if (patch && stats.role === 'worker') { orderHarvest(u, patch); return; }
     const ang = (i / Math.max(1, units.length)) * Math.PI * 2;
     const rad = i === 0 ? 0 : 16 + 10 * Math.floor(i / 6);
@@ -2152,7 +2312,7 @@ function buildSidebar() {
   for (const k of Object.keys(cameoButtons)) delete cameoButtons[k];
   const f = facOf(PLAYER);
 
-  const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech'];
+  const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech', ...(f.structs || [])];
   // factions with a hangar-based heavy get the hangar construction slot
   if ([...(f.advanced || []), ...f.extras].some(u => UNIT_TYPES[u].builtAt === 'hangar')) structs.push('hangar');
   for (const s of structs) {
@@ -2384,6 +2544,9 @@ function refreshPanel() {
       const uu = selection[0], ut = UNIT_TYPES[uu.type];
       info += ` — ${Math.ceil(uu.hp)}/${ut.hp} HP`;
       if (ut.maxAmmo) info += ` — Ammo ${Math.floor(uu.ammo)}/${ut.maxAmmo}${uu.order.type === 'rearm' ? ' (rearming)' : ''}`;
+      if (ut.captures) info += ' — right-click an enemy structure to capture it';
+      if (ut.repair) info += ' — repairs nearby damaged allies';
+      if (ut.detector) info += ' — detector: reveals stealthed & burrowed enemies';
     }
     elSelInfo.textContent = info;
     if (selection.some(s => UNIT_TYPES[s.type].role === 'combat')) {
@@ -2678,6 +2841,9 @@ function strokeFootprint(b, margin) {
 
 function drawBuildingIso(b) {
   const bt = bstatsOf(b);
+  // stealthed structures (mines) render ghosted — semi-visible to their
+  // owner, and to enemies only once a detector has swept them
+  if (bt.stealth) ctx.globalAlpha = b.owner === PLAYER ? 0.6 : 0.45;
   const ix = isoX(b.x, b.y), iy = isoY(b.x, b.y);
   const topY = iy - (b.w + b.h) / 4; // screen y of the footprint's north corner
   const on = !powerOf(b.owner).low;
@@ -2801,6 +2967,7 @@ function drawBuildingIso(b) {
       ctx.fillStyle = '#ffd75f';
       ctx.fillRect(ix - bw / 2, qy, bw * clamp(b.queue[0].t / b.queue[0].duration, 0, 1), 5);
     }
+    ctx.globalAlpha = 1;
 }
 
 function drawUnitIso(u) {
@@ -2818,6 +2985,9 @@ function drawUnitIso(u) {
   const sy = iy - alt;
   // your own gaslight phantoms look ghostly to you; enemy ones look real
   if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
+  // cloaked/burrowed units draw ghosted: to their owner as a reminder, to
+  // the enemy only while a detector pins them (visibleToPlayer gates that)
+  if (isCloaked(u)) ctx.globalAlpha = u.owner === PLAYER ? 0.55 : 0.45;
   if (alt) {
     // shadow stays on the ground while the craft flies above it (live)
     ctx.fillStyle = 'rgba(0,0,0,0.32)';
@@ -3200,7 +3370,7 @@ function frame(now) {
       if (b.hp <= 0) {
         Particles.boom(b.x, b.y, 1.7);
         if (tileState(b.x, b.y) === 2) sfx('boom');
-        if (b.owner === PLAYER) eva('Structure lost');
+        if (b.owner === PLAYER && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
         // gas stations go up in a fireball that hurts EVERYONE nearby
         // (owner -99 so not even neutral structures are spared — chain reactions!)
         const ex = bstatsOf(b).explodes;

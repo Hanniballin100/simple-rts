@@ -3681,6 +3681,83 @@
   // the heading and rotate only ground-plane parts (decks, barrels).
   // ============================================================
 
+  // ================= fortifications & service structures =================
+  const wallColByFam = fam =>
+    fam === 'flat' ? '#a9c3cc' : fam === 'hollow' ? '#6b6152' : fam === 'glob' ? '#79828e' : '#3d4658';
+
+  B.wall = (ctx, t, o) => {
+    const col = wallColByFam(o.fam);
+    isoBox(ctx, -o.w / 2, -o.h / 2, o.w, o.h, 11, col);
+    // coping course along the top slab
+    ctx.strokeStyle = shade(col, -0.35);
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-o.w / 2 + 2, -o.h / 2 + 2, o.w - 4, o.h - 4);
+    if (o.fam === 'alien') { // faint energy seam
+      ctx.strokeStyle = 'rgba(125,255,214,0.35)';
+      ctx.strokeRect(-o.w / 2 + 5, -o.h / 2 + 5, o.w - 10, o.h - 10);
+    }
+  };
+
+  B.gate = (ctx, t, o) => {
+    const col = wallColByFam(o.fam);
+    // low roadway slab the owner's traffic rolls over
+    ctx.fillStyle = shade(col, -0.3);
+    rr(ctx, -o.w / 2 + 3, -o.h / 2 + 3, o.w - 6, o.h - 6, 2);
+    ctx.fill();
+    // flanking pillars
+    isoBox(ctx, -o.w / 2, -o.h / 2, 10, 10, 15, col);
+    isoBox(ctx, o.w / 2 - 10, o.h / 2 - 10, 10, 10, 15, col);
+    // barrier arm across the gap, striped in team color
+    ctx.save();
+    ctx.translate(0, -10);
+    ctx.rotate(-Math.PI / 4);
+    const L = Math.hypot(o.w, o.h) / 2 - 8;
+    ctx.fillStyle = '#d8d2c2';
+    ctx.fillRect(-L, -1.6, L * 2, 3.2);
+    ctx.fillStyle = o.color;
+    for (let sx = -L + 3; sx < L - 3; sx += 8) ctx.fillRect(sx, -1.6, 4, 3.2);
+    ctx.restore();
+  };
+
+  B.mine = (ctx, t, o) => {
+    // buried charge: disturbed-earth mound, prongs, and a wink of red
+    ctx.fillStyle = 'rgba(0,0,0,0.25)';
+    ctx.beginPath(); ctx.ellipse(1, 1.5, 8.5, 6.5, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#55503f';
+    ctx.beginPath(); ctx.ellipse(0, 0, 8, 6, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#464236';
+    ctx.beginPath(); ctx.ellipse(0, 0, 5, 3.6, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#7d7562';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++) {
+      const a = i * 2.1 + 0.6;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(a) * 3, Math.sin(a) * 2.2);
+      ctx.lineTo(Math.cos(a) * 3, Math.sin(a) * 2.2 - 3);
+      ctx.stroke();
+    }
+    blinker(ctx, t, 0, -3, '#ff5f5f', 2);
+  };
+
+  B.repairpad = (ctx, t, o) => {
+    pad(ctx, o);
+    // service gantry down one edge
+    isoBox(ctx, -o.w / 2 + 3, -o.h / 2 + 3, 10, o.h - 6, 9, '#4d5661');
+    // painted wrench cross on the work surface
+    ctx.strokeStyle = 'rgba(255,213,95,0.8)';
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    ctx.moveTo(-6, -8); ctx.lineTo(10, 8);
+    ctx.moveTo(10, -8); ctx.lineTo(-6, 8);
+    ctx.stroke();
+    // idle welding sparks while powered
+    if (o.on && Math.sin(t * 5.3) > 0.75) {
+      ctx.fillStyle = 'rgba(255,240,170,0.9)';
+      ctx.beginPath(); ctx.arc(2 + Math.sin(t * 31) * 4, 0, 1.4, 0, TAU); ctx.fill();
+    }
+    blinker(ctx, t, o.w / 2 - 5, -o.h / 2 + 5, '#7fff9f', 2.4);
+  };
+
   const I = {};
 
   // --- heads (billboard, origin at head center, ~5px tall) ---
@@ -3904,6 +3981,76 @@
   I.riot = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#3c434c', head: ihHelmet, weapon: iwShield });
   I.sapper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c5347', head: ihHardhat, weapon: iwPick });
   I.hybrid = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#23272e', head: ihLizard, weapon: iwPistol });
+  I.engineer = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#c9862c', head: ihHardhat,
+    pack: c2 => { // the trusty red toolbox
+      c2.fillStyle = '#8a2f23';
+      rr(c2, -4.8, -6.4, 2.4, 3.6, 0.5);
+      c2.fill();
+      c2.strokeStyle = '#5c1f17';
+      c2.lineWidth = 0.5;
+      c2.strokeRect(-4.8, -5.4, 2.4, 0.8);
+    },
+  });
+  I.shapeshifter = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#3a3f4a', pants: '#2c2f36', head: ihLizard });
+  I.dowser = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6b5a45', head: ihHardhat,
+    weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, '#ffd75f'),
+    pack: c2 => { // seismograph box with a needle arm
+      c2.fillStyle = '#3c434c';
+      rr(c2, -4.6, -8.2, 2.2, 4, 0.6);
+      c2.fill();
+      c2.strokeStyle = '#ffd75f';
+      c2.lineWidth = 0.6;
+      c2.beginPath(); c2.moveTo(-4.2, -6.4); c2.lineTo(-2.9, -7.4); c2.stroke();
+    },
+  });
+  I.mechanic = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 22, wid: 13, hgt: 5, body: '#c9a23c',
+    path: boxPath(22, 13, 3),
+    detail: (ctx2, t2, o2) => {
+      wheels(ctx2, t2, o2, [[-7, -7.1], [-7, 7.1], [7, -7.1], [7, 7.1]], 5, 2.6);
+      ctx2.fillStyle = '#d9b356';
+      rr(ctx2, 3.5, -5.6, 7, 11.2, 1.5); // cab
+      ctx2.fill();
+      ctx2.fillStyle = '#1c2026';
+      ctx2.fillRect(8.7, -4.4, 1.8, 8.8);
+      ctx2.fillStyle = shade('#c9a23c', -0.35); // tool bed
+      rr(ctx2, -9.5, -5.2, 11, 10.4, 1);
+      ctx2.fill();
+      ctx2.fillStyle = '#8b939e'; // racked tools
+      for (let i = 0; i < 3; i++) ctx2.fillRect(-8.5 + i * 3.4, -4, 2, 8);
+    },
+    above: (ctx2, t2, o2) => {
+      // articulated crane arm, folded when idle
+      ctx2.strokeStyle = '#4a4438';
+      ctx2.lineWidth = 1.6;
+      ctx2.beginPath();
+      ctx2.moveTo(-2, -6);
+      ctx2.lineTo(1, -10.5);
+      ctx2.lineTo(4.5, -8.5);
+      ctx2.stroke();
+      ctx2.fillStyle = '#ffd75f';
+      ctx2.beginPath(); ctx2.arc(4.7, -8.2, 1.1, 0, TAU); ctx2.fill();
+    },
+  });
+  D.menderorb = (ctx, t, o) => {
+    // chrome medical orb with a pulsing green cross
+    const g = ctx.createRadialGradient(-2, -2, 1, 0, 0, 8);
+    g.addColorStop(0, '#eef6f1');
+    g.addColorStop(1, '#7fa895');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(0, 0, 7.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#3f6b57';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = `rgba(63,206,122,${0.7 + 0.3 * Math.sin(t * 4)})`;
+    ctx.fillRect(-1.5, -4.5, 3, 9);
+    ctx.fillRect(-4.5, -1.5, 9, 3);
+    ctx.strokeStyle = o.color;
+    ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.arc(0, 0, 9.2, 0, TAU); ctx.stroke();
+  };
 
   // --- ground vehicles: deck rotated in the ground plane with a cheap
   // vertical extrusion (dark underside silhouette), upright parts on top ---

@@ -77,7 +77,8 @@ const FACTIONS = {
     economy: { workers: 5 },
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
-    extras: ['preacher', 'catapult', 'cropduster'], advanced: [],
+    extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: [],
+    structs: ['wall', 'gate', 'mine'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
@@ -86,6 +87,7 @@ const FACTIONS = {
       hq: 'Bunker of Truth', powerplant: 'Diesel Shack', barracks: 'Recruitment Tent',
       factory: 'Truck Garage', airpad: 'Balloon Dock', tech: 'Institute of Truth',
       watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
+      wall: 'Ice Wall Segment', gate: 'Checkpoint Gate', mine: 'IED',
     },
   },
   resistance: {
@@ -94,7 +96,8 @@ const FACTIONS = {
     economy: { workers: 4 },
     worker: 'salvagerig', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'aanest',
-    extras: ['preacher', 'catapult', 'cropduster'], advanced: [],
+    extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: [],
+    structs: ['wall', 'gate', 'mine'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
       sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
@@ -104,6 +107,7 @@ const FACTIONS = {
       factory: 'Chop Shop', airpad: 'Balloon Dock', tech: 'Numbers Station',
       watchtower: 'Watchtower', aanest: 'AA Gun Nest',
       sleepercell: 'Sleeper Cell',
+      wall: 'Scrap Barricade', gate: 'Checkpoint Gate', mine: 'IED',
     },
   },
   glob: {
@@ -112,7 +116,8 @@ const FACTIONS = {
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'b1'], advanced: ['gunship', 'b2'],
+    extras: ['riot', 'haarp', 'b1', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    structs: ['wall', 'gate', 'mine', 'repairpad'],
     powers: {
       passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
@@ -121,6 +126,7 @@ const FACTIONS = {
       hq: 'World HQ', powerplant: 'Fusion Plant', barracks: 'Command Center',
       factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
       tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Spectre Hangar',
+      wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Service Bay',
     },
   },
   deep: {
@@ -129,7 +135,8 @@ const FACTIONS = {
     economy: { workers: 3 },
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
     air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'b1'], advanced: ['gunship', 'b2'],
+    extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    structs: ['wall', 'gate', 'mine', 'repairpad'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
@@ -138,6 +145,7 @@ const FACTIONS = {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
       factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
       tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Unmarked Hangar',
+      wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Motor Pool Annex',
     },
   },
   hollow: {
@@ -146,15 +154,17 @@ const FACTIONS = {
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
-    extras: ['sapper', 'magma'], advanced: ['ptero'],
+    extras: ['sapper', 'magma', 'dowser', 'engineer'], advanced: ['ptero'],
+    structs: ['wall', 'gate', 'mine'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
-      sig: { name: 'Tunnel Network', desc: 'Right-click your HQ or a power plant: selected ground units travel there underground.', kind: 'info' },
+      sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
     },
     buildingNames: {
       hq: 'Inner Sanctum', powerplant: 'Geothermal Vent', barracks: 'Burrow',
       factory: 'Drill Works', airpad: 'Cavern Roost', tech: 'Core Forge',
       stalagmite: 'Stalagmite Spitter', geyser: 'Geyser Cannon',
+      wall: 'Stone Rampart', gate: 'Stone Gate', mine: 'Sinkhole Trap',
     },
   },
   grey: {
@@ -163,7 +173,8 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber'], advanced: ['saucer'],
+    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb'], advanced: ['saucer'],
+    structs: ['wall', 'gate', 'mine', 'repairpad'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
       sig: { name: 'Cloning Vats', desc: 'Target one of your units: an exact copy emerges from your barracks.', kind: 'unit', cd: 90 },
@@ -172,6 +183,7 @@ const FACTIONS = {
       hq: 'Mothership Anchor', powerplant: 'Zero-Point Core', barracks: 'Cloning Pod',
       factory: 'Assembler', airpad: 'Saucer Pad', tech: 'Hive Mind Nexus',
       pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
+      wall: 'Alloy Barrier', gate: 'Alloy Gate', mine: 'Plasma Mine', repairpad: 'Nanite Bay',
     },
   },
   reptilian: {
@@ -180,7 +192,8 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber'], advanced: ['drake'],
+    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb'], advanced: ['drake'],
+    structs: ['wall', 'gate', 'mine', 'repairpad'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
       sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
@@ -189,6 +202,7 @@ const FACTIONS = {
       hq: 'Nest Citadel', powerplant: 'Zero-Point Core', barracks: 'Hatchery',
       factory: 'Assembler', airpad: 'Roost Spire', tech: 'Gene Vault',
       pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
+      wall: 'Alloy Barrier', gate: 'Alloy Gate', mine: 'Plasma Mine', repairpad: 'Regeneration Pit',
     },
   },
 };
@@ -228,6 +242,14 @@ const UNIT_TYPES = {
   jammer:   { name: 'Signal Jammer',     role: 'combat', builtAt: 'barracks', hp: 80, speed: 70, dmg: 11, dmgVsGround: 5, atkRange: 185, cooldown: 0.7,  sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both', jams: true },
   slinger:  { name: 'Crystal Slinger',   role: 'combat', builtAt: 'barracks', hp: 70, speed: 72, dmg: 10, dmgVsGround: 4, atkRange: 180, cooldown: 0.65, sight: 250, cost: 65, r: 9, buildTime: 6, targets: 'both' },
   beamer:   { name: 'Beam Walker',       role: 'combat', builtAt: 'barracks', hp: 75, speed: 74, dmg: 10, dmgVsGround: 5, atkRange: 180, cooldown: 0.65, sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
+  // cross-faction support: engineers capture enemy structures (consumed on
+  // use); the dowser is Hollow's cheap walking detector; repair units mend
+  // nearby allied vehicles and aircraft. All fragile, all unarmed.
+  engineer:     { name: 'Engineer',           role: 'combat', builtAt: 'barracks', hp: 60,  speed: 70,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 90,  r: 9,  buildTime: 7, captures: true },
+  shapeshifter: { name: 'Shapeshifter',       role: 'combat', builtAt: 'barracks', hp: 70,  speed: 80,  dmg: 0, atkRange: 0, cooldown: 1, sight: 220, cost: 110, r: 9,  buildTime: 8, captures: true },
+  dowser:       { name: 'Seismograph Dowser', role: 'scout',  builtAt: 'barracks', hp: 55,  speed: 78,  dmg: 0, atkRange: 0, cooldown: 1, sight: 300, cost: 45,  r: 8,  buildTime: 5, detector: true },
+  mechanic:     { name: 'Repair Truck',       role: 'combat', builtAt: 'factory',  hp: 180, speed: 82,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 100, r: 12, buildTime: 8, repair: 9, shape: 'square' },
+  menderorb:    { name: 'Mender Orb',         role: 'combat', builtAt: 'factory',  hp: 90,  speed: 100, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 8, flying: true, shape: 'blimp' },
   // specialist infantry
   preacher: { name: 'Street Preacher',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 70, dmg: 6,  atkRange: 90,  cooldown: 1,   sight: 200, cost: 55, r: 9,  buildTime: 6, bldgBonus: 3 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
@@ -237,7 +259,7 @@ const UNIT_TYPES = {
   truck:     { name: 'Truck of Truth',   role: 'combat', builtAt: 'factory', hp: 280, speed: 58,  dmg: 22, atkRange: 30,  cooldown: 1.1,  sight: 200, cost: 120, r: 13, buildTime: 9,  bldgBonus: 2,   shape: 'square' },
   technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 170, speed: 105, dmg: 12, atkRange: 105, cooldown: 0.55, sight: 220, cost: 90,  r: 12, buildTime: 7,  shape: 'square' },
   suv:       { name: 'Black SUV',        role: 'combat', builtAt: 'factory', hp: 200, speed: 95,  dmg: 13, atkRange: 110, cooldown: 0.6,  sight: 220, cost: 110, r: 12, buildTime: 8,  shape: 'square' },
-  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square' },
+  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
   drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square' },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
   basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 22, atkRange: 34,  cooldown: 1.1,  sight: 200, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square' },
@@ -247,14 +269,14 @@ const UNIT_TYPES = {
   magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 28, atkRange: 270, minRange: 100, cooldown: 3,   sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square', weapon: 'lob', projectile: 'magma', splash: 34, groundEffect: { kind: 'fire', r: 26, dur: 2.2, dps: 8 } },
   mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 32, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square', weapon: 'lob', projectile: 'plasma', splash: 40 },
   // air
-  wballoon: { name: 'Weather Balloon',  role: 'scout',  builtAt: 'airpad', hp: 60,  speed: 90,  dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 360, cost: 40,  r: 9,  buildTime: 6,  flying: true, shape: 'blimp' },
+  wballoon: { name: 'Weather Balloon',  role: 'scout',  builtAt: 'airpad', hp: 60,  speed: 90,  dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 360, cost: 40,  r: 9,  buildTime: 6,  flying: true, shape: 'blimp', detector: true },
   balloon:  { name: 'Balloon of Truth', role: 'combat', builtAt: 'airpad', hp: 420, speed: 40,  dmg: 40, atkRange: 36,  cooldown: 2.2,  sight: 240, cost: 200, r: 15, buildTime: 14, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 46 },
   // globalist rotorcraft roll out of the Motor Pool alongside the SUVs
   drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'factory', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
   heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'factory', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
   cavebat:  { name: 'Cave Bat Swarm',   role: 'combat', builtAt: 'airpad', hp: 45,  speed: 120, dmg: 4,  atkRange: 60,  cooldown: 0.5,  sight: 300, cost: 45,  r: 8,  buildTime: 5,  flying: true, shape: 'tri' },
   gyro:     { name: 'Gyrocopter',       role: 'combat', builtAt: 'airpad', hp: 130, speed: 100, dmg: 11, atkRange: 125, cooldown: 0.7,  sight: 260, cost: 150, r: 10, buildTime: 10, flying: true, targets: 'both', shape: 'tri' },
-  orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp' },
+  orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', detector: true },
   saucer:   { name: 'Flying Saucer',    role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   drake:    { name: 'Sky Drake',        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
   cropduster: { name: 'Crop Duster',    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
@@ -299,6 +321,17 @@ const BUILDING_TYPES = {
   samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 20,  atkRange: 270, cooldown: 1.6,  targets: 'air', weapon: 'missile', ownWeaponArt: true },
   geyser:       { hp: 300, w: 38, h: 38, cost: 95,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 16,  atkRange: 240, cooldown: 0.75, targets: 'air' },
   tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 2.4, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam', ownWeaponArt: true },
+  // fortification kind: walls block ground pathing outright; gates pass the
+  // owner's units and block everyone else. wallKind lets segments snap flush
+  // against each other (normal structures keep a 32px walkway apart).
+  wall: { name: 'Wall', hp: 380, w: 26, h: 26, cost: 15, buildTime: 2, sight: 80,  power: 0, wallKind: true },
+  gate: { name: 'Gate', hp: 360, w: 34, h: 34, cost: 35, buildTime: 3, sight: 100, power: 0, wallKind: true, gate: true },
+  // stealthed proximity trap: trip = trigger radius (enemy ground units);
+  // detonation reuses the neutral explodes blast. noBlock: doesn't obstruct
+  // pathing or placement — it's buried, things roll right over it.
+  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 30, buildTime: 3, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 } },
+  // service structure: mends the owner's vehicles and aircraft sitting on it
+  repairpad: { name: 'Repair Pad', hp: 380, w: 64, h: 64, cost: 120, buildTime: 12, sight: 180, power: -20, cap: 2, repairRate: 8 },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
   // neutral map structures — garrison infantry inside to claim them
@@ -338,6 +371,7 @@ const BUILDING_MODS = {
     airpad:     { cost: 110, hp: 380, buildTime: 14, req: 'tech' }, // the sky must be proven fake first
     tech:       { cost: 240, hp: 420 },
     watchtower: { cost: 70 },
+    mine:       { cost: 20, buildTime: 2, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // IEDs are their thing
   },
   resistance: { // guerrilla salvage: cheapest structures in the game
     hq:         { hp: 800,  power: 55 },
@@ -347,6 +381,7 @@ const BUILDING_MODS = {
     airpad:     { cost: 100, hp: 350, buildTime: 13, req: 'tech' }, // trust the airwaves before the airways
     tech:       { cost: 220, hp: 400 },
     watchtower: { cost: 65 },
+    mine:       { cost: 20, buildTime: 2, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // IEDs are their thing
   },
   glob: { // premium infrastructure: pay double, get the best grid and armor
     hq:         { hp: 1100, power: 70 },
