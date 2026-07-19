@@ -1222,6 +1222,81 @@
     ctx.beginPath(); ctx.arc(13, 0, 1.6, 0, TAU); ctx.fill();
   };
 
+  // ---------- apex heavy aircraft ----------
+  D.mothership = (ctx, t, o) => {
+    // a colossal chrome saucer with a domed command deck and a ring of lights
+    const glow = ctx.createRadialGradient(0, 0, 4, 0, 0, 30);
+    glow.addColorStop(0, `rgba(90,240,220,${0.3 + 0.15 * Math.sin(t * 2.6)})`);
+    glow.addColorStop(1, 'rgba(90,240,220,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, 0, 30, 0, TAU); ctx.fill();
+    const hull = ctx.createRadialGradient(-5, -5, 3, 0, 0, 24);
+    hull.addColorStop(0, '#e2e7ee'); hull.addColorStop(0.7, '#9aa2ae'); hull.addColorStop(1, '#5f6672');
+    ctx.fillStyle = hull;
+    ctx.beginPath(); ctx.ellipse(0, 0, 24, 15, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#4d525c'; ctx.lineWidth = 1.2; ctx.stroke();
+    // rotating light ring
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU + t * 1.2;
+      const bright = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 5 + i * 1.4));
+      ctx.fillStyle = `rgba(120,255,235,${bright})`;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 19, Math.sin(a) * 11.5, 1.5, 0, TAU); ctx.fill();
+    }
+    // command dome
+    const dome = ctx.createRadialGradient(-3, -4, 1, 0, 0, 9);
+    dome.addColorStop(0, '#f2f6fa'); dome.addColorStop(1, '#8b93a0');
+    ctx.fillStyle = dome;
+    ctx.beginPath(); ctx.ellipse(0, -1, 9, 6, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.firing ? 'rgba(255,230,140,0.95)' : 'rgba(120,255,235,0.8)';
+    ctx.beginPath(); ctx.arc(0, -1, 3, 0, TAU); ctx.fill();
+  };
+  D.vrildisc = (ctx, t, o) => {
+    // brass Haunebu: riveted dieselpunk disc, warm not chrome
+    const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 20);
+    glow.addColorStop(0, `rgba(255,170,80,${0.3 + 0.15 * Math.sin(t * 3)})`);
+    glow.addColorStop(1, 'rgba(255,170,80,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath(); ctx.arc(0, 0, 20, 0, TAU); ctx.fill();
+    const hull = ctx.createRadialGradient(-3, -4, 2, 0, 0, 15);
+    hull.addColorStop(0, '#c9a86a'); hull.addColorStop(0.7, '#8a6f40'); hull.addColorStop(1, '#5c4a2c');
+    ctx.fillStyle = hull;
+    ctx.beginPath(); ctx.ellipse(0, 0, 15, 10, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#4a3a20'; ctx.lineWidth = 1.1; ctx.stroke();
+    // rivet ring
+    ctx.fillStyle = '#3c3020';
+    for (let i = 0; i < 10; i++) {
+      const a = (i / 10) * TAU;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 12, Math.sin(a) * 7.5, 0.9, 0, TAU); ctx.fill();
+    }
+    // vril cupola
+    const dome = ctx.createRadialGradient(-2, -3, 1, 0, 0, 6);
+    dome.addColorStop(0, '#f0d89a'); dome.addColorStop(1, '#9a7c44');
+    ctx.fillStyle = dome;
+    ctx.beginPath(); ctx.ellipse(0, -1, 6, 4.5, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.firing ? 'rgba(180,255,235,0.95)' : `rgba(125,255,214,${0.6 + 0.3 * Math.sin(t * 4)})`;
+    ctx.beginPath(); ctx.arc(0, -1, 2, 0, TAU); ctx.fill();
+    if (o.firing) { // vril beam stub
+      ctx.strokeStyle = 'rgba(180,255,235,0.85)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(20, 0); ctx.stroke();
+    }
+  };
+  D.draco = (ctx, t, o) => {
+    // a Draconian overlord: an oversized winged serpent wreathed in fire
+    wingedLizard(ctx, t, o, '#6a4a7a', '#4a3358', true);
+    // horned crest
+    ctx.strokeStyle = '#c9a7ff'; ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.moveTo(9, -1.5); ctx.lineTo(13, -4);
+    ctx.moveTo(9, 1.5); ctx.lineTo(13, 4);
+    ctx.stroke();
+    if (o.firing) {
+      ctx.fillStyle = 'rgba(255,120,40,0.9)';
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(24, -4); ctx.lineTo(24, 4); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,220,120,0.85)';
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(20, -2); ctx.lineTo(20, 2); ctx.closePath(); ctx.fill();
+    }
+  };
+
   // ---------- building drawings ----------
   // Each draws centered at (0,0). o = { w, h, color, on, fam, wx, wy }
   // fam: 'flat' | 'glob' | 'hollow' | 'alien'
@@ -4587,6 +4662,99 @@
   I.truthrig = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#6d6248'));
   I.salvagerig = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#5c5347'));
   I.borerig = (ctx, t, o) => isoVehicle(ctx, t, o, rigCfg('#665c4e', { drill: true }));
+
+  // ---------- apex ground heavies ----------
+  I.leveler = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 40, wid: 22, hgt: 8, body: '#5a6048',
+    path: boxPath(40, 22, 3),
+    detail: (ctx2, t2, o2) => {
+      treads(ctx2, t2, o2, 38, 5, 11);
+      // riveted deck plates
+      ctx2.fillStyle = shade('#5a6048', 0.1);
+      rr(ctx2, -15, -8, 30, 16, 2); ctx2.fill();
+      ctx2.strokeStyle = shade('#5a6048', -0.4); ctx2.lineWidth = 0.8;
+      for (let i = -12; i <= 12; i += 6) { ctx2.beginPath(); ctx2.moveTo(i, -8); ctx2.lineTo(i, 8); ctx2.stroke(); }
+      // diesel stacks belching
+      ctx2.fillStyle = '#2c2f36';
+      ctx2.beginPath(); ctx2.arc(-13, -5, 2, 0, TAU); ctx2.arc(-13, 5, 2, 0, TAU); ctx2.fill();
+    },
+    above: (ctx2, t2, o2) => {
+      // three broadside turrets down the spine, each with a barrel
+      for (const sx of [-9, 1, 11]) {
+        ctx2.save();
+        ctx2.translate(sx * 0.5, 0);
+        isoDome(ctx2, 9, 3.4, '#6a7052');
+        ctx2.restore();
+      }
+      isoBarrel(ctx2, o2, 9, 11, 2, '#2b3138');
+      isoBarrel(ctx2, { facing: o2.facing + 0.4 }, 9, 9, 1.8, '#2b3138');
+      isoBarrel(ctx2, { facing: o2.facing - 0.4 }, 9, 9, 1.8, '#2b3138');
+      // stubby AA pintle on top
+      isoDome(ctx2, 13, 2, '#4a5240');
+      if (o2.firing) {
+        ctx2.fillStyle = 'rgba(255,220,140,0.9)';
+        ctx2.beginPath(); ctx2.arc(0, -13, 2.5, 0, TAU); ctx2.fill();
+      }
+    },
+  });
+  I.ironmole = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 40, wid: 20, hgt: 8, body: '#6a5c48',
+    path: boxPath(38, 20, 4),
+    detail: (ctx2, t2, o2) => {
+      treads(ctx2, t2, o2, 34, 5, 10);
+      // riveted brass hull bands
+      ctx2.fillStyle = '#7a6a4e';
+      rr(ctx2, -14, -7, 22, 14, 3); ctx2.fill();
+      ctx2.strokeStyle = '#4a3d28'; ctx2.lineWidth = 1;
+      for (let i = -10; i <= 6; i += 5) { ctx2.beginPath(); ctx2.moveTo(i, -7); ctx2.lineTo(i, 7); ctx2.stroke(); }
+      // the great auger: a stack of spinning conical flutes at the bow
+      ctx2.fillStyle = '#9aa2ae';
+      ctx2.beginPath(); ctx2.moveTo(9, -9); ctx2.lineTo(27, 0); ctx2.lineTo(9, 9); ctx2.closePath(); ctx2.fill();
+      ctx2.strokeStyle = '#4d5560'; ctx2.lineWidth = 1.2;
+      for (let i = 0; i < 6; i++) {
+        const p = ((o2.moving || o2.firing ? t2 * 30 : t2 * 6) + i * 3) % 18;
+        ctx2.beginPath();
+        ctx2.moveTo(9 + p, -9 + p * 0.5); ctx2.lineTo(9 + p, 9 - p * 0.5);
+        ctx2.stroke();
+      }
+      ctx2.fillStyle = '#c8cdd5';
+      ctx2.beginPath(); ctx2.arc(24, 0, 1.6, 0, TAU); ctx2.fill();
+    },
+    above: (ctx2) => {
+      isoDome(ctx2, 8, 5, '#7a6a4e');
+      // vril lamp cupola
+      ctx2.fillStyle = 'rgba(125,255,214,0.7)';
+      ctx2.beginPath(); ctx2.arc(0, -9, 1.8, 0, TAU); ctx2.fill();
+    },
+  });
+  I.cruisetruck = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 28, wid: 14, hgt: 5, body: '#5c5347',
+    path: boxPath(28, 14, 3),
+    detail: (ctx2, t2, o2) => {
+      wheels(ctx2, t2, o2, [[-10, -7.6], [-10, 7.6], [-3, -7.6], [-3, 7.6], [10, -7.6], [10, 7.6]], 5, 2.6);
+      ctx2.fillStyle = '#6d6248';
+      rr(ctx2, 7, -5.6, 7, 11.2, 1.5); ctx2.fill(); // cab
+      ctx2.fillStyle = '#1c2026';
+      ctx2.fillRect(12.2, -4.4, 1.8, 8.8);
+    },
+    above: (ctx2, t2, o2) => {
+      // an angled rack of scrap-built cruise missiles
+      ctx2.save();
+      ctx2.translate(-4, 0);
+      ctx2.rotate(-0.5);
+      for (const oy of [-3.5, 0, 3.5]) {
+        ctx2.fillStyle = '#8a8271';
+        rr(ctx2, -8, oy - 1.4, 16, 2.8, 1.2); ctx2.fill();
+        ctx2.fillStyle = '#b04a3a';
+        ctx2.beginPath(); ctx2.moveTo(8, oy - 1.4); ctx2.lineTo(11, oy); ctx2.lineTo(8, oy + 1.4); ctx2.closePath(); ctx2.fill();
+      }
+      ctx2.restore();
+      if (o2.firing) {
+        ctx2.fillStyle = 'rgba(255,220,140,0.9)';
+        ctx2.beginPath(); ctx2.arc(-11, 0, 3, 0, TAU); ctx2.fill();
+      }
+    },
+  });
 
   I.truck = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 26, wid: 14, hgt: 5, body: '#6d5b40',

@@ -77,7 +77,7 @@ const FACTIONS = {
     economy: { workers: 5 },
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'truck',
     air: ['wballoon', 'balloon'], tower: 'watchtower', aaTower: 'laserpointer',
-    extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: [],
+    extras: ['preacher', 'catapult', 'cropduster', 'engineer'], advanced: ['leveler'],
     structs: ['wall', 'gate', 'mine', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
@@ -97,7 +97,7 @@ const FACTIONS = {
     economy: { workers: 4 },
     worker: 'salvagerig', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
     air: ['wballoon', 'fpv'], tower: 'watchtower', aaTower: 'aanest',
-    extras: ['rpgpartisan', 'marksman', 'cropduster', 'engineer'], advanced: [],
+    extras: ['rpgpartisan', 'marksman', 'cropduster', 'engineer'], advanced: ['cruisetruck'],
     structs: ['wall', 'gate', 'mine', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
@@ -158,7 +158,7 @@ const FACTIONS = {
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
-    extras: ['sapper', 'magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'dowser', 'engineer'], advanced: ['ptero'],
+    extras: ['sapper', 'magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'dowser', 'engineer'], advanced: ['ptero', 'ironmole', 'vrildisc'],
     structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
@@ -179,7 +179,7 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer'],
+    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
     structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
@@ -199,7 +199,7 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake'],
+    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake', 'draco'],
     structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
@@ -336,6 +336,21 @@ const UNIT_TYPES = {
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
+  // ---------- apex heavies (AC-130 tier, all tech-gated) ----------
+  // Flat: a diesel land-dreadnought — the gunship broadside battery on tracks,
+  // raking several targets at once, with light anti-air from the same guns
+  leveler:  { name: 'The Leveler', role: 'combat', builtAt: 'factory', hp: 720, speed: 38, dmg: 13, atkRange: 215, cooldown: 0.28, sight: 300, cost: 520, r: 20, buildTime: 21, shape: 'square', targets: 'both', armor: 0.25, bldgBonus: 1.5, weapon: 'gunship', shellEvery: 9, shellDmg: 42, shellSplash: 32, multiTarget: 3, req: 'tech' },
+  // Hollow: a Jules-Verne borer — burrows across the map and erupts in the
+  // enemy base with a huge emergence blast, then chews structures
+  ironmole: { name: 'Iron Mole', role: 'combat', builtAt: 'factory', hp: 680, speed: 48, dmg: 42, atkRange: 32, cooldown: 1.4, sight: 200, cost: 500, r: 18, buildTime: 21, shape: 'square', armor: 0.3, bldgBonus: 3, burrow: true, emergeAoE: { r: 110, dmg: 95 }, req: 'tech' },
+  // Hollow advanced air: brass-riveted Vril Disc with a channeled beam
+  vrildisc: { name: 'Vril Disc', role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
+  // Greys: a heavy capital saucer — hovers and rakes a broadside of plasma
+  mothership: { name: 'Mothership', role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 20, atkRange: 175, cooldown: 0.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'both', shape: 'saucer', weapon: 'gunship', shellEvery: 11, shellDmg: 40, shellSplash: 34, multiTarget: 3, req: 'tech' },
+  // Reptilians: a winged Draconian overlord raining fire
+  draco:    { name: 'Draco', role: 'combat', builtAt: 'airpad', hp: 640, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 540, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, req: 'tech' },
+  // Resistance: a janky scrap missile truck — cheap-for-its-power siege apex
+  cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 55, bldgBonus: 2, req: 'tech' },
   // faction-power units (never trainable)
   smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
   phantom:  { name: 'Unknown Contact', role: 'scout', hp: 20,  speed: 60, dmg: 0, atkRange: 0, cooldown: 1, sight: 40,  cost: 0, r: 9,  buildTime: 0 },

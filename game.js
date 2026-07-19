@@ -1466,11 +1466,12 @@ function fireAt(u, target, t) {
               dist(u, e) <= t.atkRange + entityRadius(e))
             .sort((x, y) => dist(u, x) - dist(u, y)).slice(0, t.multiTarget - 1)
           : [];
+        const uz = (t.flying && !u.landed) ? FLY_H : 0; // land dreadnoughts fire from the deck
         for (const tgt of [target, ...extras]) {
           dealDamage(u, tgt, dmg, t);
           const tz = (tgt.kind === 'unit' && UNIT_TYPES[tgt.type].flying && !tgt.landed) ? FLY_H : 0;
           Particles.shot(u.x + Math.cos(a + 1.5) * (t.r - 3), u.y + Math.sin(a + 1.5) * (t.r - 3),
-            tgt.x, tgt.y, 'bullet', FLY_H, tz);
+            tgt.x, tgt.y, WEAPON_STYLE[state.factions[u.owner]], uz, tz);
         }
         if (visible && u.burst % 3 === 0) sfx('shot');
       }
