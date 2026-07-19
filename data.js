@@ -393,12 +393,15 @@ const BUILDING_TYPES = {
   // fortification kind: walls block ground pathing outright; gates pass the
   // owner's units and block everyone else. wallKind lets segments snap flush
   // against each other (normal structures keep a 32px walkway apart).
-  wall: { name: 'Wall', hp: 380, w: 26, h: 26, cost: 15, buildTime: 2, sight: 80,  power: 0, wallKind: true },
-  gate: { name: 'Gate', hp: 360, w: 34, h: 34, cost: 35, buildTime: 3, sight: 100, power: 0, wallKind: true, gate: true },
+  // instant: field structures place immediately for their cost and never tie
+  // up the single build queue — lay a whole wall line without stalling your
+  // barracks/factory/tech.
+  wall: { name: 'Wall', hp: 380, w: 26, h: 26, cost: 12, buildTime: 0, sight: 80,  power: 0, wallKind: true, instant: true },
+  gate: { name: 'Gate', hp: 360, w: 34, h: 34, cost: 30, buildTime: 0, sight: 100, power: 0, wallKind: true, gate: true, instant: true },
   // stealthed proximity trap: trip = trigger radius (enemy ground units);
   // detonation reuses the neutral explodes blast. noBlock: doesn't obstruct
   // pathing or placement — it's buried, things roll right over it.
-  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 30, buildTime: 3, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true },
+  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 25, buildTime: 0, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true, instant: true },
   // service structure: mends the owner's vehicles and aircraft sitting on it
   repairpad: { name: 'Repair Pad', hp: 380, w: 64, h: 64, cost: 120, buildTime: 12, sight: 180, power: -20, cap: 2, repairRate: 8 },
   // the superweapon slot: same structure everywhere, very different payloads
@@ -443,7 +446,7 @@ const BUILDING_MODS = {
     airpad:     { cost: 110, hp: 380, buildTime: 14, req: 'tech' }, // the sky must be proven fake first
     tech:       { cost: 240, hp: 420 },
     watchtower: { cost: 70 },
-    mine:       { cost: 20, buildTime: 2, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // IEDs are their thing
+    mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
   },
   resistance: { // guerrilla salvage: cheapest structures in the game
     hq:         { hp: 800,  power: 55 },
@@ -453,7 +456,7 @@ const BUILDING_MODS = {
     airpad:     { cost: 90,  hp: 350, buildTime: 12 }, // the Drone Shop: no proof-of-sky required
     tech:       { cost: 220, hp: 400 },
     watchtower: { cost: 65 },
-    mine:       { cost: 20, buildTime: 2, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // IEDs are their thing
+    mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
     superweapon: { cost: 380, hp: 480 }, // cheaper and weaker, on brand
   },
   glob: { // premium infrastructure: pay double, get the best grid and armor

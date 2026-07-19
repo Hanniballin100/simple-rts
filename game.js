@@ -456,6 +456,17 @@ function withinBuildRadius(owner, x, y) {
 }
 
 function tryPlace(owner, x, y) {
+  // instant field structures (walls, gates, mines): pay per placement, never
+  // touch the build queue. Player-only (driven by the `placing` cursor).
+  if (owner === PLAYER && placing && bstats(owner, placing).instant) {
+    const type = placing, st = bstats(owner, type);
+    if (atStructCap(owner, type)) return false;
+    if (state.minerals[owner] < st.cost) { eva('Insufficient funds'); return false; }
+    if (placementBlocked(owner, type, x, y) || (!st.anywhere && !withinBuildRadius(owner, x, y))) return false;
+    state.minerals[owner] -= st.cost;
+    makeBuilding(owner, type, x, y);
+    return true;
+  }
   const c = state.construction[owner];
   if (!c || !c.ready) return false;
   // `anywhere` structures (mines, forward tunnel entrances) skip the
@@ -2522,13 +2533,29 @@ function evacuate(b) {
 }
 
 function sidebarStructureClick(type) {
+  const st = bstats(PLAYER, type);
+  // field fortifications (walls, gates, mines): no build queue — go straight
+  // into placement and pay per piece, so laying them never stalls the real
+  // production queue
+  if (st.instant) {
+    if (placing === type) { placing = null; refreshPanel(); return; } // toggle off
+    if (atStructCap(PLAYER, type)) { eva('Build limit reached'); return; }
+    const rq = st.req;
+    if (rq && !hasStruct(PLAYER, rq)) { eva(`Requires ${facOf(PLAYER).buildingNames[rq] || rq}`); return; }
+    if (state.minerals[PLAYER] < st.cost) { eva('Insufficient funds'); return; }
+    placing = type;
+    sfx('click');
+    refreshPanel();
+    refreshSidebar();
+    return;
+  }
   const c = state.construction[PLAYER];
   if (c && c.ready && c.type === type) { placing = type; refreshPanel(); return; }
   if (c) { eva('Unable to comply, building in progress'); return; }
   if (atStructCap(PLAYER, type)) { eva('Build limit reached'); return; }
-  const rq = bstats(PLAYER, type).req;
+  const rq = st.req;
   if (rq && !hasStruct(PLAYER, rq)) { eva(`Requires ${facOf(PLAYER).buildingNames[rq] || rq}`); return; }
-  if (state.minerals[PLAYER] < bstats(PLAYER, type).cost) { eva('Insufficient funds'); return; }
+  if (state.minerals[PLAYER] < st.cost) { eva('Insufficient funds'); return; }
   startConstruction(PLAYER, type);
   sfx('click');
   refreshSidebar();
@@ -2564,6 +2591,11 @@ function makeCameo(grid, key, label, cost, onClick, onCancel) {
 // right-click on a structure cameo: scrap the queued (or ready-to-place)
 // construction of that type and refund the full cost
 function cancelStructure(type) {
+  // instant field structures have nothing queued — just stop placing them
+  if (bstats(PLAYER, type).instant) {
+    if (placing === type) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
+    return;
+  }
   const c = state.construction[PLAYER];
   if (!c || c.type !== type) return;
   state.construction[PLAYER] = null;
@@ -2686,9 +2718,27 @@ function refreshSidebar() {
       continue;
     }
     if (kind === 's') {
+      const st = bstats(PLAYER, type);
+      // field fortifications never enter the build queue, so they stay live
+      // even while a real structure is under construction
+      if (st.instant) {
+        const capped = atStructCap(PLAYER, type);
+        const rq = st.req;
+        const locked = !!rq && !hasStruct(PLAYER, rq);
+        const active = placing === type;
+        const poor = state.minerals[PLAYER] < st.cost;
+        ui.btn.classList.toggle('ready', active);
+        ui.btn.classList.toggle('disabled', locked || capped || (poor && !active));
+        ui.prog.style.height = '0%';
+        ui.costEl.textContent = active ? 'PLACING'
+          : locked ? '🔒 ' + (facOf(PLAYER).buildingNames[rq] || rq)
+          : capped ? 'MAX'
+          : '$' + ui.baseCost;
+        continue;
+      }
       const isThis = c && c.type === type;
       const capped = atStructCap(PLAYER, type);
-      const rq = bstats(PLAYER, type).req;
+      const rq = st.req;
       // NB: must be a real boolean — classList.toggle(name, undefined) is a
       // plain toggle and would flip the class every refresh (sidebar strobe)
       const locked = !!rq && !hasStruct(PLAYER, rq);
@@ -4127,7 +4177,16 @@ canvas.addEventListener('mousedown', e => {
       return;
     }
     if (placing) {
-      if (tryPlace(PLAYER, p.x, p.y)) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
+      const instant = bstats(PLAYER, placing).instant;
+      if (tryPlace(PLAYER, p.x, p.y)) {
+        sfx('click');
+        // instant field structures stay armed so you can drag out a wall line
+        // or minefield; stop once you run dry or hit the cap
+        if (!instant || state.minerals[PLAYER] < bstats(PLAYER, placing).cost || atStructCap(PLAYER, placing)) {
+          placing = null;
+        }
+        refreshPanel(); refreshSidebar();
+      }
       return;
     }
     if (attackMoveArmed) {
