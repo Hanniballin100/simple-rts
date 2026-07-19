@@ -3758,6 +3758,99 @@
     blinker(ctx, t, o.w / 2 - 5, -o.h / 2 + 5, '#7fff9f', 2.4);
   };
 
+  // ================= hollow-earth infrastructure =================
+  B.tunnelentrance = (ctx, t, o) => {
+    // timber-framed shaft mouth ramping down into the dark
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(2, 3, 21, 17, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#5c5347';
+    ctx.beginPath(); ctx.ellipse(0, 0, 20, 16, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#3a342c';
+    ctx.beginPath(); ctx.ellipse(0, 1, 14, 10.5, 0, 0, TAU); ctx.fill();
+    const g = ctx.createRadialGradient(0, 2, 1, 0, 2, 10);
+    g.addColorStop(0, '#0c0a08');
+    g.addColorStop(1, '#241f19');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(0, 2, 10, 7, 0, 0, TAU); ctx.fill();
+    // portal timbers
+    ctx.strokeStyle = '#6b5537';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.moveTo(-11, 4); ctx.lineTo(-9, -9);
+    ctx.moveTo(11, 4); ctx.lineTo(9, -9);
+    ctx.moveTo(-10, -8); ctx.lineTo(10, -8);
+    ctx.stroke();
+    // winch post + rope, and a faint vril glow breathing out of the deep
+    ctx.strokeStyle = '#8b7a5c';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(0, 2); ctx.stroke();
+    ctx.fillStyle = `rgba(125,255,214,${0.12 + 0.08 * Math.sin(t * 2.2)})`;
+    ctx.beginPath(); ctx.ellipse(0, 2, 9, 6, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = o.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 19, 15, 0, -0.6, 0.7); ctx.stroke();
+  };
+
+  B.vrilreactor = (ctx, t, o) => {
+    pad(ctx, o);
+    // riveted brass housing with a channeled vril crystal in the core
+    drum3d(ctx, 0, 2, 15, '#7a6440', 6);
+    ctx.strokeStyle = '#5c4a2c';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 6; i++) {
+      const a = i * (TAU / 6) + 0.3;
+      ctx.beginPath();
+      ctx.arc(Math.cos(a) * 12, 2 + Math.sin(a) * 9, 1, 0, TAU);
+      ctx.stroke();
+    }
+    const heat = o.on ? 0.5 + 0.5 * Math.sin(t * 3.2) : 0;
+    billboard(ctx, 0, 2, () => {
+      // the crystal itself, upright, pulsing
+      ctx.fillStyle = o.on ? `rgba(125,255,214,${0.75 + heat * 0.25})` : '#4a6b60';
+      ctx.beginPath();
+      ctx.moveTo(0, -22);
+      ctx.lineTo(5, -10); ctx.lineTo(2.5, -4); ctx.lineTo(-2.5, -4); ctx.lineTo(-5, -10);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2c5248';
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      if (o.on && heat > 0.7) {
+        ctx.strokeStyle = 'rgba(200,255,240,0.8)';
+        ctx.beginPath();
+        ctx.moveTo(0, -16); ctx.lineTo(4 - heat * 8, -26 - heat * 3);
+        ctx.stroke();
+      }
+    });
+  };
+
+  B.geode = (ctx, t, o) => {
+    // a cracked-open crystal pocket — the economy grows on the walls
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(2, 3, 23, 18, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#4e463b';
+    ctx.beginPath(); ctx.ellipse(0, 0, 22, 17, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#2c2620';
+    ctx.beginPath(); ctx.ellipse(0, 1, 15, 11, 0, 0, TAU); ctx.fill();
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.05 + 0.4, rd = 6 + (i * 7) % 6;
+      const cx2 = Math.cos(a) * rd, cy2 = 1 + Math.sin(a) * rd * 0.6;
+      const h = 7 + (i * 5) % 6 + Math.sin(t * 2 + i) * 0.6;
+      ctx.fillStyle = i % 2 ? '#3fd7d0' : '#7dffd6';
+      ctx.beginPath();
+      ctx.moveTo(cx2, cy2 - h);
+      ctx.lineTo(cx2 + h * 0.35, cy2);
+      ctx.lineTo(cx2, cy2 + h * 0.25);
+      ctx.lineTo(cx2 - h * 0.35, cy2);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#1a8a85';
+      ctx.lineWidth = 0.8;
+      ctx.stroke();
+    }
+    ctx.strokeStyle = o.color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 21, 16, 0, 2.6, 4.2); ctx.stroke();
+  };
+
   const I = {};
 
   // --- heads (billboard, origin at head center, ~5px tall) ---
@@ -3981,6 +4074,72 @@
   I.riot = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#3c434c', head: ihHelmet, weapon: iwShield });
   I.sapper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c5347', head: ihHardhat, weapon: iwPick });
   I.hybrid = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#23272e', head: ihLizard, weapon: iwPistol });
+  I.vrilpriestess = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#7a5c8f', pants: '#4a3a58', head: ctx2 => ihHood(ctx2, '#5c4470'),
+    weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, '#7dffd6'),
+    pack: (c2, t2) => { // vril motes orbiting her
+      for (let i = 0; i < 3; i++) {
+        const a = t2 * 2 + i * 2.1;
+        c2.fillStyle = `rgba(125,255,214,${0.5 + 0.3 * Math.sin(a * 2)})`;
+        c2.beginPath();
+        c2.arc(Math.cos(a) * 5, -7 + Math.sin(a) * 2.4, 0.9, 0, TAU);
+        c2.fill();
+      }
+    },
+  });
+  I.guardian = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#8a6f3c', pants: '#4a3d26', head: ctx2 => ihHelmet(ctx2, '#7a6440'),
+    weapon: (c2, t2, o2) => { // brass tower shield + short pick
+      c2.fillStyle = '#9a7c44';
+      rr(c2, 2.8, -9.5, 3, 7.5, 1);
+      c2.fill();
+      c2.strokeStyle = '#5c4a2c';
+      c2.lineWidth = 0.7;
+      c2.stroke();
+      c2.strokeStyle = '#3c3126';
+      c2.lineWidth = 1.2;
+      c2.beginPath();
+      c2.moveTo(1, -5.5); c2.lineTo(5.5 + (o2.firing ? 1.5 : 0), -4.5);
+      c2.stroke();
+    },
+  });
+  I.cavesaurian = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 32, wid: 14, hgt: 5, body: '#6d5b40',
+    path: (ctx2) => { // low-slung saurian bulk: head, body, haunches
+      ctx2.beginPath();
+      ctx2.ellipse(12, 0, 6, 5, 0, 0, TAU);
+      ctx2.ellipse(1, 0, 8.5, 6.5, 0, 0, TAU);
+      ctx2.ellipse(-10, 0, 6, 5, 0, 0, TAU);
+    },
+    detail: (ctx2, t2, o2) => {
+      // armored back plates
+      ctx2.fillStyle = shade('#6d5b40', -0.3);
+      for (const [sx, sr] of [[9, 4], [1, 5], [-7, 4]]) {
+        ctx2.beginPath(); ctx2.ellipse(sx, 0, sr, sr * 0.8, 0, 0, TAU); ctx2.fill();
+      }
+      // dorsal ridge spikes
+      ctx2.fillStyle = '#d8cfa8';
+      for (let i = -12; i <= 10; i += 5) {
+        ctx2.beginPath();
+        ctx2.moveTo(i, -1.6); ctx2.lineTo(i + 2, 0); ctx2.lineTo(i, 1.6);
+        ctx2.closePath(); ctx2.fill();
+      }
+      // bioluminescent eyes
+      ctx2.fillStyle = '#7dffd6';
+      ctx2.beginPath();
+      ctx2.arc(16, -2, 1.1, 0, TAU);
+      ctx2.arc(16, 2, 1.1, 0, TAU);
+      ctx2.fill();
+      // tail sweep
+      const sw = o2.moving ? Math.sin((o2.dist || 0) * 0.5) * 3 : 0;
+      ctx2.strokeStyle = '#6d5b40';
+      ctx2.lineWidth = 3;
+      ctx2.beginPath();
+      ctx2.moveTo(-14, 0);
+      ctx2.quadraticCurveTo(-19, sw, -23, sw * 1.6);
+      ctx2.stroke();
+    },
+  });
   I.rpgpartisan = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#6b5a3f', head: ihFoil,
     weapon: (c2, t2, o2) => { // shoulder-carried RPG tube

@@ -154,8 +154,8 @@ const FACTIONS = {
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
-    extras: ['sapper', 'magma', 'dowser', 'engineer'], advanced: ['ptero'],
-    structs: ['wall', 'gate', 'mine'],
+    extras: ['sapper', 'magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'dowser', 'engineer'], advanced: ['ptero'],
+    structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'vrilreactor', 'geode'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
       sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
@@ -165,6 +165,7 @@ const FACTIONS = {
       factory: 'Drill Works', airpad: 'Cavern Roost', tech: 'Core Forge',
       stalagmite: 'Stalagmite Spitter', geyser: 'Geyser Cannon',
       wall: 'Stone Rampart', gate: 'Stone Gate', mine: 'Sinkhole Trap',
+      tunnelentrance: 'Tunnel Entrance', vrilreactor: 'Vril Reactor', geode: 'Crystal Geode',
     },
   },
   grey: {
@@ -234,7 +235,7 @@ const UNIT_TYPES = {
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4 },
   agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6 },
   mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7 },
-  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5 },
+  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
   // anti-air infantry: full damage vs air, dmgVsGround when shooting ground
@@ -253,8 +254,13 @@ const UNIT_TYPES = {
   // specialist infantry
   preacher: { name: 'Street Preacher',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 70, dmg: 6,  atkRange: 90,  cooldown: 1,   sight: 200, cost: 55, r: 9,  buildTime: 6, bldgBonus: 3 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
-  sapper:   { name: 'Tunnel Sapper',      role: 'combat', builtAt: 'barracks', hp: 90,  speed: 80, dmg: 8,  atkRange: 25,  cooldown: 1,   sight: 190, cost: 65, r: 9,  buildTime: 6, bldgBonus: 4 },
+  sapper:   { name: 'Tunnel Sapper',      role: 'combat', builtAt: 'barracks', hp: 90,  speed: 80, dmg: 8,  atkRange: 25,  cooldown: 1,   sight: 190, cost: 65, r: 9,  buildTime: 6, bldgBonus: 4, burrow: true },
   hybrid:   { name: 'Hybrid Infiltrator', role: 'combat', builtAt: 'barracks', hp: 55,  speed: 95, dmg: 14, atkRange: 110, cooldown: 0.7, sight: 240, cost: 70, r: 9,  buildTime: 6 },
+  // hollow-earth court: the priestess channels Vril (repair aura), the
+  // guardian and saurian are the heavy line — all of it can go underground
+  vrilpriestess: { name: 'Vril Priestess',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 72, dmg: 0,  atkRange: 0,  cooldown: 1,    sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 7, burrow: true },
+  guardian:      { name: 'Agarthan Guardian', role: 'combat', builtAt: 'barracks', hp: 190, speed: 62, dmg: 13, atkRange: 30, cooldown: 0.85, sight: 200, cost: 95,  r: 10, buildTime: 8, armor: 0.3, burrow: true },
+  cavesaurian:   { name: 'Cave Saurian',      role: 'combat', builtAt: 'factory',  hp: 380, speed: 78, dmg: 26, atkRange: 32, cooldown: 1,    sight: 210, cost: 170, r: 14, buildTime: 12, armor: 0.2, shape: 'square' },
   // resistance specialists: the RPG tube is their can opener (vehBonus
   // multiplies damage vs ground vehicles), the marksman their long arm
   rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2 },
@@ -266,7 +272,7 @@ const UNIT_TYPES = {
   technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both' },
   suv:       { name: 'Black SUV',        role: 'combat', builtAt: 'factory', hp: 200, speed: 95,  dmg: 13, atkRange: 110, cooldown: 0.6,  sight: 220, cost: 110, r: 12, buildTime: 8,  shape: 'square' },
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
-  drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square' },
+  drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square', burrow: true, emergeAoE: { r: 60, dmg: 30 } },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
   basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 22, atkRange: 34,  cooldown: 1.1,  sight: 200, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square' },
   // artillery (minRange: can't fire when rushed; lobbed projectiles with splash)
@@ -329,6 +335,13 @@ const BUILDING_TYPES = {
   samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 20,  atkRange: 270, cooldown: 1.6,  targets: 'air', weapon: 'missile', ownWeaponArt: true },
   geyser:       { hp: 300, w: 38, h: 38, cost: 95,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 16,  atkRange: 240, cooldown: 0.75, targets: 'air' },
   tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 2.4, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam', ownWeaponArt: true },
+  // hollow-earth infrastructure. Tunnel entrances are network nodes (along
+  // with the HQ and power plants): ground units enter one and surface at any
+  // other after a distance-scaled transit. anywhere: exempt from the
+  // build-radius rule — forward entrances near the enemy are the point.
+  tunnelentrance: { name: 'Tunnel Entrance', hp: 280, w: 44, h: 44, cost: 60, buildTime: 8, sight: 200, power: -10, cap: 6, anywhere: true },
+  vrilreactor:    { name: 'Vril Reactor', hp: 300, w: 50, h: 50, cost: 140, buildTime: 12, sight: 180, power: +150, cap: 3, req: 'tech' },
+  geode:          { name: 'Crystal Geode', hp: 340, w: 48, h: 48, cost: 150, buildTime: 14, sight: 170, power: 0, income: 10, cap: 4 },
   // fortification kind: walls block ground pathing outright; gates pass the
   // owner's units and block everyone else. wallKind lets segments snap flush
   // against each other (normal structures keep a 32px walkway apart).
@@ -337,7 +350,7 @@ const BUILDING_TYPES = {
   // stealthed proximity trap: trip = trigger radius (enemy ground units);
   // detonation reuses the neutral explodes blast. noBlock: doesn't obstruct
   // pathing or placement — it's buried, things roll right over it.
-  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 30, buildTime: 3, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 } },
+  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 30, buildTime: 3, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true },
   // service structure: mends the owner's vehicles and aircraft sitting on it
   repairpad: { name: 'Repair Pad', hp: 380, w: 64, h: 64, cost: 120, buildTime: 12, sight: 180, power: -20, cap: 2, repairRate: 8 },
   // resistance passive: hidden observation posts (never buildable)

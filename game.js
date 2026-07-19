@@ -453,7 +453,10 @@ function withinBuildRadius(owner, x, y) {
 function tryPlace(owner, x, y) {
   const c = state.construction[owner];
   if (!c || !c.ready) return false;
-  if (placementBlocked(owner, c.type, x, y) || !withinBuildRadius(owner, x, y)) return false;
+  // `anywhere` structures (mines, forward tunnel entrances) skip the
+  // build-radius leash — planting them deep in enemy country is the point
+  if (placementBlocked(owner, c.type, x, y) ||
+      (!bstats(owner, c.type).anywhere && !withinBuildRadius(owner, x, y))) return false;
   makeBuilding(owner, c.type, x, y);
   state.construction[owner] = null;
   return true;
@@ -585,6 +588,55 @@ function updateAbilities(dt) {
       if (fkey === 'reptilian' && !sig.used && ais[owner].time > 240) castRevealInfiltrator(owner);
     }
   }
+}
+
+// hollow-earth tunnel network: which structures act as entrances, and how
+// fast units travel underground (world px/s — quicker than walking, not free)
+const TUNNEL_NODES = ['hq', 'powerplant', 'tunnelentrance'];
+const TUNNEL_SPEED = 220;
+
+// units in transit ride outside the normal update loop: they surface at the
+// destination when their timer runs out, and die if either end of the tunnel
+// is destroyed while they're down there
+function updateTransits() {
+  for (const u of state.units) {
+    if (!u.transit || u.hp <= 0) continue;
+    const src = state.buildings.find(b => b.id === u.transit.srcId && b.hp > 0);
+    const dest = state.buildings.find(b => b.id === u.transit.destId && b.hp > 0);
+    if (!src || !dest) { u.hp = 0; continue; } // the tunnel caved in on them
+    if (state.time >= u.transit.arrive) {
+      u.garrisoned = null;
+      u.x = clamp(dest.x + Math.sin(u.id * 2.7) * (dest.w / 2 + 16), 10, WORLD_W - 10);
+      u.y = clamp(dest.y + dest.h / 2 + 16 + (u.id % 3) * 9, 10, WORLD_H - 10);
+      delete u.transit;
+      u.order = { type: 'idle' };
+      Particles.smoke(u.x, u.y, 3);
+    }
+  }
+}
+
+// burrow stance: toggle the selected hollow units under/above ground.
+// Surfacing arms a one-shot ambush bonus; heavy drillers crack the ground.
+function toggleBurrowSelection() {
+  let any = false;
+  for (const u of selection) {
+    if (u.kind !== 'unit' || u.owner !== PLAYER || u.hp <= 0 || u.transit) continue;
+    if (!UNIT_TYPES[u.type].burrow) continue;
+    any = true;
+    if (u.burrowed) {
+      u.burrowed = false;
+      u.ambush = true; // first strike after surfacing hits double
+      const ea = UNIT_TYPES[u.type].emergeAoE;
+      if (ea) {
+        splashDamage(u.x, u.y, ea.r, ea.dmg, u.owner, { bldgBonus: 1.5 });
+        Particles.boom(u.x, u.y, 1.2);
+        if (tileState(u.x, u.y) === 2) sfx('boom');
+      }
+    } else {
+      u.burrowed = true;
+    }
+  }
+  if (any) { sfx('click'); refreshPanel(); }
 }
 
 function orderMove(u, x, y) { u.order = { type: 'move', x, y }; }
@@ -904,6 +956,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
     }
   }
   if (u.slowUntil && u.slowUntil > state.time) speed *= 0.55;
+  if (u.burrowed) speed *= 0.5; // clawing through bedrock
   const sd = Math.hypot(sx2 - u.x, sy2 - u.y) || 1;
   const step = Math.min(speed * dt, d);
   let nx = u.x + (sx2 - u.x) / sd * step;
@@ -1109,6 +1162,7 @@ function splashDamage(cx, cy, radius, dmg, owner, stats, hitAir = false) {
   const pt = { x: cx, y: cy };
   for (const u of state.units) {
     if (u.owner === owner || u.hp <= 0 || u.garrisoned) continue;
+    if (u.burrowed) continue; // safe under the blast
     if (!hitAir && UNIT_TYPES[u.type].flying) continue;
     const d = dist(u, pt);
     if (d <= radius + UNIT_TYPES[u.type].r) {
@@ -1202,7 +1256,7 @@ function updateZones(dt) {
       if (z.tick <= 0) {
         z.tick = 0.4;
         for (const u of state.units) {
-          if (u.owner === z.caster || u.hp <= 0 || u.garrisoned || UNIT_TYPES[u.type].flying) continue;
+          if (u.owner === z.caster || u.hp <= 0 || u.garrisoned || u.burrowed || UNIT_TYPES[u.type].flying) continue;
           if (dist(u, z) <= z.r + UNIT_TYPES[u.type].r) u.hp -= (z.dps || 5) * 0.4;
         }
       }
@@ -1246,6 +1300,7 @@ function planeAttack(u, target, t, dt) {
 }
 
 function fireAt(u, target, t) {
+  if (u.burrowed) return; // no firing ports underground
   if (u.cooldown <= 0) {
     const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
     let dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
@@ -1407,6 +1462,13 @@ function updateUnit(u, dt) {
   // stationed aircraft lift off the moment they get a real order
   if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
 
+  // burrowed: a blind slow crawl — combat orders degrade to movement, and
+  // fireAt below refuses to shoot until the unit surfaces
+  if (u.burrowed && (o.type === 'attack' || o.type === 'attackmove')) {
+    const tgt = o.targetId ? findEntity(o.targetId) : o;
+    u.order = tgt ? { type: 'move', x: tgt.x, y: tgt.y } : { type: 'idle' };
+  }
+
   // stuck watchdog: a unit with somewhere to be that hasn't covered any
   // ground in 2.5s is pinned — usually a crowd wedged on a stale dodge
   // commitment. Forget the steering plan; if that didn't help either, slide
@@ -1494,6 +1556,7 @@ function updateUnit(u, dt) {
           b.owner === u.owner && b.hp > 0 && b.done && bstatsOf(b).padCap && rectDist(u, b) < 130)) {
         u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
       }
+      if (u.burrowed) break; // lying in wait — no auto-anything underground
       if (stats.repair) { repairAcquire(u, dt); break; }
       if (stats.role === 'combat') autoAcquire(u, dt);
       break;
@@ -1661,16 +1724,21 @@ function updateUnit(u, dt) {
     }
 
     case 'tunnel': {
-      // hollow earth: walk to the nearest grid node, pop out at the destination
+      // hollow earth: walk to the nearest network node, drop underground, and
+      // surface at the destination node after a distance-scaled transit
       const dest = findEntity(o.destId);
       if (!dest || dest.hp <= 0) { u.order = { type: 'idle' }; break; }
       const entrance = nearest(u, state.buildings, b =>
-        b.owner === u.owner && b.hp > 0 && b.done && (b.type === 'hq' || b.type === 'powerplant'));
+        b.owner === u.owner && b.hp > 0 && b.done && TUNNEL_NODES.includes(b.type));
       if (!entrance) { u.order = { type: 'idle' }; break; }
+      if (entrance.id === dest.id) { u.order = { type: 'idle' }; break; } // already there
       if (moveToward(u, entrance.x, entrance.y, dt, entityRadius(entrance) + 8, entrance.id)) {
-        u.x = dest.x + Math.sin(u.id * 2.7) * 40;
-        u.y = dest.y + dest.h / 2 + 20;
+        u.garrisoned = -1; // underground: unselectable, untargetable, unseen
+        u.transit = { srcId: entrance.id, destId: dest.id, arrive: state.time + 1 + dist(entrance, dest) / TUNNEL_SPEED };
         u.order = { type: 'idle' };
+        u.burrowed = false;
+        const si = selection.indexOf(u);
+        if (si >= 0) { selection.splice(si, 1); refreshPanel(); }
       }
       break;
     }
@@ -1786,7 +1854,7 @@ function updateBuilding(b, dt) {
     if (b.tripT <= 0) {
       b.tripT = 0.25;
       const prey = state.units.some(u => u.owner !== b.owner && u.hp > 0 && !u.garrisoned &&
-        !u.transit && !UNIT_TYPES[u.type].flying && dist(u, b) <= bt.trip + UNIT_TYPES[u.type].r);
+        !u.transit && !u.burrowed && !UNIT_TYPES[u.type].flying && dist(u, b) <= bt.trip + UNIT_TYPES[u.type].r);
       if (prey) b.hp = 0;
     }
     return;
@@ -2161,10 +2229,10 @@ function issueCommand(x, y) {
   if (units.length === 0) return;
   const pt = { x, y };
 
-  // hollow earth tunnel network: right-click your HQ / power plant
+  // hollow earth tunnel network: right-click any network node you own
   if (state.factions[PLAYER] === 'hollow') {
     const node = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 && b.done &&
-      (b.type === 'hq' || b.type === 'powerplant') &&
+      TUNNEL_NODES.includes(b.type) &&
       Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
     if (node) {
       for (const u of units) {
@@ -2558,6 +2626,13 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = 'Attack-Move [A]';
       btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
+      elActions.appendChild(btn);
+    }
+    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.transit)) {
+      const anyUp = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.burrowed);
+      const btn = document.createElement('button');
+      btn.textContent = (anyUp ? 'Burrow' : 'Surface') + ' [X]';
+      btn.onclick = toggleBurrowSelection;
       elActions.appendChild(btn);
     }
   }
@@ -3220,7 +3295,8 @@ function drawOverlays() {
     ctx.save();
     isoShear(ctx); // ghost + radii are world-space ground markings
     const t = bstats(PLAYER, placing);
-    const ok = !placementBlocked(PLAYER, placing, mouse.x, mouse.y) && withinBuildRadius(PLAYER, mouse.x, mouse.y);
+    const ok = !placementBlocked(PLAYER, placing, mouse.x, mouse.y) &&
+      (t.anywhere || withinBuildRadius(PLAYER, mouse.x, mouse.y));
     ctx.globalAlpha = 0.5;
     ctx.fillStyle = ok ? '#4da3ff' : '#ff5f5f';
     ctx.fillRect(mouse.x - t.w / 2, mouse.y - t.h / 2, t.w, t.h);
@@ -3359,6 +3435,7 @@ function frame(now) {
     pathBudget = 12; // A* computations allowed this frame (rest retry later)
     rebuildSepGrid();
     for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
+    updateTransits();
     for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
     tickConstruction(PLAYER, dt);
     for (const o of OWNERS) if (o !== PLAYER) updateAI(o, dt);
@@ -3816,6 +3893,8 @@ window.addEventListener('keydown', e => {
     attackMoveArmed = true;
     refreshPanel();
   }
+
+  if (k === 'x') toggleBurrowSelection();
 
   // control groups
   if (/^[1-5]$/.test(e.key)) {
