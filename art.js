@@ -4454,39 +4454,62 @@
     ctx.lineTo(18.5, -4.8);
     ctx.closePath();
     ctx.fill();
-    // high wing band with four engine nacelles + prop discs
-    ctx.fillStyle = '#5d6570';
+    // FAR wing peeking over the spine
+    ctx.fillStyle = '#454c56';
     ctx.beginPath();
-    ctx.moveTo(11, -8.8);
-    ctx.lineTo(-11, -9.4);
-    ctx.lineTo(-13, -7.6);
-    ctx.lineTo(11, -7.4);
+    ctx.moveTo(4, -8);
+    ctx.lineTo(-3.5, -8.2);
+    ctx.lineTo(-12, -13.8);
+    ctx.lineTo(-7, -14.2);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#2c3138';
+    ctx.strokeStyle = '#262b32';
     ctx.lineWidth = 0.8;
     ctx.stroke();
-    for (const nx2 of [-9, -3, 3.5, 9.5]) {
+    // NEAR wing: broad swept panel toward the viewer, carrying the engines
+    const wg2 = ctx.createLinearGradient(4, -5, -14, 9);
+    wg2.addColorStop(0, '#6d7580');
+    wg2.addColorStop(1, '#4d545e');
+    ctx.fillStyle = wg2;
+    ctx.beginPath();
+    ctx.moveTo(9, -4.8);      // root leading edge
+    ctx.lineTo(-4.5, -4.4);   // root trailing edge
+    ctx.lineTo(-16.5, 8.8);   // tip trailing
+    ctx.lineTo(-8, 8);        // tip leading
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = '#262b32';
+    ctx.lineWidth = 0.9;
+    ctx.stroke();
+    // four turboprops spaced down the near wing, props spinning up front
+    for (let i = 0; i < 4; i++) {
+      const f2 = 0.18 + i * 0.24;
+      const nx2 = 3.5 + (-11.5 - 3.5) * f2;  // along the wing chord line
+      const ny2 = -4.6 + (8.2 + 4.6) * f2;
       ctx.fillStyle = '#454c56';
-      rr(ctx, nx2 - 1.6, -8.6, 4.6, 3, 1.2);
+      rr(ctx, nx2 - 1.2, ny2 - 1.6, 6.4, 3.2, 1.4);
       ctx.fill();
-      // prop blur
-      ctx.fillStyle = 'rgba(200,208,218,0.35)';
+      ctx.strokeStyle = '#262b32';
+      ctx.lineWidth = 0.7;
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(210,218,228,0.4)';
       ctx.beginPath();
-      ctx.ellipse(nx2 + 3.6, -7.1, 1, 3.4, 0, 0, TAU);
+      ctx.ellipse(nx2 + 6, ny2, 1.1, 3.6, 0, 0, TAU);
       ctx.fill();
+      ctx.fillStyle = '#20242a';
+      ctx.beginPath(); ctx.arc(nx2 + 5.6, ny2, 0.9, 0, TAU); ctx.fill();
     }
-    // port-side battery: howitzer + cannon barrels poking from the hull
+    // port-side battery: cannon forward of the wing, howitzer aft of it
     ctx.strokeStyle = '#20242a';
     ctx.lineWidth = 1.6;
     ctx.beginPath();
-    ctx.moveTo(2, -2); ctx.lineTo(0.5, 2.6);
-    ctx.moveTo(-4, -2); ctx.lineTo(-6, 2.2);
+    ctx.moveTo(12, -2); ctx.lineTo(10.5, 2.4);
+    ctx.moveTo(-17, -2.6); ctx.lineTo(-19.5, 2);
     ctx.stroke();
     if (o.firing) {
       ctx.fillStyle = 'rgba(255,225,130,0.95)';
-      ctx.beginPath(); ctx.arc(0.2, 3.6, 2.6, 0, TAU); ctx.fill();
-      ctx.beginPath(); ctx.arc(-6.4, 3.2, 1.9, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(10.2, 3.4, 2, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(-20.2, 3, 2.7, 0, TAU); ctx.fill();
     }
     ctx.restore();
   };
