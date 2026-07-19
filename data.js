@@ -158,8 +158,8 @@ const FACTIONS = {
     desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and Cave Bat swarms. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and hulking Bore Rigs haul oversized loads.',
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
-    air: ['cavebat', 'gyro'], tower: 'stalagmite', aaTower: 'geyser',
-    extras: ['sapper', 'magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'dowser', 'engineer'], advanced: ['ptero', 'ironmole', 'vrildisc'],
+    air: [], tower: 'stalagmite', aaTower: 'geyser',
+    extras: ['magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'engineer'], advanced: ['ironmole', 'vrildisc'],
     structs: ['wall', 'gate', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
@@ -180,7 +180,7 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
+    extras: ['mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
@@ -200,7 +200,7 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake', 'draco'],
+    extras: ['mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake', 'draco'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
@@ -265,18 +265,15 @@ const UNIT_TYPES = {
   slinger:  { name: 'Crystal Slinger',   role: 'combat', builtAt: 'barracks', hp: 70, speed: 72, dmg: 10, dmgVsGround: 4, atkRange: 180, cooldown: 0.65, sight: 250, cost: 65, r: 9, buildTime: 6, targets: 'both' },
   beamer:   { name: 'Beam Walker',       role: 'combat', builtAt: 'barracks', hp: 75, speed: 74, dmg: 10, dmgVsGround: 5, atkRange: 180, cooldown: 0.65, sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
   // cross-faction support: engineers capture enemy structures (consumed on
-  // use); the dowser is Hollow's cheap walking detector; repair units mend
-  // nearby allied vehicles and aircraft. All fragile, all unarmed.
+  // use); repair units mend nearby allied vehicles and aircraft. All fragile,
+  // all unarmed.
   engineer:     { name: 'Engineer',           role: 'combat', builtAt: 'barracks', hp: 60,  speed: 70,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 90,  r: 9,  buildTime: 7, captures: true },
   shapeshifter: { name: 'Shapeshifter',       role: 'combat', builtAt: 'barracks', hp: 70,  speed: 80,  dmg: 0, atkRange: 0, cooldown: 1, sight: 220, cost: 110, r: 9,  buildTime: 8, captures: true },
-  dowser:       { name: 'Seismograph Dowser', role: 'scout',  builtAt: 'barracks', hp: 55,  speed: 78,  dmg: 0, atkRange: 0, cooldown: 1, sight: 300, cost: 45,  r: 8,  buildTime: 5, detector: true },
   mechanic:     { name: 'Repair Truck',       role: 'combat', builtAt: 'factory',  hp: 180, speed: 82,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 100, r: 12, buildTime: 8, repair: 9, shape: 'square' },
   menderorb:    { name: 'Mender Orb',         role: 'combat', builtAt: 'factory',  hp: 90,  speed: 100, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 8, flying: true, shape: 'blimp' },
   // specialist infantry
   preacher: { name: 'Street Preacher',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 70, dmg: 6,  atkRange: 90,  cooldown: 1,   sight: 200, cost: 55, r: 9,  buildTime: 6, bldgBonus: 3 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
-  sapper:   { name: 'Tunnel Sapper',      role: 'combat', builtAt: 'barracks', hp: 90,  speed: 80, dmg: 8,  atkRange: 25,  cooldown: 1,   sight: 190, cost: 65, r: 9,  buildTime: 6, bldgBonus: 4, burrow: true },
-  hybrid:   { name: 'Hybrid Infiltrator', role: 'combat', builtAt: 'barracks', hp: 55,  speed: 95, dmg: 14, atkRange: 110, cooldown: 0.7, sight: 240, cost: 70, r: 9,  buildTime: 6 },
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
   vivisector: { name: 'Zeta Vivisector',  role: 'combat', builtAt: 'barracks', hp: 85,  speed: 74, dmg: 5, atkRange: 120, cooldown: 0.8, sight: 240, cost: 120, r: 9,  buildTime: 8, repair: 6, leech: true },
@@ -319,8 +316,6 @@ const UNIT_TYPES = {
   heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'factory', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
   fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri' },
-  cavebat:  { name: 'Cave Bat Swarm',   role: 'combat', builtAt: 'airpad', hp: 45,  speed: 120, dmg: 4,  atkRange: 60,  cooldown: 0.5,  sight: 300, cost: 45,  r: 8,  buildTime: 5,  flying: true, shape: 'tri' },
-  gyro:     { name: 'Gyrocopter',       role: 'combat', builtAt: 'airpad', hp: 130, speed: 100, dmg: 11, atkRange: 125, cooldown: 0.7,  sight: 260, cost: 150, r: 10, buildTime: 10, flying: true, targets: 'both', shape: 'tri' },
   orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', detector: true },
   // one-shot recon: fly it onto an enemy unit to implant a tracker — the
   // drone is spent, but the tag grants vision of that unit until it dies
@@ -328,7 +323,6 @@ const UNIT_TYPES = {
   saucer:   { name: 'Flying Saucer', flyH: 32,   role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   drake:    { name: 'Sky Drake', flyH: 32,        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
   cropduster: { name: 'Crop Duster', flyH: 30,    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
-  ptero:      { name: 'Pterodactyl', flyH: 32,    role: 'combat', builtAt: 'airpad', hp: 170, speed: 120, dmg: 17, atkRange: 60,  cooldown: 0.9, sight: 270, cost: 160, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.7, req: 'tech' },
   // the globalist air wing: a fast swing-wing strike jet, and two tech-gated
   // heavies — an orbiting AC-130 and the stealth-black flying wing
   b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
