@@ -4918,30 +4918,48 @@
   });
   I.technical = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 22,
-    under: (c, t, o) => wheels(c, t, o, [[-7, -6.6], [-7, 6.6], [7, -6.6], [7, 6.6]], 5.5, 3),
+    under: (c, t, o) => wheels(c, t, o, [[-7, -6.8], [-7, 6.8], [7, -6.8], [7, 6.8]], 6.4, 3.6), // chunky off-road tires
     tiers: [
-      { poly: [[11, -3], [11, 3], [8, 5.5], [-10, 5.5], [-11, 3], [-11, -3], [-10, -5.5], [8, -5.5]],
-        h: 4, body: '#8a7a58',
+      { // chassis + open cargo bed
+        poly: [[11, -3], [11, 3], [9, 5.6], [-11, 5.6], [-11, -5.6], [9, -5.6]],
+        h: 3.8, body: '#8a7a58',
         detail: (c) => {
-          c.fillStyle = '#9a8a66'; rr(c, 3, -5, 7.5, 10, 1.5); c.fill();       // cab
-          c.fillStyle = '#1c2026'; c.fillRect(8.5, -4, 1.8, 8);
-          c.fillStyle = shade('#8a7a58', -0.38); rr(c, -9.5, -4.6, 11, 9.2, 1); c.fill(); // open bed
+          c.fillStyle = shade('#8a7a58', -0.42); rr(c, -10, -4.7, 12, 9.4, 1); c.fill(); // recessed bed floor
+          c.strokeStyle = shade('#8a7a58', -0.52); c.lineWidth = 0.5;                     // bed ribs
+          for (let i = -9; i <= 1; i += 2.4) { c.beginPath(); c.moveTo(i, -4.7); c.lineTo(i, 4.7); c.stroke(); }
+          c.fillStyle = '#4a4438'; rr(c, 10.4, -3.6, 1.6, 7.2, 0.5); c.fill();             // front bull bar
+          c.fillStyle = 'rgba(240,244,230,0.9)'; c.fillRect(11.4, -3.2, 0.9, 1.3); c.fillRect(11.4, 1.9, 0.9, 1.3); // headlights
+        },
+      },
+      { // raised cab up front
+        poly: [[9, -4], [9, 4], [1, 4], [1, -4]], h: 4.6, body: shade('#8a7a58', 0.12),
+        detail: (c) => {
+          c.fillStyle = '#171b20'; rr(c, 1.4, -3.4, 6.4, 6.8, 1); c.fill();                 // cab glass wrap
+          c.fillStyle = 'rgba(150,175,205,0.3)'; rr(c, 5.6, -3, 1.7, 6, 0.5); c.fill();      // windshield
+          c.strokeStyle = shade('#8a7a58', 0.35); c.lineWidth = 0.6;                         // roof rack
+          c.beginPath(); c.moveTo(2, -3.8); c.lineTo(2, 3.8); c.moveTo(6, -3.8); c.lineTo(6, 3.8); c.stroke();
         },
       },
     ],
   });
-  // bed-mounted pintle gun — swivels to track the target while the truck drives
+  // bed-mounted heavy machine gun on a pintle: receiver, long barrel, gun
+  // shield and an ammo can — swivels to track the target while the truck drives
   T.technical = (ctx, t, o) => {
     const a = o.turret !== undefined ? o.turret : (o.facing || 0);
     ctx.save();
-    ctx.translate(0, -4.5);
+    ctx.translate(0, -5.2);
     ctx.transform(1, 0.5, -1, 0.5, 0, 0);
-    ctx.translate(-2, 0);                       // gun sits over the bed
-    ctx.fillStyle = '#39342b'; ctx.beginPath(); ctx.arc(0, 0, 2.1, 0, TAU); ctx.fill();
+    ctx.translate(-3.2, 0);                                  // mount seated over the bed
+    ctx.fillStyle = '#2e2a22'; ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, TAU); ctx.fill(); // pintle ring
     ctx.rotate(a);
-    ctx.fillStyle = '#20252c'; ctx.fillRect(0.5, -0.8, 9, 1.6);
-    ctx.fillStyle = '#5a636d'; ctx.fillRect(9, -0.8, 1.3, 1.6);
-    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.95)'; ctx.beginPath(); ctx.arc(11.5, 0, 2, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = '#3a4a2c'; rr(ctx, -1.4, 1.3, 3, 2, 0.4); ctx.fill();               // ammo can
+    ctx.fillStyle = '#5f5641'; rr(ctx, 1.8, -3, 1.5, 6, 0.4); ctx.fill();               // gun shield
+    ctx.strokeStyle = '#43402f'; ctx.lineWidth = 0.4; ctx.strokeRect(1.8, -3, 1.5, 6);
+    ctx.fillStyle = '#20252c'; rr(ctx, -2.2, -1.2, 5.4, 2.4, 0.5); ctx.fill();          // receiver
+    ctx.fillStyle = '#181c22'; ctx.fillRect(3, -0.7, 8, 1.4);                           // heavy barrel
+    ctx.fillStyle = '#565f68'; ctx.fillRect(10.4, -0.7, 1.4, 1.4);                      // muzzle
+    ctx.fillStyle = '#33302a'; ctx.beginPath(); ctx.arc(-3, 0, 1.6, 0, TAU); ctx.fill(); // gunner behind
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.95)'; ctx.beginPath(); ctx.arc(12.4, 0, 2.2, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
   I.suv = (ctx, t, o) => isoVehicle(ctx, t, o, {
