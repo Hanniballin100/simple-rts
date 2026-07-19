@@ -2261,7 +2261,7 @@ function aiDesiredStructure(owner, counts, power) {
   // hangar factions add the AC-130's dedicated field once the lab is up
   if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
   // once teched up, everyone wants their doomsday device (needs the extra power)
-  if ((f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
+  if (superweaponsOn && (f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
   const want = {};
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
@@ -2602,7 +2602,8 @@ function buildSidebar() {
   for (const k of Object.keys(cameoButtons)) delete cameoButtons[k];
   const f = facOf(PLAYER);
 
-  const structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech', ...(f.structs || [])];
+  let structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech', ...(f.structs || [])];
+  if (!superweaponsOn) structs = structs.filter(s => s !== 'superweapon');
   // factions with a hangar-based heavy get the hangar construction slot
   if ([...(f.advanced || []), ...f.extras].some(u => UNIT_TYPES[u].builtAt === 'hangar')) structs.push('hangar');
   for (const s of structs) {
@@ -4270,13 +4271,30 @@ const elSupply = document.getElementById('supply');
 let selectedSize = 'medium';
 let selectedOpponents = 1;
 let selectedSetting = 'random';
+let superweaponsOn = true; // faction-select toggle: superweapon structures enabled?
 
 (function buildSetupControls() {
   const sizeWrap = document.getElementById('size-buttons');
   const oppWrap = document.getElementById('opp-buttons');
   const settingWrap = document.getElementById('setting-buttons');
+  const superWrap = document.getElementById('super-buttons');
   const sizeBtns = {};
   const settingBtns = {};
+  const superBtns = {};
+
+  // superweapons on/off: toggles whether each faction's tech-gated doomsday
+  // structure is available at all (to you and the AIs) this match
+  for (const [key, label] of [['on', 'On'], ['off', 'Off']]) {
+    const b = document.createElement('button');
+    b.className = 'opt-btn' + ((key === 'on') === superweaponsOn ? ' sel' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => {
+      superweaponsOn = key === 'on';
+      for (const [k2, b2] of Object.entries(superBtns)) b2.classList.toggle('sel', (k2 === 'on') === superweaponsOn);
+    });
+    superBtns[key] = b;
+    superWrap.appendChild(b);
+  }
 
   for (const [key, label] of [['random', 'Random'], ...Object.entries(MAP_SETTINGS).map(([k, s]) => [k, s.name])]) {
     const b = document.createElement('button');
