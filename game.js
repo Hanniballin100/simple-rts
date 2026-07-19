@@ -39,7 +39,6 @@ let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
 let wallDrag = null;         // { x0, y0 } while dragging out a wall stretch (RA2-style)
 let plantArmed = false;      // 'E' pressed, next left-click sends infantry to plant an IED
-const PLANT_CD = 18;         // seconds before an infantryman can plant another IED
 const WALL_STEP = 26;        // world spacing between segments of a dragged wall line
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let panDrag = null;          // middle- or right-mouse camera drag
@@ -1825,15 +1824,15 @@ function updateUnit(u, dt) {
       break;
 
     case 'plant':
-      // walk to the spot, then bury one IED (costs the faction's mine price,
-      // then this infantryman goes on a plant cooldown)
+      // walk to the spot, then bury one IED. Each infantryman can only ever
+      // plant a single IED in their life (costs the faction's mine price)
       if (moveToward(u, o.x, o.y, dt, 6)) {
         const st = bstats(u.owner, 'mine');
-        if ((u.plantReady || 0) <= state.time && state.minerals[u.owner] >= st.cost &&
+        if (!u.planted && state.minerals[u.owner] >= st.cost &&
             !placementBlocked(u.owner, 'mine', o.x, o.y)) {
           state.minerals[u.owner] -= st.cost;
           makeBuilding(u.owner, 'mine', o.x, o.y);
-          u.plantReady = state.time + PLANT_CD;
+          u.planted = true; // spent — this soldier can never plant again
           if (u.owner === PLAYER) sfx('click');
         } else if (u.owner === PLAYER && state.minerals[u.owner] < st.cost) {
           eva('Insufficient funds');
@@ -3014,6 +3013,7 @@ function refreshPanel() {
       if (ut.captures) info += ' — right-click an enemy structure to capture it';
       if (ut.repair) info += ' — repairs nearby damaged allies';
       if (ut.detector) info += ' — detector: reveals stealthed & burrowed enemies';
+      if (ut.plantMine) info += uu.planted ? ' — IED spent' : ' — can plant one IED [E]';
     }
     elSelInfo.textContent = info;
     if (selection.some(s => UNIT_TYPES[s.type].role === 'combat')) {
@@ -3023,7 +3023,7 @@ function refreshPanel() {
       elActions.appendChild(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine)) {
-      const ready = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && (s.plantReady || 0) <= state.time);
+      const ready = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && !s.planted);
       const btn = document.createElement('button');
       btn.textContent = 'Plant IED [E]';
       btn.disabled = !ready;
@@ -4374,7 +4374,7 @@ canvas.addEventListener('mousedown', e => {
       plantArmed = false;
       // the nearest ready infantryman walks over and buries one IED
       const sappers = selection.filter(u => u.kind === 'unit' && u.owner === PLAYER && u.hp > 0 &&
-        UNIT_TYPES[u.type].plantMine && (u.plantReady || 0) <= state.time);
+        UNIT_TYPES[u.type].plantMine && !u.planted);
       if (sappers.length) {
         sappers.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
         sappers[0].order = { type: 'plant', x: p.x, y: p.y };
@@ -4514,7 +4514,7 @@ window.addEventListener('keydown', e => {
     refreshPanel();
   }
 
-  if (k === 'e' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && (s.plantReady || 0) <= state.time)) {
+  if (k === 'e' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && !s.planted)) {
     plantArmed = true;
     attackMoveArmed = false;
     refreshPanel();
