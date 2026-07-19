@@ -207,6 +207,7 @@ function isRevealed(e, owner) {
 // stealth flags, and the burrow stance) — the universal targeting filter
 function hiddenFrom(e, owner) {
   if (e.owner === owner) return false;
+  if (e.trackedBy && e.trackedBy[owner]) return false; // an implanted tracker pierces everything
   if (e.disguised) return true;
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
   const cloaked = e.burrowed ||
@@ -265,6 +266,8 @@ function updateFog() {
   for (let i = 0; i < vis.length; i++) if (vis[i] === 2) vis[i] = 1;
   for (const u of state.units) {
     if (u.owner === PLAYER && u.hp > 0 && !u.garrisoned) markSight(u.x, u.y, UNIT_TYPES[u.type].sight);
+    // probe-drone trackers: lasting vision of the tagged unit, wherever it goes
+    if (u.owner !== PLAYER && u.hp > 0 && u.trackedBy && u.trackedBy[PLAYER]) markSight(u.x, u.y, 140);
   }
   for (const b of state.buildings) {
     if (b.owner === PLAYER && b.hp > 0) markSight(b.x, b.y, bstatsOf(b).sight);
@@ -1307,6 +1310,7 @@ function fireAt(u, target, t) {
     u.disguised = false; // skin suit drops the moment they open fire
     if (t.stealth) u.exposedUntil = state.time + 2.5; // muzzle flash gives it away
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing first-strike bonus
+    if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
     u.cooldown = t.cooldown;
     if (t.maxAmmo) u.ammo--;
     const a = u.facing;
@@ -1350,6 +1354,8 @@ function fireAt(u, target, t) {
     } else {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
+      if (t.petrify && target.kind === 'unit') target.petrifiedUntil = state.time + t.petrify; // the gaze
+      if (t.leech) u.hp = Math.min(u.maxHp, u.hp + dmg * 0.8); // vivisection pays
       Particles.shot(u.x + Math.cos(a) * (t.r + 2), u.y + Math.sin(a) * (t.r + 2),
         target.x, target.y, WEAPON_STYLE[state.factions[u.owner]],
         (t.flying && !u.landed) ? FLY_H : 0, (isAir && !target.landed) ? FLY_H : 0);
@@ -1462,11 +1468,39 @@ function updateUnit(u, dt) {
   // stationed aircraft lift off the moment they get a real order
   if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
 
+  // petrified: a statue until the stone wears off
+  if (u.petrifiedUntil > state.time) return;
+
   // burrowed: a blind slow crawl — combat orders degrade to movement, and
   // fireAt below refuses to shoot until the unit surfaces
   if (u.burrowed && (o.type === 'attack' || o.type === 'attackmove')) {
     const tgt = o.targetId ? findEntity(o.targetId) : o;
     u.order = tgt ? { type: 'move', x: tgt.x, y: tgt.y } : { type: 'idle' };
+  }
+
+  // broodmother: hatch free swarms on a timer, embolden nearby infantry
+  if (stats.spawns && !u.transit) {
+    u.spawnT = (u.spawnT || 0) + dt;
+    if (u.spawnT >= stats.spawns.every) {
+      u.spawnT = 0;
+      for (let i = 0; i < stats.spawns.count; i++) {
+        const h = makeUnit(u.owner, stats.spawns.type, u.x + (i - 0.5) * 20, u.y + 16);
+        h.expires = state.time + stats.spawns.expires;
+      }
+      if (u.owner === PLAYER) sfx('click');
+    }
+  }
+  if (stats.buffAura) {
+    u.auraT = (u.auraT || 0) - dt;
+    if (u.auraT <= 0) {
+      u.auraT = 0.5;
+      for (const a of state.units) {
+        if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned) continue;
+        const at = UNIT_TYPES[a.type];
+        if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
+        if (dist(a, u) <= stats.buffAura.r) a.buffedUntil = state.time + 0.7;
+      }
+    }
   }
 
   // stuck watchdog: a unit with somewhere to be that hasn't covered any
@@ -1645,6 +1679,24 @@ function updateUnit(u, dt) {
         u.x = px; u.y = py;          // settle square on the pad markings
         u.facing = -Math.PI / 2;     // parked nose-north, RA2 style
         u.order = { type: 'idle' };
+      }
+      break;
+    }
+
+    case 'probe': {
+      // probe drone: fly onto the mark, implant the tracker, and that's the
+      // last anyone sees of the drone — the tag outlives it
+      const tgt = findEntity(o.targetId);
+      if (!tgt || tgt.kind !== 'unit' || tgt.hp <= 0 || tgt.garrisoned || tgt.transit) {
+        u.order = { type: 'idle' };
+        break;
+      }
+      if (moveToward(u, tgt.x, tgt.y, dt, UNIT_TYPES[tgt.type].r + 6)) {
+        tgt.trackedBy = tgt.trackedBy || {};
+        tgt.trackedBy[u.owner] = true;
+        u.hp = 0;
+        Particles.pulse(tgt.x, tgt.y, 30, [125, 255, 214]);
+        if (u.owner === PLAYER) eva('Tracker implanted');
       }
       break;
     }
@@ -1971,6 +2023,9 @@ function updateBuilding(b, dt) {
           canTarget(bt, un) && dist(b, un) <= bt.atkRange + entityRadius(un));
       }
       if (tgt) {
+        // abduction: hold the lock long enough and the victim is hauled
+        // up into the tower — removed from play, rendered into minerals
+        b.beamHold = (b.beamId === tgt.id) ? (b.beamHold || 0) + dt : 0;
         b.beamId = tgt.id;
         b.turret = Math.atan2(tgt.y - b.y, tgt.x - b.x);
         if (b.cooldown <= 0) {
@@ -1978,8 +2033,18 @@ function updateBuilding(b, dt) {
           dealDamage(b, tgt, bt.dmg, bt);
           tgt.slowUntil = state.time + 0.25;
         }
+        if (b.beamHold >= 5 && tgt.hp > 0) {
+          b.beamHold = 0;
+          b.beamId = null;
+          tgt.hp = 0;
+          state.minerals[b.owner] += 25;
+          Particles.pulse(tgt.x, tgt.y, 45, [125, 255, 214]);
+          if (b.owner === PLAYER) eva('Specimen acquired');
+          else if (tgt.owner === PLAYER) eva('They took one of ours');
+        }
       } else {
         b.beamId = null;
+        b.beamHold = 0;
       }
     } else if (b.cooldown <= 0) {
       const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
@@ -2267,6 +2332,7 @@ function issueCommand(x, y) {
   units.forEach((u, i) => {
     const stats = UNIT_TYPES[u.type];
     if (foe && stats.captures && foe.kind === 'building') { u.order = { type: 'capture', targetId: foe.id }; return; }
+    if (foe && stats.tracker && foe.kind === 'unit') { u.order = { type: 'probe', targetId: foe.id }; return; }
     if (foe && canTarget(stats, foe)) { orderAttack(u, foe); return; }
     if (ally && stats.repair && ally !== u) { u.order = { type: 'repair', targetId: ally.id }; return; }
     if (patch && stats.role === 'worker') { orderHarvest(u, patch); return; }
@@ -3121,7 +3187,10 @@ function drawUnitIso(u) {
       });
     }
   });
+  // petrified victims render as stone statues
+  if (u.petrifiedUntil > state.time) ctx.filter = 'grayscale(1) brightness(0.8)';
   ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
+  ctx.filter = 'none';
   if (u.carrying > 0) {
     ctx.fillStyle = '#3fd7d0';
     ctx.fillRect(ix - 3, sy - rs - 7, 6, 5);
@@ -3475,6 +3544,13 @@ function frame(now) {
     for (const u of state.units) {
       if (u.hp <= 0 && u.type !== 'phantom') {
         Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
+        // a cattle mutilator near the wreck renders it down for minerals
+        const mut = nearest(u, state.units, m => m.hp > 0 && !m.garrisoned &&
+          UNIT_TYPES[m.type].scavenge && dist(m, u) <= 170);
+        if (mut) {
+          state.minerals[mut.owner] += UNIT_TYPES[mut.type].scavenge;
+          Particles.bolt(mut.x, mut.y, u.x, u.y, [125, 255, 214], 8);
+        }
       }
     }
     state.units = state.units.filter(u => u.hp > 0);

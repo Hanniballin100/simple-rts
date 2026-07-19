@@ -173,8 +173,8 @@ const FACTIONS = {
     desc: 'You will be probed. Abductors, towering Tripod Striders, and the Flying Saucer — supreme in the air and cruel to the ground. No miners: Zero-Point Cores conjure minerals from the vacuum itself.',
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
-    air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb'], advanced: ['saucer'],
+    air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
+    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer'],
     structs: ['wall', 'gate', 'mine', 'repairpad'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
@@ -193,7 +193,7 @@ const FACTIONS = {
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb'], advanced: ['drake'],
+    extras: ['hybrid', 'mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake'],
     structs: ['wall', 'gate', 'mine', 'repairpad'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
@@ -256,6 +256,14 @@ const UNIT_TYPES = {
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   sapper:   { name: 'Tunnel Sapper',      role: 'combat', builtAt: 'barracks', hp: 90,  speed: 80, dmg: 8,  atkRange: 25,  cooldown: 1,   sight: 190, cost: 65, r: 9,  buildTime: 6, bldgBonus: 4, burrow: true },
   hybrid:   { name: 'Hybrid Infiltrator', role: 'combat', builtAt: 'barracks', hp: 55,  speed: 95, dmg: 14, atkRange: 110, cooldown: 0.7, sight: 240, cost: 70, r: 9,  buildTime: 6 },
+  // grey lab crew: the vivisector drains the living and mends the machine,
+  // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
+  vivisector: { name: 'Zeta Vivisector',  role: 'combat', builtAt: 'barracks', hp: 85,  speed: 74, dmg: 5, atkRange: 120, cooldown: 0.8, sight: 240, cost: 120, r: 9,  buildTime: 8, repair: 6, leech: true },
+  mutilator:  { name: 'Cattle Mutilator', role: 'combat', builtAt: 'factory',  hp: 200, speed: 85, dmg: 7, atkRange: 110, cooldown: 0.9, sight: 240, cost: 130, r: 12, buildTime: 9, shape: 'square', scavenge: 12 },
+  // reptilian brood: the broodmother hatches free swarms on a timer and her
+  // presence emboldens nearby infantry (+25% damage)
+  broodmother: { name: 'Chitauri Broodmother', role: 'combat', builtAt: 'barracks', hp: 220, speed: 60, dmg: 8, atkRange: 100, cooldown: 1,   sight: 230, cost: 180, r: 12, buildTime: 12, req: 'tech', spawns: { type: 'hatchling', every: 12, count: 2, expires: 45 }, buffAura: { r: 160 } },
+  hatchling:   { name: 'Chitauri Hatchling',   role: 'combat', hp: 35,  speed: 95, dmg: 6, atkRange: 24,  cooldown: 0.6, sight: 200, cost: 0,   r: 7,  buildTime: 0 },
   // hollow-earth court: the priestess channels Vril (repair aura), the
   // guardian and saurian are the heavy line — all of it can go underground
   vrilpriestess: { name: 'Vril Priestess',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 72, dmg: 0,  atkRange: 0,  cooldown: 1,    sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 7, burrow: true },
@@ -274,7 +282,9 @@ const UNIT_TYPES = {
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
   drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square', burrow: true, emergeAoE: { r: 60, dmg: 30 } },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
-  basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 22, atkRange: 34,  cooldown: 1.1,  sight: 200, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square' },
+  // basilisk gaze: light damage, but the stare turns victims to stone
+  // (petrify: stunned N seconds — can't move or fire). Unique crowd control.
+  basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 12, atkRange: 120, cooldown: 1.4,  sight: 220, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square', petrify: 2 },
   // artillery (minRange: can't fire when rushed; lobbed projectiles with splash)
   catapult:      { name: 'Flatbed Catapult', role: 'combat', builtAt: 'factory', hp: 140, speed: 45, dmg: 34, atkRange: 280, minRange: 100, cooldown: 3.2, sight: 300, cost: 160, r: 13, buildTime: 11, bldgBonus: 1.5, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 36 },
   haarp:         { name: 'HAARP Truck',      role: 'combat', builtAt: 'factory', hp: 150, speed: 50, dmg: 15, atkRange: 300, minRange: 120, cooldown: 3.5, sight: 320, cost: 180, r: 13, buildTime: 12, shape: 'square', weapon: 'storm' },
@@ -291,6 +301,9 @@ const UNIT_TYPES = {
   cavebat:  { name: 'Cave Bat Swarm',   role: 'combat', builtAt: 'airpad', hp: 45,  speed: 120, dmg: 4,  atkRange: 60,  cooldown: 0.5,  sight: 300, cost: 45,  r: 8,  buildTime: 5,  flying: true, shape: 'tri' },
   gyro:     { name: 'Gyrocopter',       role: 'combat', builtAt: 'airpad', hp: 130, speed: 100, dmg: 11, atkRange: 125, cooldown: 0.7,  sight: 260, cost: 150, r: 10, buildTime: 10, flying: true, targets: 'both', shape: 'tri' },
   orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', detector: true },
+  // one-shot recon: fly it onto an enemy unit to implant a tracker — the
+  // drone is spent, but the tag grants vision of that unit until it dies
+  probedrone: { name: 'Probe Drone',    role: 'scout',  builtAt: 'airpad', hp: 45,  speed: 145, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 320, cost: 50,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', tracker: true },
   saucer:   { name: 'Flying Saucer',    role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   drake:    { name: 'Sky Drake',        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
   cropduster: { name: 'Crop Duster',    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },

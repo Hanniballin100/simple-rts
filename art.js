@@ -4074,6 +4074,86 @@
   I.riot = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#3c434c', head: ihHelmet, weapon: iwShield });
   I.sapper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c5347', head: ihHardhat, weapon: iwPick });
   I.hybrid = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#23272e', head: ihLizard, weapon: iwPistol });
+  I.vivisector = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#9aa6b4', head: ihGrey,
+    weapon: (c2, t2, o2) => { // long syringe-probe
+      c2.strokeStyle = '#c8cdd5';
+      c2.lineWidth = 1;
+      c2.beginPath(); c2.moveTo(2, -6.5); c2.lineTo(8.5, -7.5); c2.stroke();
+      c2.fillStyle = o2.firing ? '#ff8f8f' : '#7dffd6';
+      rr(c2, 3.5, -8.3, 3, 1.8, 0.6);
+      c2.fill();
+    },
+  });
+  I.broodmother = (ctx, t, o) => {
+    // hulking egg-laden matriarch: custom billboard, bigger than a trooper
+    const m = Math.cos(o.hdg) < 0 ? -1 : 1;
+    const step = o.moving ? Math.sin((o.dist || 0) * 0.35) : 0;
+    ctx.save();
+    ctx.scale(m, 1);
+    ctx.strokeStyle = '#3a5c36';
+    ctx.lineWidth = 2.2;
+    ctx.beginPath();
+    ctx.moveTo(-1.5, -5); ctx.lineTo(-2 - step * 2.5, 0);
+    ctx.moveTo(1.5, -5); ctx.lineTo(2 + step * 2.5, 0);
+    ctx.stroke();
+    // swollen abdomen with egg glow
+    const g = ctx.createRadialGradient(-2, -8, 1, 0, -7, 7.5);
+    g.addColorStop(0, '#6d9a5e');
+    g.addColorStop(1, '#3d5c38');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.ellipse(-1, -7.5, 6.5, 5.5, 0.2, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#2c4228';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    for (let i = 0; i < 3; i++) { // eggs showing through the skin
+      ctx.fillStyle = `rgba(230,255,210,${0.5 + 0.3 * Math.sin(t * 3 + i * 2)})`;
+      ctx.beginPath();
+      ctx.arc(-3.5 + i * 2.6, -6 - (i % 2) * 2.5, 1.3, 0, TAU);
+      ctx.fill();
+    }
+    ctx.fillStyle = o.color; // team banding
+    ctx.fillRect(-4, -4.4, 7, 1.4);
+    ctx.save();
+    ctx.translate(3.6, -12.5);
+    lizardHead(ctx, '#5d8a52');
+    ctx.restore();
+    // crest spines
+    ctx.strokeStyle = '#8fbf7a';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(1, -13.5); ctx.lineTo(-1, -16);
+    ctx.moveTo(-0.5, -12.5); ctx.lineTo(-3, -14.5);
+    ctx.stroke();
+    ctx.restore();
+  };
+  I.hatchling = (ctx, t, o) => {
+    // knee-high hatchling: all teeth and hurry
+    const m = Math.cos(o.hdg) < 0 ? -1 : 1;
+    const step = o.moving ? Math.sin((o.dist || 0) * 0.7) : 0;
+    ctx.save();
+    ctx.scale(m, 1);
+    ctx.strokeStyle = '#3a5c36';
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(-0.5, -2.5); ctx.lineTo(-1 - step * 1.5, 0);
+    ctx.moveTo(1, -2.5); ctx.lineTo(1.5 + step * 1.5, 0);
+    ctx.stroke();
+    ctx.fillStyle = '#5d8a52';
+    ctx.beginPath(); ctx.ellipse(0, -3.5, 3, 2.4, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.color;
+    ctx.fillRect(-2.2, -3, 4.4, 0.9);
+    ctx.fillStyle = '#5d8a52'; // oversized head
+    ctx.beginPath(); ctx.arc(1.8, -6, 2.2, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#ffd75f';
+    ctx.beginPath(); ctx.arc(2.6, -6.3, 0.6, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#e8ffe0'; // needle teeth
+    ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(3.4, -5.2); ctx.lineTo(4.2 + (o.firing ? 0.8 : 0), -5);
+    ctx.stroke();
+    ctx.restore();
+  };
   I.vrilpriestess = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#7a5c8f', pants: '#4a3a58', head: ctx2 => ihHood(ctx2, '#5c4470'),
     weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, '#7dffd6'),
@@ -4225,6 +4305,51 @@
       ctx2.stroke();
       ctx2.fillStyle = '#ffd75f';
       ctx2.beginPath(); ctx2.arc(4.7, -8.2, 1.1, 0, TAU); ctx2.fill();
+    },
+  });
+  D.probedrone = (ctx, t, o) => {
+    // needle-nosed chrome probe with a scanning ring
+    ctx.fillStyle = '#c8cdd5';
+    ctx.beginPath(); ctx.ellipse(0, 0, 6.5, 4.5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#59616c';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#8b939e'; // the implant needle
+    ctx.beginPath();
+    ctx.moveTo(6, -1.2); ctx.lineTo(11, 0); ctx.lineTo(6, 1.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = `rgba(125,255,214,${0.5 + 0.4 * Math.sin(t * 5)})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 8.5, 6, 0, 0, TAU); ctx.stroke();
+    ctx.fillStyle = o.color;
+    ctx.beginPath(); ctx.arc(-3, 0, 1.6, 0, TAU); ctx.fill();
+  };
+  I.mutilator = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, wid: 15, hgt: 6, body: '#59616c',
+    path: (ctx2) => { ctx2.beginPath(); ctx2.ellipse(0, 0, 12, 7.5, 0, 0, TAU); },
+    detail: (ctx2, t2, o2) => {
+      ctx2.fillStyle = '#6d7683';
+      ctx2.beginPath(); ctx2.ellipse(0, 0, 8.5, 5.4, 0, 0, TAU); ctx2.fill();
+      ctx2.strokeStyle = '#3c434c';
+      ctx2.lineWidth = 0.8;
+      for (let i = 0; i < 4; i++) { // vent slits
+        ctx2.beginPath();
+        ctx2.moveTo(-6 + i * 4, -3); ctx2.lineTo(-6 + i * 4, 3);
+        ctx2.stroke();
+      }
+    },
+    above: (ctx2, t2, o2) => {
+      isoDome(ctx2, 6, 4, '#7d8590');
+      // harvest hooks dangling underneath the lift beam
+      ctx2.strokeStyle = `rgba(125,255,214,${0.35 + 0.25 * Math.sin(t2 * 4)})`;
+      ctx2.lineWidth = 2;
+      ctx2.beginPath(); ctx2.moveTo(0, -4); ctx2.lineTo(0, 2); ctx2.stroke();
+      ctx2.strokeStyle = '#c8cdd5';
+      ctx2.lineWidth = 1;
+      ctx2.beginPath();
+      ctx2.moveTo(-2, 0); ctx2.lineTo(-2, 3); ctx2.lineTo(-3, 4);
+      ctx2.moveTo(2, 0); ctx2.lineTo(2, 3); ctx2.lineTo(3, 4);
+      ctx2.stroke();
     },
   });
   D.fpv = (ctx, t, o) => {
