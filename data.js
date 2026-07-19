@@ -95,9 +95,9 @@ const FACTIONS = {
     name: 'The Resistance', family: 'RESISTANCE', emoji: '📡',
     desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts. The cheapest structures anywhere — none of them built to last. Fast scrap-built Salvage Rigs keep the minerals moving.',
     economy: { workers: 4 },
-    worker: 'salvagerig', infantry: 'partisan', aa: 'laserguy', vehicle: 'technical',
-    air: ['wballoon', 'fpv'], tower: 'watchtower', aaTower: 'aanest',
-    extras: ['rpgpartisan', 'marksman', 'cropduster', 'engineer'], advanced: ['cruisetruck'],
+    worker: 'salvagerig', infantry: 'partisan', aa: 'manpad', vehicle: 'technical',
+    air: ['wballoon', 'fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
+    extras: ['rpgpartisan', 'marksman', 'chembiplane', 'engineer'], advanced: ['cruisetruck'],
     structs: ['wall', 'gate', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
@@ -261,6 +261,9 @@ const UNIT_TYPES = {
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
   // anti-air infantry: full damage vs air, dmgVsGround when shooting ground
   laserguy: { name: 'Laser Pointer Guy', role: 'combat', builtAt: 'barracks', hp: 65, speed: 75, dmg: 9,  dmgVsGround: 4, atkRange: 175, cooldown: 0.6,  sight: 250, cost: 60, r: 9, buildTime: 6, targets: 'both' },
+  // Resistance AA: a shoulder-fired Stinger — brutal to aircraft, near-useless
+  // against ground, long reach and a slow reload
+  manpad:   { name: 'MANPAD Partisan',   role: 'combat', builtAt: 'barracks', hp: 55, speed: 88, dmg: 17, dmgVsGround: 3, atkRange: 235, cooldown: 1.9, sight: 270, cost: 65, r: 8, buildTime: 6, targets: 'both' },
   jammer:   { name: 'Signal Jammer',     role: 'combat', builtAt: 'barracks', hp: 80, speed: 70, dmg: 11, dmgVsGround: 5, atkRange: 185, cooldown: 0.7,  sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both', jams: true },
   slinger:  { name: 'Crystal Slinger',   role: 'combat', builtAt: 'barracks', hp: 70, speed: 72, dmg: 10, dmgVsGround: 4, atkRange: 180, cooldown: 0.65, sight: 250, cost: 65, r: 9, buildTime: 6, targets: 'both' },
   beamer:   { name: 'Beam Walker',       role: 'combat', builtAt: 'barracks', hp: 75, speed: 74, dmg: 10, dmgVsGround: 5, atkRange: 180, cooldown: 0.65, sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
@@ -327,13 +330,18 @@ const UNIT_TYPES = {
   heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'factory', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
   fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri' },
+  // Shahed: a purchasable loitering munition — flies at its target and dives
+  // in for one big blast, destroying itself (kamikaze)
+  shahed:   { name: 'Shahed',           role: 'combat', builtAt: 'airpad', hp: 60,  speed: 135, dmg: 0,  atkRange: 22,  cooldown: 1,    sight: 320, cost: 55,  r: 9,  buildTime: 5,  flying: true, shape: 'tri', kamikaze: { dmg: 95, splash: 48, bldgBonus: 1.5 } },
   orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', detector: true },
   // one-shot recon: fly it onto an enemy unit to implant a tracker — the
   // drone is spent, but the tag grants vision of that unit until it dies
   probedrone: { name: 'Probe Drone',    role: 'scout',  builtAt: 'airpad', hp: 45,  speed: 145, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 320, cost: 50,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', tracker: true },
   saucer:   { name: 'Flying Saucer', flyH: 32,   role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   drake:    { name: 'Sky Drake', flyH: 32,        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
-  cropduster: { name: 'Crop Duster', flyH: 30,    role: 'combat', builtAt: 'airpad', hp: 110, speed: 145, dmg: 8,  atkRange: 70,  cooldown: 1,   sight: 280, cost: 130, r: 10, buildTime: 9,  flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
+  // Resistance Chemtrail Biplane: a rickety crop-duster biplane that lays a
+  // lingering chemtrail (toxin) as it strafes
+  chembiplane: { name: 'Chemtrail Biplane', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 110, speed: 140, dmg: 8, atkRange: 70, cooldown: 1, sight: 280, cost: 130, r: 10, buildTime: 9, flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
   // the globalist air wing: a fast swing-wing strike jet, and two tech-gated
   // heavies — an orbiting AC-130 and the stealth-black flying wing
   b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },

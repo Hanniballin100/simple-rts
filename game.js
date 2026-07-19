@@ -223,7 +223,7 @@ function hiddenFrom(e, owner) {
 }
 
 function canTarget(stats, target) {
-  if (!stats.dmg) return false;
+  if (!stats.dmg && !stats.kamikaze) return false; // kamikaze munitions have no gun
   const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
   const t = stats.targets || 'ground';
   return isAir ? (t === 'air' || t === 'both') : (t === 'ground' || t === 'both');
@@ -1482,6 +1482,15 @@ function tryAttack(u, target, dt) {
   const d = dist(u, target);
   if (d > range) {
     moveToward(u, target.x, target.y, dt, range - 4, target.kind === 'building' ? target.id : null);
+    return;
+  }
+  // loitering munition: dive into the target and detonate, destroying itself
+  if (t.kamikaze) {
+    const k = t.kamikaze;
+    splashDamage(target.x, target.y, k.splash, k.dmg, u.owner, { bldgBonus: k.bldgBonus || 1 }, target.kind === 'unit' && UNIT_TYPES[target.type].flying);
+    Particles.boom(target.x, target.y, 1.8);
+    if (tileState(target.x, target.y) === 2) sfx('boom');
+    u.hp = 0;
     return;
   }
   const aimA = Math.atan2(target.y - u.y, target.x - u.x);

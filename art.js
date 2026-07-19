@@ -1056,33 +1056,43 @@
     }
   };
   D.ptero = (ctx, t, o) => wingedLizard(ctx, t, o, '#b08a5a', '#96744a', true);
-  D.cropduster = (ctx, t, o) => {
-    // wings
-    ctx.fillStyle = o.color;
-    rr(ctx, -1, -13, 6, 26, 2);
-    ctx.fill();
-    ctx.strokeStyle = shade(o.color, -0.4); ctx.lineWidth = 0.8; ctx.stroke();
-    // fuselage
-    ctx.fillStyle = shade(o.color, 0.15);
-    rr(ctx, -9, -2.6, 20, 5.2, 2.6);
-    ctx.fill();
+  D.chembiplane = (ctx, t, o) => {
+    // rickety crop-duster biplane laying a chemtrail, nose at +x
+    ctx.fillStyle = shade(o.color, -0.16);           // lower wing (behind)
+    rr(ctx, -3, -14, 6, 28, 2); ctx.fill();
+    ctx.strokeStyle = shade(o.color, -0.4); ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.strokeStyle = '#4a4438'; ctx.lineWidth = 0.6; // interplane struts
+    for (const wy of [-11, -6, 6, 11]) { ctx.beginPath(); ctx.moveTo(-1, wy); ctx.lineTo(2, wy); ctx.stroke(); }
+    ctx.fillStyle = o.color;                           // upper wing (raised, forward)
+    rr(ctx, 0, -13, 6, 26, 2); ctx.fill();
     ctx.strokeStyle = shade(o.color, -0.4); ctx.stroke();
-    // tail
-    ctx.fillStyle = o.color;
-    rr(ctx, -10, -5, 3, 10, 1);
-    ctx.fill();
-    // cockpit
-    ctx.fillStyle = '#17232f';
-    rr(ctx, 1, -1.8, 4, 3.6, 1.5);
-    ctx.fill();
-    // prop
-    ctx.save();
-    ctx.translate(11.5, 0);
-    ctx.rotate(t * 28);
-    ctx.strokeStyle = 'rgba(190,195,205,0.7)';
-    ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke();
-    ctx.restore();
+    ctx.fillStyle = shade(o.color, 0.12);              // fuselage
+    rr(ctx, -10, -2.6, 21, 5.2, 2.6); ctx.fill();
+    ctx.strokeStyle = shade(o.color, -0.4); ctx.stroke();
+    ctx.fillStyle = o.color; rr(ctx, -11, -5, 3, 10, 1); ctx.fill(); // tail
+    ctx.fillStyle = '#17232f'; rr(ctx, -1, -1.8, 4, 3.6, 1.5); ctx.fill(); // cockpit
+    ctx.save(); ctx.translate(12, 0); ctx.rotate(t * 28); // prop
+    ctx.strokeStyle = 'rgba(190,195,205,0.7)'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(0, -5); ctx.lineTo(0, 5); ctx.stroke(); ctx.restore();
+    ctx.fillStyle = 'rgba(185,220,205,0.35)';          // chemtrail from the tail
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-12 - i * 3, (i % 2 ? 1 : -1) * 1.4, 2 + i, 0, TAU); ctx.fill(); }
+  };
+  D.shahed = (ctx, t, o) => {
+    // Shahed-136 delta loitering munition, warhead nose at +x
+    ctx.fillStyle = '#8a8578';                         // delta wings
+    ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(-8, -9); ctx.lineTo(-6, 0); ctx.lineTo(-8, 9); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#5a5648'; ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.fillStyle = '#9a9588';                          // fuselage
+    rr(ctx, -9, -2, 18, 4, 1.8); ctx.fill();
+    ctx.strokeStyle = '#5a5648'; ctx.stroke();
+    ctx.fillStyle = '#3a3a34';                          // warhead nose
+    ctx.beginPath(); ctx.moveTo(9, -2); ctx.lineTo(13, 0); ctx.lineTo(9, 2); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#6a6558'; ctx.lineWidth = 1.4;   // inverted-V tail fins
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(-11, -4); ctx.moveTo(-8, 0); ctx.lineTo(-11, 4); ctx.stroke();
+    ctx.save(); ctx.translate(-9.5, 0); ctx.rotate(t * 30); // rear pusher prop
+    ctx.strokeStyle = 'rgba(190,195,205,0.6)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, -3); ctx.lineTo(0, 3); ctx.stroke(); ctx.restore();
+    if (Math.sin(t * 8) > 0) { ctx.fillStyle = 'rgba(255,80,80,0.9)'; ctx.beginPath(); ctx.arc(2, 0, 0.9, 0, TAU); ctx.fill(); }
   };
   D.pigeon = (ctx, t, o) => {
     // "birds aren't real": a grey robo-pigeon with a red camera eye + antenna
@@ -4511,6 +4521,21 @@
     },
   });
   I.laserguy = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#556249', head: ihFoil, weapon: iwLaser });
+  I.manpad = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6b5a3f', head: ihFoil,
+    weapon: (c2, t2, o2) => {
+      // shoulder-fired SAM tube, angled skyward for anti-air
+      c2.save(); c2.translate(1, -9); c2.rotate(-0.95);
+      c2.fillStyle = '#3a4038'; c2.fillRect(-4.5, -1.4, 12.5, 2.8);
+      c2.fillStyle = '#2a2e28'; c2.beginPath(); c2.arc(8, 0, 1.6, 0, TAU); c2.fill();
+      c2.fillStyle = '#8a6a42'; c2.fillRect(-5.5, -1, 1.6, 2);
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,220,140,0.95)'; c2.beginPath(); c2.arc(10, 0, 2.4, 0, TAU); c2.fill();
+        c2.fillStyle = 'rgba(255,220,140,0.55)'; c2.beginPath(); c2.moveTo(-4.5, -1.2); c2.lineTo(-9, 0); c2.lineTo(-4.5, 1.2); c2.closePath(); c2.fill();
+      }
+      c2.restore();
+    },
+  });
   I.jammer = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#4a5a66', head: ihHardhat,
     pack: c2 => { // antenna backpack
