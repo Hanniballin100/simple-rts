@@ -1085,10 +1085,11 @@
     ctx.restore();
   };
   D.gunship = (ctx, t, o) => {
-    // AC-130: big four-engine airframe with a broadside battery — drawn at
-    // twice its old size, it should dwarf everything else in the sky
+    // AC-130: big four-engine airframe with a broadside battery. The unit's
+    // drawScale already enlarges it; a light internal bump keeps it dominant
+    // in the sky without swallowing the screen.
     ctx.save();
-    ctx.scale(2.5, 2.5);
+    ctx.scale(1.15, 1.15);
     // wide wing with four props
     ctx.fillStyle = '#272b33';
     rr(ctx, -3, -16, 8, 32, 2);
@@ -5490,7 +5491,10 @@
   };
   // AC-130 gunship: side-profile heavy, foreshortened by heading, guns
   // firing broadside out the port side like the real thing
-  I.gunship = (ctx, t, o) => {
+  // (retired: the static side-profile made the AC-130 look like it always
+  // flew rightward. It now uses the top-down D.gunship, which rotates to its
+  // heading — its broadside guns then point off the flank as it orbits.)
+  const _gunshipSideProfileUnused = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
     const fore = Math.max(0.55, Math.abs(Math.cos(o.hdg)));
     ctx.save();
