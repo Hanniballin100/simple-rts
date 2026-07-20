@@ -1648,9 +1648,14 @@ function fireAt(u, target, t) {
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
       if (t.petrify && target.kind === 'unit') target.petrifiedUntil = state.time + t.petrify; // the gaze
       if (t.leech) u.hp = Math.min(u.maxHp, u.hp + dmg * 0.8); // vivisection pays
-      Particles.shot(u.x + Math.cos(a) * (t.r + 2), u.y + Math.sin(a) * (t.r + 2),
+      // turreted vehicles fire from the barrel tip up on the turret; everyone
+      // else from the sprite edge at body height, so tracer meets muzzle flash
+      const turreted = Art.hasIsoTurret(u.type);
+      const muzR = (t.r + 2) * (turreted ? 1.4 : 1);
+      const muzZ = unitAlt(u) + (turreted ? 8 : 0);
+      Particles.shot(u.x + Math.cos(a) * muzR, u.y + Math.sin(a) * muzR,
         target.x, target.y, WEAPON_STYLE[state.factions[u.owner]],
-        unitAlt(u), target.kind === 'unit' ? unitAlt(target) : 0);
+        muzZ, target.kind === 'unit' ? unitAlt(target) : 0);
       if (wkind === 'spray' && t.groundEffect && !isAir) {
         state.zones.push({
           x: target.x, y: target.y, r: t.groundEffect.r, until: state.time + t.groundEffect.dur,
