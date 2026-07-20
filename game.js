@@ -1445,6 +1445,13 @@ function flyOrbit(u, cx, cy, dt, radius = 70) {
 }
 
 function dealDamage(attacker, target, dmg, stats) {
+  // capturable landmarks are objectives, not rubble: while NEUTRAL they shrug off
+  // all damage — you claim them by garrisoning, not by blowing them up. Once
+  // owned they're a normal building and can be destroyed (killing the garrison).
+  if (target.kind === 'building' && target.owner === NEUTRAL) {
+    const bt = bstatsOf(target);
+    if (bt.slots && (bt.income || bt.healAura || bt.buffAura || bt.debuffAura || bt.detector || bt.power > 0 || bt.spawns || bt.convert)) return;
+  }
   // grey superior metallurgy: buildings ignore anti-building bonuses
   if (target.kind === 'building' && stats.bldgBonus && state.factions[target.owner] !== 'grey') {
     dmg *= stats.bldgBonus;
@@ -2224,7 +2231,7 @@ function updateUnit(u, dt) {
         u.mineTimer += dt;
         if (u.mineTimer >= HARVEST_TIME) {
           u.mineTimer = 0;
-          const take = Math.min(carry * (patch.yield || 1), patch.amount); // urban ore hauls richer
+          const take = Math.min(Math.round(carry * (patch.yield || 1)), patch.amount); // urban ore hauls richer (whole units, no fractional pennies)
           patch.amount -= take;
           u.carrying = take;
           u.order = { type: 'return', patchId: patch.id };
@@ -2998,24 +3005,41 @@ function updateAI(owner, dt) {
     }
   }
 
-  // claim landmarks: send spare infantry to garrison the most valuable unclaimed
-  // neutral in reach — derricks/banks (income), hospitals & fuel depots (healing),
-  // labs/monuments (buffs), radar (detection), substations (power), black sites &
-  // UFO wrecks (free units), TV stations (conversion). Only when the army can
-  // spare a body, so defense isn't gutted. Sends a few claimers at once.
-  if (ai.time > 25 && army.length > 3) {
-    const worth = b => { const s = bstatsOf(b);
-      return (s.income || 0) + (s.spawns ? 22 : 0) + (s.convert ? 20 : 0) + (s.healAura ? 16 : 0) +
-        (s.buffAura ? 15 : 0) + (s.debuffAura ? 12 : 0) + (s.detector ? 12 : 0) + (s.power > 0 ? 10 : 0); };
-    const targets = state.buildings
-      .filter(b => b.hp > 0 && b.owner === NEUTRAL && bstatsOf(b).slots && worth(b) > 0 &&
-        (!b.garrison || b.garrison.length < bstatsOf(b).slots) &&
-        !state.units.some(s => s.owner === owner && s.order.type === 'garrison' && s.order.destId === b.id) &&
-        dist(hq, b) < 1700)
-      .sort((a, b) => (worth(b) - worth(a)) || (dist(hq, a) - dist(hq, b)));
-    const claimers = army.filter(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
-    for (let i = 0; i < Math.min(targets.length, claimers.length, 2); i++) {
-      claimers[i].order = { type: 'garrison', destId: targets[i].id };
+  // decide what to capture — a SYSTEM, not a grab-everything reflex. The AI
+  // pursues at most ONE capture at a time, only when its army can clearly spare a
+  // body, and scores each landmark by its CURRENT need (economy? healing?
+  // detection? power?), discounted by distance and by how contested the site is.
+  // If nothing clears the bar, it captures nothing and keeps fighting.
+  const outCapturing = state.units.filter(s => s.owner === owner && s.order.type === 'garrison').length;
+  if (ai.time > 40 && army.length >= 5 && outCapturing === 0) {
+    const poor = state.minerals[owner] < 300 && (!f.worker || workers.length <= (f.economy.workers || 3));
+    const hurt = army.length ? army.reduce((s, u) => s + u.hp / u.maxHp, 0) / army.length < 0.72 : false;
+    const cloakFoe = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 &&
+      (UNIT_TYPES[u.type].cloakStill || UNIT_TYPES[u.type].stealth || UNIT_TYPES[u.type].burrow));
+    const lowPow = power.low;
+    const value = b => { const s = bstatsOf(b); let v = 0;
+      if (s.income) v += s.income * (poor ? 2.4 : 0.7);   // banks/derricks matter most when broke
+      if (s.spawns) v += 20;                               // free units are always worthwhile
+      if (s.healAura) v += hurt ? 42 : 9;                  // hospitals/depots when the army is bleeding
+      if (s.buffAura) v += hurt ? 26 : 7;
+      if (s.detector) v += cloakFoe ? 38 : 5;              // radar when the enemy runs silent
+      if (s.power > 0) v += lowPow ? 32 : 4;               // substation only when the grid is low
+      if (s.convert) v += 15;
+      return v;
+    };
+    let best = null, bestScore = 0;
+    for (const b of state.buildings) {
+      if (b.hp <= 0 || b.owner !== NEUTRAL || !bstatsOf(b).slots) continue;
+      if (b.garrison && b.garrison.length >= bstatsOf(b).slots) continue;
+      const d = dist(hq, b);
+      if (d > 1500) continue;                              // not worth crossing the map for
+      const contested = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 && dist(u, b) < 260);
+      const score = value(b) * (1 - d / 2400) * (contested ? 0.35 : 1);
+      if (score > bestScore) { bestScore = score; best = b; }
+    }
+    if (best && bestScore >= 12) { // only if the payoff clears the bar
+      const claimer = army.find(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
+      if (claimer) claimer.order = { type: 'garrison', destId: best.id };
     }
   }
 
@@ -4032,8 +4056,11 @@ function drawBuildingIso(b) {
   // building art comes from the sprite cache: refreshed at ~10Hz for its
   // animations, immediately when power/owner/turret-heading change
   const bw2 = b.w + b.h;
-  const cw = Math.ceil(bw2 + 80), chh = Math.ceil(bw2 * 0.5 + 100);
-  const ax = cw / 2, ay = Math.ceil(bw2 * 0.25 + 60);
+  // skyscrapers/mega-towers extrude far above their footprint — give the sprite
+  // canvas extra headroom so their crowns aren't clipped off
+  const head = bt.tall ? bw2 * 0.85 : 0;
+  const cw = Math.ceil(bw2 + 80), chh = Math.ceil(bw2 * 0.5 + 100 + head);
+  const ax = cw / 2, ay = Math.ceil(bw2 * 0.25 + 60 + head);
   const qt = b.turret !== undefined ? Math.round(b.turret / 0.2) : -99;
   const conn = (b.type === 'wall' || b.type === 'gate') ? wallConn(b) : 0;
   // superweapon silos animate a launch for ~1.8s after firing

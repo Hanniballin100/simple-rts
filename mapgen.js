@@ -162,32 +162,39 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   const fillBlock = (bx, by, zone) => {
     const roll = prand(seed++);
     const put = (type, ox, oy) => neutrals.push({ type, x: bx + ox, y: by + oy });
-    const packHouses = (cols, rows, sx, sy) => {
-      const x0 = -(cols - 1) * sx / 2, y0 = -(rows - 1) * sy / 2;
-      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) put('house', x0 + c * sx, y0 + r * sy);
-    };
-    // ~1 block in 8 is an urban ore field — a parking lot or park you can mine,
-    // so the city isn't pocked with empty grass. Richer per haul than open ore.
-    if (prand(seed++) < 0.13) {
+    const row = (type, n, sx, oy) => { const x0 = -(n - 1) * sx / 2; for (let i = 0; i < n; i++) put(type, x0 + i * sx, oy); };
+    // Green parks only OUTSIDE the high-rise district — the downtown core and
+    // inner ring stay fully paved (plaza), no grass gaps among the towers. Ore
+    // lots (paved) can appear anywhere. These use their OWN rolls so `roll`
+    // stays free for the zone building layout below.
+    if (zone >= 0.44 && prand(seed++) < 0.17) { decor.push({ kind: 'park', x: bx, y: by, w: BLOCK_W - 6, h: BLOCK_H - 6, seed: seed++ }); return; }
+    if (prand(seed++) < 0.1) {
       patchSpots.push({ x: bx, y: by, amount: 1800, rich: true });
-      decor.push({ kind: prand(seed++) < 0.5 ? 'lot' : 'park', x: bx, y: by, w: BLOCK_W - 12, h: BLOCK_H - 12, seed: seed++ });
+      const paved = zone < 0.44 || prand(seed++) < 0.5; // downtown ore lots stay paved
+      decor.push({ kind: paved ? 'lot' : 'park', x: bx, y: by, w: BLOCK_W - 10, h: BLOCK_H - 10, seed: seed++ });
       return;
     }
-    if (zone < 0.38) { // downtown: towers packed tight over storefronts
-      if (roll < 0.2) { put('skyscraper', -4, -4); put('shop', 50, 44); put('shop', -52, 42); }
-      else if (roll < 0.3) { put('radiotower', -36, -34); put('office', 26, 24); put('shop', 44, -38); put('shop', -40, 42); }
-      else if (roll < 0.62) { put('office', -34, -28); put('office', 34, 30); put('shop', 44, -38); put('shop', -46, 38); }
-      else { put('apartment', -34, -2); put('apartment', 36, -2); put('shop', -2, -46); put('shop', -2, 46); }
-    } else if (zone < 0.72) { // mid-ring: civic landmark or packed commerce
-      if (roll < 0.16) { const L = ['hospital', 'bank', 'researchlab', 'tvstation', 'radar', 'monument', 'substation', 'fueldepot', 'blacksite']; put(L[Math.floor(prand(seed++) * L.length)], -2, -2); put('shop', 52, 42); put('shop', -52, -42); }
-      else if (roll < 0.36) { put('church', -34, -2); put('house', 44, -34); put('house', 44, 34); decor.push({ kind: 'park', x: bx + 42, y: by, w: 44, h: 92, seed: seed++ }); }
-      else if (roll < 0.66) { put('shop', -50, -32); put('shop', 0, -32); put('shop', 50, -32); put('apartment', -30, 32); put('apartment', 36, 32); }
-      else { put('warehouse', -24, -28); put('shop', 44, 32); put('shop', 44, -36); put('house', -44, 36); }
-    } else { // edge: dense residential
-      if (roll < 0.2) { packHouses(3, 2, 50, 52); put('gasstation', 0, 12); }
-      else if (roll < 0.44) { put('warehouse', -22, -22); put('house', 42, -34); put('house', 42, 34); put('house', -44, 40); }
-      else if (roll < 0.72) { packHouses(3, 3, 50, 44); }
-      else { packHouses(2, 3, 58, 44); put('shop', 42, 0); }
+    if (zone < 0.27) { // downtown core: mega-towers and skyscrapers
+      if (roll < 0.68) { put('megatower', 0, 0); }
+      else if (roll < 0.88) { put('skyscraper', -6, -4); put('office', 42, 40); }
+      else { put('office', -32, -28); put('office', 34, 30); put('office', 32, -34); put('shop', -40, 40); }
+    } else if (zone < 0.44) { // inner ring: mixed high-rise + the odd civic tower
+      if (roll < 0.1) { const L = ['hospital', 'bank', 'radar', 'researchlab', 'tvstation']; put(L[Math.floor(prand(seed++) * L.length)], -2, -2); put('shop', 50, 44); }
+      else if (roll < 0.32) { put('skyscraper', 0, 0); put('shop', 48, 44); }
+      else if (roll < 0.54) { put('office', -32, -2); put('apartment', 36, -2); }
+      else if (roll < 0.82) { put('apartment', -32, -28); put('apartment', 36, -28); put('apartment', 0, 34); }
+      else { put('office', -30, -2); put('shop', 44, -36); put('shop', 44, 34); }
+    } else if (zone < 0.68) { // mid ring: apartments, commerce, civic landmarks
+      if (roll < 0.22) { const L = ['hospital', 'bank', 'researchlab', 'tvstation', 'radar', 'monument', 'substation', 'fueldepot', 'blacksite']; put(L[Math.floor(prand(seed++) * L.length)], -2, -2); put('shop', 52, 42); }
+      else if (roll < 0.33) { put('church', -32, -2); put('house', 44, -32); decor.push({ kind: 'park', x: bx + 40, y: by + 30, w: 52, h: 56, seed: seed++ }); }
+      else if (roll < 0.58) { put('apartment', -30, -2); put('apartment', 38, -2); put('shop', 0, 42); }
+      else if (roll < 0.82) { row('shop', 3, 48, -30); put('apartment', -22, 34); put('warehouse', 38, 32); }
+      else { put('warehouse', -22, -24); put('house', 42, -32); put('house', 42, 34); }
+    } else { // outer ring: roomier residential with corner stores
+      if (roll < 0.3) { put('house', -40, -30); put('house', 42, -30); put('house', -40, 34); put('house', 42, 34); }
+      else if (roll < 0.52) { put('house', -38, -30); put('house', 40, -30); put('shop', 0, 40); }
+      else if (roll < 0.74) { put('apartment', -28, 0); put('house', 44, -30); put('house', 44, 34); }
+      else { put('gasstation', -34, 32); put('house', 36, -30); put('shop', 36, 34); }
     }
   };
 
@@ -243,15 +250,42 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   // a farmstead: barn + house + crop fields
   const placeFarm = (x, y) => {
     if (!clearForNeutral(x, y, 340)) return 0;
+    // ground-clear helper for the farm's own tight cluster (barn + silos sit
+    // close together, so the 95px neutral spacing doesn't apply between them)
+    const onMap = (px, py, m) => px > m && py > m && px < WORLD_W - m && py < WORLD_H - m &&
+      farFrom(starts, px, py, 300) && farFrom(TERRAIN, px, py, 70);
     neutrals.push({ type: 'barn', x, y });
-    const hx = x + 105 + (Math.random() - 0.5) * 30, hy = y + (Math.random() - 0.5) * 60;
-    if (clearForNeutral(hx, hy, 330)) neutrals.push({ type: 'house', x: hx, y: hy });
-    for (let f = 0; f < 1 + Math.floor(Math.random() * 2); f++) {
-      const fx = x + (Math.random() - 0.5) * 90;
-      const fy = y + 90 + f * 95 + (Math.random() - 0.5) * 20;
-      if (fx > 140 && fy > 140 && fx < WORLD_W - 140 && fy < WORLD_H - 140 &&
-          farFrom(starts, fx, fy, 300) && farFrom(TERRAIN, fx, fy, 90)) {
-        decor.push({ kind: 'field', x: fx, y: fy, w: 130 + Math.random() * 60, h: 80 + Math.random() * 30, seed: seed++ });
+    const side = Math.random() < 0.5 ? -1 : 1;
+    // farmhouse off to one side
+    const hx = x + 102 + (Math.random() - 0.5) * 30, hy = y + (Math.random() - 0.5) * 70;
+    if (clearForNeutral(hx, hy, 320)) neutrals.push({ type: 'house', x: hx, y: hy });
+    // a cluster of grain silos beside the barn
+    const nSilo = 1 + Math.floor(Math.random() * 3);
+    for (let s = 0; s < nSilo; s++) {
+      const sx = x + side * (56 + s * 30), sy = y - 32 + (Math.random() - 0.5) * 22;
+      if (onMap(sx, sy, 120)) neutrals.push({ type: 'silo', x: sx, y: sy });
+    }
+    // a windmill catching the breeze on the far side
+    if (Math.random() < 0.42) {
+      const wx = x - side * (98 + Math.random() * 40), wy = y + (Math.random() - 0.5) * 60;
+      if (onMap(wx, wy, 120)) neutrals.push({ type: 'windmill', x: wx, y: wy });
+    }
+    // crop fields fanning out from the yard — varied count and size
+    const nField = 2 + Math.floor(Math.random() * 3);
+    for (let f = 0; f < nField; f++) {
+      const fx = x + (Math.random() - 0.5) * 210;
+      const fy = y + 95 + (f % 2) * 100 + Math.floor(f / 2) * 22 + (Math.random() - 0.5) * 30;
+      if (fx > 150 && fy > 150 && fx < WORLD_W - 150 && fy < WORLD_H - 150 &&
+          farFrom(starts, fx, fy, 280) && farFrom(TERRAIN, fx, fy, 80)) {
+        decor.push({ kind: 'field', x: fx, y: fy, w: 115 + Math.random() * 85, h: 72 + Math.random() * 38, seed: seed++ });
+      }
+    }
+    // an orchard grove or a farm pond for character
+    if (Math.random() < 0.5) {
+      const ox = x + (Math.random() - 0.5) * 170, oy = y - 105 - Math.random() * 70;
+      const kind = Math.random() < 0.62 ? 'forest' : 'water';
+      if (onMap(ox, oy, 130) && farFrom(TERRAIN, ox, oy, 90)) {
+        TERRAIN.push({ x: ox, y: oy, r: 42 + Math.random() * 26, type: kind, seed: seed++ });
       }
     }
     return 1;
@@ -270,8 +304,8 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     // 75%+ of the battlefield is streets, blocks and towers. Blocks near the
     // player starts and mineral fields stay clear (blockClear handles it), so
     // there's always room to raise a base at the edges of the sprawl.
-    const bw = Math.max(4, Math.floor((WORLD_W * 0.96) / PITCH_X));
-    const bh = Math.max(4, Math.floor((WORLD_H * 0.96) / PITCH_Y));
+    const bw = Math.max(4, Math.floor((WORLD_W * 0.81) / PITCH_X)); // city footprint ~65% of the map
+    const bh = Math.max(4, Math.floor((WORLD_H * 0.81) / PITCH_Y));
     placeCity(cx, cy, bw, bh);
   } else if (setting === 'urban') {
     // one metropolis near the middle of the map...

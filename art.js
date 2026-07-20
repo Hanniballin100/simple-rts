@@ -3508,83 +3508,68 @@
     ctx.beginPath(); ctx.arc(-4, -3, 1.5, 0, TAU); ctx.fill();
   };
   B.house = (ctx, t, o) => {
-    // variant keyed off world position so settlements aren't clone rows
-    const v = Math.abs(Math.floor(((o.wx || 0) * 7 + (o.wy || 0) * 13))) % 3;
+    // colour AND roof style vary by world position, so settlements aren't clones
+    const hash = Math.abs(Math.floor((o.wx || 0) * 7 + (o.wy || 0) * 13));
+    const v = hash % 6, d = Math.floor(hash / 6) % 3;
     const w = o.w, h = o.h;
     // yard
     ctx.fillStyle = 'rgba(110,100,70,0.28)';
     rr(ctx, -w / 2, -h / 2, w, h, 5); ctx.fill();
-    const wallCol = ['#8a7a63', '#7d7480', '#75816c'][v];
-    const roofCol = ['#7a4a3a', '#5d6470', '#6b5a45'][v];
+    const wallCol = ['#8a7a63', '#7d7480', '#75816c', '#9a8a6a', '#84766c', '#6e7a82'][v];
+    const roofCol = ['#8a4535', '#3f5a8a', '#5a7a4a', '#6b5a45', '#7a4a6a', '#42707a'][v]; // brick, blue, green, brown, plum, teal
     const bx = -w / 2 + 5, by = -h / 2 + 7, bw = w - 10, bh = h - 15;
-    gabled(ctx, bx, by, bw, bh, 8, 7, wallCol, roofCol);
-    // front door + window on the SE gable end
-    doorway(ctx, bx, by, bw, bh, 8, 'se', { w: 5.5, h: 6.5, off: 3 });
-    doorway(ctx, bx, by, bw, bh, 8, 'se', { w: 5, h: 4, off: -5, col: 'rgba(58,90,138,0.85)' });
-    // brick chimney poking through the lit roof slope
+    if (d === 1) {
+      // flat-roof modern: a low cuboid with a wide window band and a carport
+      const rt = isoBox(ctx, bx, by, bw, bh, 11, wallCol, {
+        win: { rows: 1, paneH: 4.5, inset: 3, litRate: 2, seed: v + 1, litCol: 'rgba(255,224,160,0.5)' }, doorSE: { w: 6, h: 7 } });
+      ctx.strokeStyle = shade(wallCol, -0.42); ctx.lineWidth = 1; rr(ctx, rt[0], rt[1], bw, bh, 2); ctx.stroke();
+      ctx.fillStyle = shade(roofCol, -0.1); ctx.fillRect(rt[0] + 4, rt[1] + 4, 7, 5); // rooftop unit
+      isoBox(ctx, bx - 8, by + bh - 4, 12, 10, 6, shade(wallCol, -0.2), { noShadow: true }); // carport
+      return;
+    }
+    // gabled (d0) or hip-roofed cottage (d2) — d2 sits a touch lower & squarer
+    gabled(ctx, bx, by, bw, bh, d === 2 ? 6 : 8, d === 2 ? 6 : 7, wallCol, roofCol);
+    doorway(ctx, bx, by, bw, bh, d === 2 ? 6 : 8, 'se', { w: 5.5, h: 6.5, off: 3 });
+    doorway(ctx, bx, by, bw, bh, d === 2 ? 6 : 8, 'se', { w: 5, h: 4, off: -5, col: 'rgba(58,90,138,0.85)' });
     billboard(ctx, bx + bw * 0.3, by + bh * 0.5, () => {
-      ctx.fillStyle = '#5a4f45';
-      ctx.fillRect(-2.4, -21, 4.8, 10);
-      ctx.strokeStyle = '#38322b';
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(-2.4, -21, 4.8, 10);
-      ctx.fillStyle = '#38322b';
-      ctx.fillRect(-3, -22.3, 6, 1.8);
+      ctx.fillStyle = '#5a4f45'; ctx.fillRect(-2.4, -21, 4.8, 10);
+      ctx.strokeStyle = '#38322b'; ctx.lineWidth = 0.8; ctx.strokeRect(-2.4, -21, 4.8, 10);
+      ctx.fillStyle = '#38322b'; ctx.fillRect(-3, -22.3, 6, 1.8);
     });
-    // porch stoop at the SW face
-    isoBox(ctx, bx + bw / 2 - 6, by + bh, 12, 5, 2.5, shade(wallCol, -0.12), { noShadow: true });
+    isoBox(ctx, bx + bw / 2 - 6, by + bh, 12, 5, 2.5, shade(wallCol, -0.12), { noShadow: true }); // porch stoop
   };
   B.apartment = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    const v = Math.abs(Math.floor(((o.wx || 0) * 11 + (o.wy || 0) * 5))) % 2;
-    const body = v ? '#6e6a72' : '#7a736a';
-    // one tall block, three window storeys, lobby door on the SW street side
-    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 24, body, {
-      win: { rows: 3, paneH: 4.2, inset: 3.5, litRate: 1, seed: v * 3 + 1 },
-      doorSW: { w: 9, h: 8 },
-    });
-    // parapet
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth = 1.6;
-    rr(ctx, rt[0] + 1, rt[1] + 1, w - 8, h - 8, 2);
-    ctx.stroke();
-    // rooftop clutter: stairwell box, AC units, water tank
-    ctx.fillStyle = '#4d4a52';
-    ctx.fillRect(rt[0] + 6, rt[1] + 6, 13, 10);
-    ctx.strokeStyle = '#33313a';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rt[0] + 6, rt[1] + 6, 13, 10);
-    for (let i = 0; i < 3; i++) {
-      const ax = rt[0] + w - 21, ay = rt[1] + 9 + i * 12;
-      ctx.fillStyle = '#8b939e';
-      ctx.fillRect(ax, ay, 8, 8);
-      ctx.strokeStyle = '#5d646d';
-      ctx.strokeRect(ax, ay, 8, 8);
-      ctx.beginPath(); ctx.arc(ax + 4, ay + 4, 2.6, 0, TAU); ctx.stroke();
+    const hash = Math.abs(Math.floor((o.wx || 0) * 11 + (o.wy || 0) * 5));
+    const v = hash % 5, d = Math.floor(hash / 5) % 3;
+    // brick red, sandstone, slate, teal, warm brown — real apartment-block colours
+    const body = ['#8a5a4c', '#9a8a68', '#6e6a72', '#4e6a68', '#7a6a54'][v];
+    const WIN = rows => ({ win: { rows, paneH: 4.2, inset: 3.5, litRate: 1, seed: v * 3 + 1, litCol: 'rgba(255,224,160,0.5)' } });
+    if (d === 2) {
+      // older walk-up: brick block with a pitched roof + chimney (no flat roof)
+      const bx = -w / 2 + 4, by = -h / 2 + 6, bw = w - 8, bh = h - 14;
+      gabled(ctx, bx, by, bw, bh, 15, 11, body, shade(body, -0.32));
+      doorway(ctx, bx, by, bw, bh, 15, 'se', { w: 8, h: 9, col: '#2e2620' });
+      billboard(ctx, bx + bw * 0.3, by + bh * 0.5, () => {
+        ctx.fillStyle = shade(body, -0.4); ctx.fillRect(-2.4, -24, 4.8, 11);
+        ctx.fillStyle = '#33302a'; ctx.fillRect(-3, -25.5, 6, 2);
+      });
+      return;
     }
-    // water tank standing on the roof
-    billboard(ctx, rt[0] + 12, rt[1] + h - 18, () => {
-      ctx.strokeStyle = '#3e3830';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath();
-      ctx.moveTo(-4, 0); ctx.lineTo(-3, -4);
-      ctx.moveTo(4, 0); ctx.lineTo(3, -4);
-      ctx.stroke();
+    // d0 flat block, d1 the same with a set-back penthouse crown
+    let rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, d === 1 ? 22 : 24, body, { ...WIN(3), doorSW: { w: 9, h: 8 } });
+    if (d === 1) rt = isoBox(ctx, rt[0] + 7, rt[1] + 7, w - 20, h - 20, 14, shade(body, 0.1), { ...WIN(1), noShadow: true });
+    // rooftop clutter: stairwell box + water tank
+    ctx.fillStyle = '#4d4a52'; ctx.fillRect(rt[0] + 6, rt[1] + 6, 12, 9);
+    ctx.strokeStyle = '#33313a'; ctx.lineWidth = 1; ctx.strokeRect(rt[0] + 6, rt[1] + 6, 12, 9);
+    billboard(ctx, rt[0] + 14, rt[1] + 13, () => {
       const tg = ctx.createLinearGradient(-5, 0, 5, 0);
-      tg.addColorStop(0, '#6b6156');
-      tg.addColorStop(0.5, '#8a7f71');
-      tg.addColorStop(1, '#544b41');
-      ctx.fillStyle = tg;
-      ctx.fillRect(-5, -13, 10, 9);
-      ctx.beginPath();
-      ctx.moveTo(-5, -13); ctx.lineTo(0, -16.5); ctx.lineTo(5, -13);
-      ctx.closePath();
-      ctx.fill();
-      ctx.strokeStyle = '#3e3830';
-      ctx.lineWidth = 0.8;
-      ctx.strokeRect(-5, -13, 10, 9);
+      tg.addColorStop(0, '#6b6156'); tg.addColorStop(0.5, '#8a7f71'); tg.addColorStop(1, '#544b41');
+      ctx.fillStyle = tg; ctx.fillRect(-5, -13, 10, 9);
+      ctx.beginPath(); ctx.moveTo(-5, -13); ctx.lineTo(0, -16.5); ctx.lineTo(5, -13); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#3e3830'; ctx.lineWidth = 0.8; ctx.strokeRect(-5, -13, 10, 9);
     });
-    blinker(ctx, t, rt[0] + w - 9, rt[1] + 4, '#ff5f5f', 2);
+    blinker(ctx, t, rt[0] + 5, rt[1] + 4, '#ff5f5f', 2);
   };
   B.barn = (ctx, t, o) => {
     const w = o.w, h = o.h;
@@ -3635,6 +3620,37 @@
         ctx.beginPath(); ctx.arc(0, -hr, hr, 0, TAU); ctx.stroke();
       });
     }
+  };
+  B.silo = (ctx, t, o) => {
+    const w = o.w, r = w * 0.36, H = w * 0.95;
+    ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.beginPath(); ctx.ellipse(2, 3, r * 1.2, r * 0.6, 0, 0, TAU); ctx.fill();
+    // corrugated metal cylinder, faintly tinted per plot so a farm row varies
+    const v = Math.abs(Math.floor((o.wx || 0) * 3 + (o.wy || 0) * 7)) % 3;
+    const mid = ['#a8aa9e', '#a2a6ac', '#aca492'][v];
+    const g = ctx.createLinearGradient(-r, 0, r, 0);
+    g.addColorStop(0, shade(mid, -0.28)); g.addColorStop(0.5, mid); g.addColorStop(1, shade(mid, -0.35));
+    ctx.fillStyle = g; ctx.fillRect(-r, -H, r * 2, H);
+    ctx.strokeStyle = 'rgba(0,0,0,0.16)'; ctx.lineWidth = 0.7;
+    for (let y = -H + 5; y < 0; y += 5) { ctx.beginPath(); ctx.moveTo(-r, y); ctx.lineTo(r, y); ctx.stroke(); }
+    ctx.fillStyle = shade(mid, 0.15); ctx.beginPath(); ctx.ellipse(0, -H, r, r * 0.5, 0, 0, TAU); ctx.fill(); // domed lid
+    ctx.strokeStyle = shade(mid, -0.4); ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.fillStyle = shade(mid, -0.4); ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.5, 0, 0, Math.PI); ctx.fill(); // base rim
+  };
+  B.windmill = (ctx, t, o) => {
+    const w = o.w, rB = w * 0.26, rT = w * 0.15, H = w * 0.9;
+    ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.beginPath(); ctx.ellipse(2, 3, rB * 1.5, rB * 0.8, 0, 0, TAU); ctx.fill();
+    // tapered stone mill tower
+    const g = ctx.createLinearGradient(-rB, 0, rB, 0); g.addColorStop(0, '#a8a290'); g.addColorStop(0.5, '#c8c2b0'); g.addColorStop(1, '#948e7c');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(-rB, 0); ctx.lineTo(-rT, -H); ctx.lineTo(rT, -H); ctx.lineTo(rB, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#7a7464'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.fillStyle = '#7a4a3a'; ctx.beginPath(); ctx.moveTo(-rT - 3, -H); ctx.lineTo(0, -H - 9); ctx.lineTo(rT + 3, -H); ctx.closePath(); ctx.fill(); // cap
+    ctx.fillStyle = '#5a4a3a'; rr(ctx, -3, -8, 6, 8, 1); ctx.fill(); // door
+    // spinning sails
+    ctx.save(); ctx.translate(0, -H + 5); ctx.rotate(t * 0.7);
+    for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.fillStyle = 'rgba(232,226,204,0.75)'; ctx.fillRect(-1.4, -3, 2.8, -11); ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 1; ctx.strokeRect(-1.4, -3, 2.8, -11); }
+    ctx.fillStyle = '#4a3a2a'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, TAU); ctx.fill();
+    ctx.restore();
   };
   B.derrick = (ctx, t, o) => {
     // oil-stained pad
@@ -3693,30 +3709,32 @@
   };
   B.office = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    // the downtown garrison prize: two glass tiers with a lobby entrance
-    let rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 20, '#5d6470', {
-      win: { rows: 3, paneH: 3.6, inset: 2.5, litRate: 2, seed: 2, litCol: 'rgba(190,225,255,0.65)' },
-      doorSE: { w: 10, h: 8 },
-    });
-    rt = isoBox(ctx, rt[0] + 6, rt[1] + 6, w - 18, h - 18, 15, '#6a7280', {
-      win: { rows: 2, paneH: 3.6, inset: 2.5, litRate: 2, seed: 7, litCol: 'rgba(190,225,255,0.65)' },
-      noShadow: true,
-    });
-    // roof furniture: elevator house, AC pair, dish standing on the roof
-    ctx.fillStyle = '#454c58';
-    ctx.fillRect(rt[0] + 5, rt[1] + 5, 11, 9);
-    ctx.strokeStyle = '#31363f';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(rt[0] + 5, rt[1] + 5, 11, 9);
-    ctx.fillStyle = '#8b939e';
-    for (let i = 0; i < 2; i++) ctx.fillRect(rt[0] + w - 32 + i * 8, rt[1] + 7, 5, 5);
-    billboard(ctx, rt[0] + w - 25, rt[1] + h - 25, () => {
-      ctx.strokeStyle = '#9aa2ac';
-      ctx.lineWidth = 1.1;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -5); ctx.stroke();
-      ctx.beginPath(); ctx.arc(0, -6.5, 3.6, 0.5, Math.PI - 0.2); ctx.stroke();
-    });
-    blinker(ctx, t, rt[0] + (w - 18) / 2, rt[1] + 3, '#ff5f5f', 2.2);
+    // glass colour AND silhouette vary per plot — three distinct designs
+    // (stepped, monolith, ziggurat) so a skyline isn't a row of identical slabs
+    const hash = Math.abs(Math.floor((o.wx || 0) * 3 + (o.wy || 0) * 19));
+    const v = hash % 4, d = Math.floor(hash / 4) % 3;
+    const lo = ['#5d6470', '#4e6a60', '#6a5f52', '#4b5468'][v];
+    const hi = ['#6a7280', '#5b7a6f', '#786c5c', '#586178'][v];
+    const glass = ['rgba(190,225,255,0.65)', 'rgba(150,235,205,0.6)', 'rgba(255,214,160,0.55)', 'rgba(165,205,255,0.62)'][v];
+    const WIN = (rows, s) => ({ win: { rows, paneH: 3.6, inset: 2.5, litRate: 2, seed: s, litCol: glass } });
+    let rt;
+    if (d === 0) { // stepped: two tiers with a rooftop plant room
+      rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 20, lo, { ...WIN(3, 2), doorSE: { w: 10, h: 8 } });
+      rt = isoBox(ctx, rt[0] + 6, rt[1] + 6, w - 18, h - 18, 15, hi, { ...WIN(2, 7), noShadow: true });
+      ctx.fillStyle = '#454c58'; ctx.fillRect(rt[0] + 5, rt[1] + 5, 11, 9);
+      ctx.strokeStyle = '#31363f'; ctx.lineWidth = 1; ctx.strokeRect(rt[0] + 5, rt[1] + 5, 11, 9);
+      ctx.fillStyle = '#8b939e'; for (let i = 0; i < 2; i++) ctx.fillRect(rt[0] + w - 32 + i * 8, rt[1] + 7, 5, 5);
+    } else if (d === 1) { // monolith: one tall flat curtain-wall slab
+      rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 34, lo, { ...WIN(5, 4), doorSE: { w: 12, h: 9 } });
+      ctx.strokeStyle = shade(lo, -0.42); ctx.lineWidth = 1.4; rr(ctx, rt[0] + 1, rt[1] + 1, w - 8, h - 8, 2); ctx.stroke(); // parapet
+      ctx.fillStyle = '#454c58'; ctx.fillRect(rt[0] + (w - 6) / 2 - 6, rt[1] + (h - 6) / 2 - 5, 12, 10);
+    } else { // ziggurat: three short stepped setbacks
+      rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 14, lo, { ...WIN(2, 2), doorSE: { w: 10, h: 8 } });
+      rt = isoBox(ctx, rt[0] + 5, rt[1] + 5, w - 16, h - 16, 12, hi, { ...WIN(2, 7), noShadow: true });
+      rt = isoBox(ctx, rt[0] + 5, rt[1] + 5, w - 26, h - 26, 10, shade(hi, 0.06), { ...WIN(1, 11), noShadow: true });
+    }
+    billboard(ctx, rt[0] + 8, rt[1] + 8, () => { ctx.strokeStyle = '#9aa2ac'; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -5); ctx.stroke(); ctx.beginPath(); ctx.arc(0, -6.5, 3.4, 0.5, Math.PI - 0.2); ctx.stroke(); });
+    blinker(ctx, t, rt[0] + 5, rt[1] + 4, '#ff5f5f', 2.2);
   };
   B.skyscraper = (ctx, t, o) => {
     const w = o.w, h = o.h;
@@ -3729,6 +3747,21 @@
     const mx = rt[0] + (w - 34) / 2, my = rt[1] + (h - 34) / 2;
     billboard(ctx, mx, my, () => { ctx.strokeStyle = '#9aa2ac'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -15); ctx.stroke(); });
     blinker(ctx, t, mx, my - 15, '#ff5f5f', 2);
+  };
+  B.megatower = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    // a downtown colossus: five glass tiers stepped inward to a crown + spire.
+    // Each faction/team plot tints the glass so no two towers match.
+    const v = Math.abs(Math.floor((o.wx || 0) * 5 + (o.wy || 0) * 23)) % 4;
+    const body = ['#4d5560', '#47605a', '#5c5750', '#485164'][v];
+    const glass = ['rgba(190,225,255,0.55)', 'rgba(150,235,205,0.5)', 'rgba(255,214,160,0.48)', 'rgba(160,205,255,0.55)'][v];
+    const WIN = s => ({ win: { rows: 5, paneH: 3.3, inset: 2.2, litRate: 2, seed: s, litCol: glass } });
+    let rt = isoBox(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 34, body, { ...WIN(3), doorSE: { w: 16, h: 12 } });
+    const tiers = [[16, 32, 8], [30, 30, 13], [44, 28, 18], [56, 24, 23]]; // inset, height, winSeed
+    for (const [inset, hgt, s] of tiers) rt = isoBox(ctx, rt[0] + 7, rt[1] + 7, w - 8 - inset, h - 8 - inset, hgt, shade(body, 0.05 * (s % 3)), { ...WIN(s), noShadow: true });
+    const mx = rt[0] + (w - 8 - 56) / 2, my = rt[1] + (h - 8 - 56) / 2;
+    billboard(ctx, mx, my, () => { ctx.strokeStyle = '#aab2bc'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -26); ctx.stroke(); });
+    blinker(ctx, t, mx, my - 26, '#ff5f5f', 1.8);
   };
   B.hospital = (ctx, t, o) => {
     const w = o.w, h = o.h;
@@ -3960,9 +3993,11 @@
   };
   B.warehouse = (ctx, t, o) => {
     const w = o.w, h = o.h;
-    // long ribbed metal shed
+    // long ribbed metal shed — steel blue, rust red, olive, or tan corrugate
+    const v = Math.abs(Math.floor((o.wx || 0) * 7 + (o.wy || 0) * 3)) % 4;
+    const body = ['#5f6a72', '#7a5347', '#5c6247', '#8a7f68'][v];
     const bx = -w / 2 + 3, by = -h / 2 + 3, bw = w - 6, bh = h - 6, V = 14;
-    const rt = isoBox(ctx, bx, by, bw, bh, V, '#5f6a72', {});
+    const rt = isoBox(ctx, bx, by, bw, bh, V, body, {});
     // roof ribs
     ctx.strokeStyle = 'rgba(0,0,0,0.2)';
     ctx.lineWidth = 0.8;

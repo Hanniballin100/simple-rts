@@ -468,6 +468,8 @@ const BUILDING_TYPES = {
   house:     { name: 'Abandoned House', hp: 400, w: 46, h: 42, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 4 },
   apartment: { name: 'Apartment Block', hp: 750, w: 58, h: 66, cost: 0, buildTime: 0, sight: 220, power: 0, slots: 6 },
   barn:      { name: 'Old Barn',        hp: 480, w: 62, h: 52, cost: 0, buildTime: 0, sight: 190, power: 0, slots: 3 },
+  silo:      { name: 'Grain Silo',      hp: 440, w: 30, h: 30, cost: 0, buildTime: 0, sight: 175, power: 0, slots: 2 },
+  windmill:  { name: 'Windmill',        hp: 380, w: 40, h: 40, cost: 0, buildTime: 0, sight: 215, power: 0, slots: 2 },
   derrick:   { name: 'Oil Derrick',     hp: 500, w: 50, h: 56, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 2, income: 12 },
   // downtown lots (urban maps): the office tower is the garrison prize;
   // gas stations go up when they go down (explodes: blast + lingering fire)
@@ -480,6 +482,8 @@ const BUILDING_TYPES = {
   // a towering garrison fortress, a hospital that heals nearby units, a bank
   // that prints income, and a radio station that lights up a swathe of the map.
   skyscraper: { name: 'Skyscraper',       hp: 1600, w: 62, h: 62, cost: 0, buildTime: 0, sight: 280, power: 0, slots: 8, tall: true },
+  // downtown colossus: fills a whole city block and towers over everything
+  megatower:  { name: 'Mega Tower',        hp: 3200, w: 112, h: 100, cost: 0, buildTime: 0, sight: 330, power: 0, slots: 14, tall: true },
   hospital:   { name: 'General Hospital', hp: 1000, w: 74, h: 66, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 6, healAura: { r: 230, rate: 11 } },
   bank:       { name: 'Federal Reserve',  hp: 820,  w: 58, h: 54, cost: 0, buildTime: 0, sight: 210, power: 0, slots: 4, income: 22 },
   radiotower: { name: 'Radio Station',    hp: 440,  w: 40, h: 40, cost: 0, buildTime: 0, sight: 560, power: 0, slots: 2 },
