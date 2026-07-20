@@ -254,6 +254,21 @@ function tileState(x, y) {
   return vis[ty * FW + tx];
 }
 
+// nearest never-seen (vis===0) tile center to a world point — used by the
+// scout Explore order. Returns null when the whole map has been revealed.
+function nearestUnexplored(wx, wy) {
+  let best = null, bestD = Infinity;
+  for (let ty = 0; ty < FH; ty++) {
+    for (let tx = 0; tx < FW; tx++) {
+      if (vis[ty * FW + tx] !== 0) continue;
+      const cx = tx * FOG_TILE + FOG_TILE / 2, cy = ty * FOG_TILE + FOG_TILE / 2;
+      const d = (cx - wx) ** 2 + (cy - wy) ** 2;
+      if (d < bestD) { bestD = d; best = { x: cx, y: cy }; }
+    }
+  }
+  return best;
+}
+
 function markSight(x, y, sight) {
   const tx0 = Math.max(0, Math.floor((x - sight) / FOG_TILE));
   const tx1 = Math.min(FW - 1, Math.floor((x + sight) / FOG_TILE));
@@ -771,6 +786,17 @@ function toggleBurrowSelection() {
     }
   }
   if (any) { sfx('click'); refreshPanel(); }
+}
+
+function exploreSelection() {
+  let any = false;
+  for (const u of selection) {
+    if (u.kind !== 'unit' || u.owner !== PLAYER || u.hp <= 0) continue;
+    if (UNIT_TYPES[u.type].role !== 'scout') continue;
+    u.order = { type: 'explore' };
+    any = true;
+  }
+  if (any) { sfx('click'); if (selection.length) eva('Scouting'); }
 }
 
 function orderMove(u, x, y) { u.order = { type: 'move', x, y }; }
@@ -1982,6 +2008,22 @@ function updateUnit(u, dt) {
       if (stats.role === 'combat') autoAcquire(u, dt);
       break;
 
+    case 'explore': {
+      // auto-recon: keep heading for the nearest unseen ground; when the map is
+      // fully lit, stand down. Re-picks a target once the current one is seen.
+      o.reT = (o.reT || 0) - dt;
+      if (o.tx === undefined || o.tx === null || tileState(o.tx, o.ty) >= 1 || o.reT <= 0) {
+        o.reT = 0.6;
+        const spot = nearestUnexplored(u.x, u.y);
+        if (!spot) { u.order = { type: 'idle' }; if (u.owner === PLAYER) eva('Area explored'); break; }
+        o.tx = spot.x; o.ty = spot.y;
+      }
+      if (stats.plane) { if (flyToward(u, o.tx, o.ty, dt, 40)) o.tx = null; }
+      else if (moveToward(u, o.tx, o.ty, dt, 24)) o.tx = null;
+      if (stats.role === 'combat') autoAcquire(u, dt);
+      break;
+    }
+
     case 'attackmove': {
       // keep engaging the cached foe; rescan on a stagger instead of every frame
       let foe = o.foeId ? findEntity(o.foeId) : null;
@@ -2459,10 +2501,18 @@ function updateBuilding(b, dt) {
   job.t += dt * (power.low ? 0.5 : 1);
   if (job.t >= job.duration) {
     b.queue.shift();
-    const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 30, b.y + b.h / 2 + 22);
     const ut = UNIT_TYPES[job.type];
+    // RA2-style emerge: ground units are born at the building's front door,
+    // facing out, and drive/walk clear of it (with a puff of exhaust); aircraft
+    // just appear on the pad. bornT drives the materialize pop in drawUnitIso.
+    const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 12, b.y + b.h / 2 + 8);
+    u.bornT = state.time;
     if (bstatsOf(b).padCap) u.homeId = b.id; // aircraft remember their airfield/hangar
     if (ut.pad) u.slot = freeSlot(b);         // claim a parking slot on it
+    if (!ut.flying) {
+      u.facing = Math.PI / 2; // nose out of the doorway
+      if (tileState(b.x, b.y) === 2) { Particles.smoke(b.x - 9, b.y + b.h / 2, 3); Particles.smoke(b.x + 9, b.y + b.h / 2, 3); }
+    }
     if (b.owner === PLAYER) eva('Unit ready');
     if (b.rally) {
       const rp = state.patches.find(p => p.amount > 0 && dist(p, b.rally) < 40);
@@ -2472,6 +2522,8 @@ function updateBuilding(b, dt) {
     } else if (ut.role === 'worker') {
       const patch = nearest(u, state.patches, p => p.amount > 0 && dist(u, p) < 600);
       if (patch) orderHarvest(u, patch);
+    } else if (!ut.flying) {
+      orderMove(u, b.x + Math.sin(nextId) * 24, b.y + b.h / 2 + 48); // clear the doorway
     }
   }
 }
@@ -2743,6 +2795,81 @@ function issueCommand(x, y) {
   });
 }
 
+// what would a left/right command at world (x,y) do, given the current
+// selection? Read-only mirror of issueCommand, used to draw a contextual
+// cursor reticle so the player sees "attack / repair / capture / ..." on hover.
+function hoverContext(x, y) {
+  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || wallDrag) return null;
+  const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER);
+  if (!units.length) return null;
+  // hollow tunnel node
+  if (state.factions[PLAYER] === 'hollow') {
+    const node = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 && b.done && TUNNEL_NODES.includes(b.type) &&
+      Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
+    if (node && units.some(u => !UNIT_TYPES[u.type].flying)) return { kind: 'tunnel', x: node.x, y: node.y, size: entityRadius(node) };
+  }
+  // garrisonable civilian structure
+  const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots && (b.owner === NEUTRAL || b.owner === PLAYER) &&
+    visibleToPlayer(b) && Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
+  if (gb && units.some(canGarrison)) return { kind: 'garrison', x: gb.x, y: gb.y, size: entityRadius(gb) };
+  // enemy under the cursor
+  const foe = enemiesOf(PLAYER).find(e => visibleToPlayer(e) &&
+    (e.kind === 'unit' ? clickHitsUnit(e, x, y, 6) : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
+  if (foe) {
+    if (foe.kind === 'building' && units.some(u => UNIT_TYPES[u.type].captures)) return { kind: 'capture', x: foe.x, y: foe.y, size: entityRadius(foe) };
+    if (foe.kind === 'unit' && units.some(u => UNIT_TYPES[u.type].tracker)) return { kind: 'probe', x: foe.x, y: foe.y, size: entityRadius(foe) };
+    if (units.some(u => canTarget(UNIT_TYPES[u.type], foe))) return { kind: 'attack', x: foe.x, y: foe.y, size: entityRadius(foe) };
+  }
+  // a damaged ally for repair units
+  const ally = state.units.find(a => a.owner === PLAYER && a.hp > 0 && !a.garrisoned && a.hp < a.maxHp && clickHitsUnit(a, x, y, 6));
+  if (ally && units.some(u => UNIT_TYPES[u.type].repair && u !== ally)) return { kind: 'repair', x: ally.x, y: ally.y, size: entityRadius(ally) };
+  // a mineral patch for workers
+  const patch = state.patches.find(p => p.amount > 0 && dist(p, { x, y }) <= 20 && tileState(p.x, p.y) >= 1);
+  if (patch && units.some(u => UNIT_TYPES[u.type].role === 'worker')) return { kind: 'harvest', x: patch.x, y: patch.y, size: 16 };
+  return null; // plain move: leave the default cursor alone
+}
+
+// draw the contextual command reticle in iso-screen space
+function drawReticle(hc) {
+  const sx = isoX(hc.x, hc.y), sy = isoY(hc.x, hc.y);
+  const r = Math.max(12, (hc.size || 12) * UNIT_DRAW_SCALE + 6);
+  const pulse = 1 + 0.12 * Math.sin(state.time * 8);
+  const s = r * pulse;
+  const COL = { attack: '#ff5f5f', capture: '#ffd75f', repair: '#7fff9f', probe: '#7de3ff', garrison: '#7fff9f', tunnel: '#c9a7ff', harvest: '#7fffbf' }[hc.kind] || '#7fff9f';
+  ctx.save();
+  ctx.strokeStyle = COL; ctx.fillStyle = COL; ctx.lineWidth = 2;
+  if (hc.kind === 'attack' || hc.kind === 'capture' || hc.kind === 'probe') {
+    // corner brackets around the target
+    const L = s * 0.5;
+    for (const [cxs, cys] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      ctx.beginPath();
+      ctx.moveTo(sx + cxs * s, sy + cys * s - cys * L);
+      ctx.lineTo(sx + cxs * s, sy + cys * s);
+      ctx.lineTo(sx + cxs * s - cxs * L, sy + cys * s);
+      ctx.stroke();
+    }
+    if (hc.kind === 'attack') { // center crosshair
+      ctx.beginPath(); ctx.moveTo(sx - 5, sy); ctx.lineTo(sx + 5, sy); ctx.moveTo(sx, sy - 5); ctx.lineTo(sx, sy + 5); ctx.stroke();
+    } else if (hc.kind === 'capture') { // wrench-in ↑ glyph
+      ctx.beginPath(); ctx.moveTo(sx, sy + 4); ctx.lineTo(sx, sy - 5); ctx.moveTo(sx - 3, sy - 2); ctx.lineTo(sx, sy - 5); ctx.lineTo(sx + 3, sy - 2); ctx.stroke();
+    }
+  } else if (hc.kind === 'repair') {
+    ctx.beginPath(); ctx.arc(sx, sy, s * 0.8, 0, Math.PI * 2); ctx.stroke();
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(sx - 5, sy); ctx.lineTo(sx + 5, sy); ctx.moveTo(sx, sy - 5); ctx.lineTo(sx, sy + 5); ctx.stroke();
+  } else if (hc.kind === 'garrison' || hc.kind === 'tunnel') {
+    // downward arrow into a box (enter)
+    ctx.strokeRect(sx - s * 0.7, sy - s * 0.5, s * 1.4, s);
+    ctx.beginPath(); ctx.moveTo(sx, sy - s * 0.9); ctx.lineTo(sx, sy + 2);
+    ctx.moveTo(sx - 4, sy - 3); ctx.lineTo(sx, sy + 2); ctx.lineTo(sx + 4, sy - 3); ctx.stroke();
+  } else if (hc.kind === 'harvest') {
+    ctx.beginPath();
+    ctx.moveTo(sx, sy - s * 0.7); ctx.lineTo(sx + s * 0.6, sy); ctx.lineTo(sx, sy + s * 0.7); ctx.lineTo(sx - s * 0.6, sy); ctx.closePath();
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function minimapPan(e) {
   // the minimap is a plain top-down map: click → world point → center camera
   const r = mmCanvas.getBoundingClientRect();
@@ -2751,6 +2878,23 @@ function minimapPan(e) {
   cam.x = isoX(wx, wy) - canvas.width / cam.zoom / 2;
   cam.y = isoY(wx, wy) - canvas.height / cam.zoom / 2;
   clampCam();
+}
+
+// right-click the minimap: order the selected units to that world point
+// (attack-moves onto anything hostile there, like an in-world right-click)
+function minimapCommand(e) {
+  const r = mmCanvas.getBoundingClientRect();
+  const wx = clamp((e.clientX - r.left) / r.width * WORLD_W, 10, WORLD_W - 10);
+  const wy = clamp((e.clientY - r.top) / r.height * WORLD_H, 10, WORLD_H - 10);
+  if (!selection.some(s => s.kind === 'unit' && s.owner === PLAYER)) return;
+  if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
+    selection.forEach(u => { if (u.kind === 'unit' && u.owner === PLAYER) orderAttackMove(u, wx, wy); });
+  } else {
+    issueCommand(wx, wy);
+  }
+  state.pings = state.pings || [];
+  state.pings.push({ x: wx, y: wy, t: state.time });
+  sfx('click');
 }
 
 function evacuate(b) {
@@ -3140,7 +3284,10 @@ function refreshPanel() {
       ' — right-click to set rally point';
   } else {
     const counts = {};
-    for (const s of selection) counts[UNIT_TYPES[s.type].name] = (counts[UNIT_TYPES[s.type].name] || 0) + 1;
+    for (const s of selection) {
+      const nm = s.kind === 'unit' ? UNIT_TYPES[s.type].name : buildingName(s);
+      counts[nm] = (counts[nm] || 0) + 1;
+    }
     let info = 'Selected: ' + Object.entries(counts).map(([n, c]) => `${c}× ${n}`).join(', ');
     if (selection.length === 1 && selection[0].kind === 'unit') {
       const uu = selection[0], ut = UNIT_TYPES[uu.type];
@@ -3154,7 +3301,16 @@ function refreshPanel() {
       if (ut.plantMine) info += uu.planted ? ' — IED spent' : ' — can plant one IED [E]';
     }
     elSelInfo.textContent = info;
-    if (selection.some(s => UNIT_TYPES[s.type].role === 'combat')) {
+    // evacuate any garrisoned civilian structures caught in the selection
+    const gbs = selection.filter(s => s.kind === 'building' && s.garrison && s.garrison.length);
+    if (gbs.length) {
+      const total = gbs.reduce((n, b) => n + b.garrison.length, 0);
+      const btn = document.createElement('button');
+      btn.textContent = `Evacuate (${total})`;
+      btn.onclick = () => { gbs.forEach(evacuate); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
+      elActions.appendChild(btn);
+    }
+    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
       const btn = document.createElement('button');
       btn.textContent = 'Attack-Move [A]';
       btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
@@ -3173,6 +3329,12 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = (anyUp ? 'Burrow' : 'Surface') + ' [X]';
       btn.onclick = toggleBurrowSelection;
+      elActions.appendChild(btn);
+    }
+    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) {
+      const btn = document.createElement('button');
+      btn.textContent = 'Explore [V]';
+      btn.onclick = exploreSelection;
       elActions.appendChild(btn);
     }
   }
@@ -3718,7 +3880,18 @@ function drawUnitIso(u) {
   });
   // petrified victims render as stone statues
   if (u.petrifiedUntil > state.time) ctx.filter = 'grayscale(1) brightness(0.8)';
-  ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
+  // freshly-built units materialize: a quick scale-up + fade at the door
+  const birth = u.bornT ? clamp((state.time - u.bornT) / 0.35, 0, 1) : 1;
+  if (birth < 1) {
+    const bs = 0.5 + 0.5 * birth, cyp = sy + bob;
+    ctx.save();
+    ctx.globalAlpha *= 0.4 + 0.6 * birth;
+    ctx.translate(ix, cyp); ctx.scale(bs, bs); ctx.translate(-ix, -cyp);
+    ctx.drawImage(spr.cv, ix - ax, cyp - ay);
+    ctx.restore();
+  } else {
+    ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
+  }
   ctx.filter = 'none';
   // live turret: rendered over the cached hull so the gun tracks its target
   // independently of the chassis heading (cloaked/burrowed units stay bare)
@@ -3979,6 +4152,22 @@ function drawOverlays() {
     ctx.strokeStyle = '#7fff9f';
     ctx.lineWidth = 1;
     ctx.strokeRect(Math.min(s.x1, s.x2), Math.min(s.y1, s.y2), Math.abs(s.x2 - s.x1), Math.abs(s.y2 - s.y1));
+  } else {
+    // contextual command cursor (attack / repair / capture / garrison / ...)
+    const hc = hoverContext(mouse.x, mouse.y);
+    if (hc) drawReticle(hc);
+  }
+
+  // expanding rings where a minimap order was issued (fade over ~0.6s)
+  if (state.pings && state.pings.length) {
+    for (const p of state.pings) {
+      const age = state.time - p.t;
+      if (age > 0.6) continue;
+      const f = age / 0.6, rr2 = 6 + f * 34;
+      ctx.strokeStyle = `rgba(127,255,159,${1 - f})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(isoX(p.x, p.y), isoY(p.x, p.y), rr2 * Math.SQRT2, rr2 * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    state.pings = state.pings.filter(p => state.time - p.t <= 0.6);
   }
 
   // superweapon targeting reticle at the cursor (world-space ground ellipse)
@@ -4658,6 +4847,11 @@ window.addEventListener('mouseup', e => {
       picked = picked.filter(u => UNIT_TYPES[u.type].role === 'combat');
     }
     selection = picked;
+    // also grab your garrisoned civilian structures under the box, so the
+    // panel can offer to evacuate them
+    const gbld = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.garrison && b.garrison.length && bstatsOf(b).slots &&
+      (() => { const px = isoX(b.x, b.y), py = isoY(b.x, b.y); return px >= x1 && px <= x2 && py >= y1 && py <= y2; })());
+    if (gbld.length) selection = selection.concat(gbld);
   }
   refreshPanel();
 });
@@ -4691,6 +4885,8 @@ window.addEventListener('keydown', e => {
 
   if (k === 'x') toggleBurrowSelection();
 
+  if (k === 'v' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) exploreSelection();
+
   // control groups
   if (/^[1-5]$/.test(e.key)) {
     if (e.ctrlKey) {
@@ -4704,8 +4900,12 @@ window.addEventListener('keydown', e => {
 });
 window.addEventListener('keyup', e => { keys[e.key.toLowerCase()] = false; });
 
-mmCanvas.addEventListener('mousedown', e => { if (e.button === 0) { mmDown = true; minimapPan(e); } });
+mmCanvas.addEventListener('mousedown', e => {
+  if (e.button === 0) { mmDown = true; minimapPan(e); }        // left: pan the view
+  else if (e.button === 2) { minimapCommand(e); }              // right: order units there
+});
 mmCanvas.addEventListener('mousemove', e => { if (mmDown) minimapPan(e); });
+mmCanvas.addEventListener('contextmenu', e => e.preventDefault());
 
 // ---------- HUD elements ----------
 
