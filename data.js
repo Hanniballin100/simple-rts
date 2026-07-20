@@ -176,11 +176,11 @@ const FACTIONS = {
   },
   grey: {
     name: 'The Greys', family: 'ALIENS', emoji: '👽',
-    desc: 'You will be probed. Abductors, towering Tripod Striders, and the Flying Saucer — supreme in the air and cruel to the ground. No miners: Zero-Point Cores conjure minerals from the vacuum itself.',
+    desc: 'You will be probed. Their craft ride anti-grav cushions, not wheels. The Gravity-Well Projector drags whole formations into a collapsing singularity; the Abductor Saucer tractor-beams your units off the field entirely. Towering Tripod Striders and the Flying Saucer round out a force supreme in the air and cruel to the ground. No miners: Zero-Point Cores conjure minerals from the vacuum itself.',
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['mortarcrawler', 'biobomber', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
+    extras: ['gravwell', 'abductor', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
@@ -322,6 +322,10 @@ const UNIT_TYPES = {
   haarp:         { name: 'HAARP Truck',      role: 'combat', builtAt: 'factory', hp: 150, speed: 50, dmg: 15, atkRange: 300, minRange: 120, cooldown: 3.5, sight: 320, cost: 180, r: 13, buildTime: 12, shape: 'square', weapon: 'storm' },
   magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 28, atkRange: 270, minRange: 100, cooldown: 3,   sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square', weapon: 'lob', projectile: 'magma', splash: 34, groundEffect: { kind: 'fire', r: 26, dur: 2.2, dps: 8 } },
   mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 32, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square', weapon: 'lob', projectile: 'plasma', splash: 40 },
+  // Grey anti-grav siege: a hovering projector that lobs a micro-singularity —
+  // it drags every ground unit in the zone toward the core, then the well
+  // collapses in one crushing implosion (see the 'singularity' zone)
+  gravwell: { name: 'Gravity-Well Projector', role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 10, atkRange: 290, minRange: 115, cooldown: 3.9, sight: 320, cost: 185, r: 13, buildTime: 12, shape: 'square', hover: true, weapon: 'lob', projectile: 'plasma', splash: 18, groundEffect: { kind: 'singularity', r: 95, dur: 2.4, pull: 135, dmg: 58, blast: 1.7 } },
   // air
   wballoon: { name: 'Weather Balloon',  role: 'scout',  builtAt: 'airpad', hp: 60,  speed: 90,  dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 360, cost: 40,  r: 9,  buildTime: 6,  flying: true, shape: 'blimp', detector: true },
   balloon:  { name: 'Balloon of Truth', role: 'combat', builtAt: 'airpad', hp: 420, speed: 40,  dmg: 40, atkRange: 36,  cooldown: 2.2,  sight: 240, cost: 200, r: 15, buildTime: 14, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 46 },
@@ -363,6 +367,10 @@ const UNIT_TYPES = {
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
+  // Grey Abductor Saucer: hovers over a ground unit and locks a tractor beam —
+  // hold it long enough and the victim is hauled up and away (removed, +minerals).
+  // Heavies (hp over abductMax) are too heavy to lift; the beam just drains them.
+  abductor:   { name: 'Abductor Saucer', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 200, speed: 100, dmg: 7, atkRange: 95, cooldown: 0.5, sight: 300, cost: 200, r: 12, buildTime: 13, flying: true, shape: 'saucer', weapon: 'abduct', abductTime: 3, abductMax: 300, abductBounty: 20 },
   // ---------- apex heavies (AC-130 tier, all tech-gated) ----------
   // Flat: a diesel land-dreadnought — the gunship broadside battery on tracks,
   // raking several targets at once, with light anti-air from the same guns

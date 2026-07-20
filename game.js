@@ -1413,9 +1413,12 @@ function updateProjectiles(dt) {
       Particles.boom(p.tx, p.ty, p.kind === 'bomb' ? 1.1 : 0.85);
       if (tileState(p.tx, p.ty) === 2) sfx('boom');
       if (s.groundEffect) {
+        const ge = s.groundEffect;
         state.zones.push({
-          x: p.tx, y: p.ty, r: s.groundEffect.r, until: state.time + s.groundEffect.dur,
-          caster: p.owner, kind: s.groundEffect.kind, dps: s.groundEffect.dps,
+          x: p.tx, y: p.ty, r: ge.r, until: state.time + ge.dur,
+          caster: p.owner, kind: ge.kind, dps: ge.dps,
+          // singularity extras (ignored by fire/toxin): inward pull, collapse blast
+          pull: ge.pull, dmg: ge.dmg, blastAt: ge.blast ? state.time + ge.blast : undefined,
         });
       }
     } else {
@@ -1470,6 +1473,20 @@ function updateZones(dt) {
         z.tick = 0.25;
         splashDamage(z.x, z.y, z.r, z.dmg, z.caster, { bldgBonus: 1.5 }, true);
         Particles.boom(z.x + (Math.random() - 0.5) * z.r, z.y + (Math.random() - 0.5) * z.r, 0.7);
+        if (tileState(z.x, z.y) === 2) sfx('boom');
+      }
+    } else if (z.kind === 'singularity') {
+      // gravity well: haul every enemy ground unit in toward the core...
+      for (const u of state.units) {
+        if (u.owner === z.caster || u.hp <= 0 || u.garrisoned || u.burrowed || UNIT_TYPES[u.type].flying) continue;
+        const dx = z.x - u.x, dy = z.y - u.y, d = Math.hypot(dx, dy);
+        if (d <= z.r && d > 3) { const s = Math.min((z.pull || 120) * dt, d - 2); u.x += dx / d * s; u.y += dy / d * s; }
+      }
+      // ...then collapse in one crushing implosion once the well caves in
+      if (!z.blasted && z.blastAt && state.time >= z.blastAt) {
+        z.blasted = true;
+        splashDamage(z.x, z.y, z.r * 0.85, z.dmg || 40, z.caster, { bldgBonus: 1.2 });
+        Particles.boom(z.x, z.y, 1.8);
         if (tileState(z.x, z.y) === 2) sfx('boom');
       }
     }
@@ -1578,6 +1595,27 @@ function fireAt(u, target, t) {
         }
         if (visible && u.burst % 3 === 0) sfx('shot');
       }
+      if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
+    } else if (wkind === 'abduct') {
+      // tractor beam: pin a ground unit, drain it, and after enough continuous
+      // beam-time haul it up and away — abducted, gone, worth a few minerals.
+      // Too-heavy targets can't be lifted; the beam just holds and drains them.
+      Particles.bolt(u.x, u.y, target.x, target.y, [190, 140, 255], unitAlt(u));
+      dealDamage(u, target, dmg, t);
+      if (target.kind === 'unit' && !UNIT_TYPES[target.type].flying) {
+        target.slowUntil = state.time + 0.55;
+        u.abductHold = (u.abductId === target.id) ? (u.abductHold || 0) + t.cooldown : 0;
+        u.abductId = target.id;
+        if (target.hp > 0 && UNIT_TYPES[target.type].hp <= (t.abductMax || 320) && u.abductHold >= (t.abductTime || 3)) {
+          target.hp = 0; target.abducted = true;
+          state.minerals[u.owner] = (state.minerals[u.owner] || 0) + (t.abductBounty || 20);
+          Particles.pulse(target.x, target.y, 45, [190, 140, 255]);
+          u.abductId = null; u.abductHold = 0;
+          if (u.owner === PLAYER) eva('Specimen acquired');
+          else if (target.owner === PLAYER) eva('They took one of ours');
+        }
+      }
+      if (visible) sfx('laser');
       if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
     } else {
       dealDamage(u, target, dmg, t);
@@ -3571,8 +3609,10 @@ function drawUnitIso(u) {
   // reptilian skin suit: enemy infantry render in YOUR color until they attack
   const drawCol = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
   const grounded = !!u.landed; // rearming on the pad
-  // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim
-  const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5 : 0;
+  // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim;
+  // anti-grav ground craft (Grey hover units) drift on a gentle cushion
+  const bob = (t.flying && !grounded && !t.plane) ? Math.sin(state.time * 2.4 + u.id) * 2.5
+    : (t.hover ? Math.sin(state.time * 2 + u.id) * 1.5 : 0);
   // rendered radius: sprites draw a touch larger than their collision size;
   // heavies (AC-130, Mothership, Leveler) scale up further via t.drawScale
   const dscale = UNIT_DRAW_SCALE * (t.drawScale || 1);
@@ -3841,6 +3881,25 @@ function drawZones() {
     } else if (kind === 'barrage') {
       ctx.strokeStyle = 'rgba(255,180,90,0.5)'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (kind === 'singularity') {
+      // gravity well: a dark violet basin with matter spiralling into a bright core
+      ctx.fillStyle = 'rgba(40,10,60,0.28)';
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(190,140,255,0.5)'; ctx.lineWidth = 1.2;
+      for (let ring = 0.9; ring >= 0.3; ring -= 0.3) {
+        ctx.beginPath(); ctx.ellipse(zx, zy, rx * ring, ry * ring, 0, 0, Math.PI * 2); ctx.stroke();
+      }
+      // infalling streaks, angle advancing over time (matter spiralling inward)
+      ctx.strokeStyle = 'rgba(215,180,255,0.6)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 10; i++) {
+        const a = i * 0.63 + state.time * 3, rr2 = 0.85 - (state.time * 0.9 + i * 0.1) % 0.85;
+        const ox = z.x + Math.cos(a) * z.r * rr2, oy = z.y + Math.sin(a) * z.r * rr2;
+        const ix2 = z.x + Math.cos(a) * z.r * (rr2 - 0.18), iy2 = z.y + Math.sin(a) * z.r * (rr2 - 0.18);
+        ctx.beginPath(); ctx.moveTo(isoX(ox, oy), isoY(ox, oy)); ctx.lineTo(isoX(ix2, iy2), isoY(ix2, iy2)); ctx.stroke();
+      }
+      const core = 0.6 + 0.4 * Math.sin(state.time * 12);
+      ctx.fillStyle = `rgba(235,215,255,${core})`;
+      ctx.beginPath(); ctx.ellipse(zx, zy, 6, 3, 0, 0, Math.PI * 2); ctx.fill();
     } else if (kind === 'ray') {
       // the beam column striking down into the zone
       ctx.fillStyle = 'rgba(125,255,214,0.18)';
@@ -4119,6 +4178,7 @@ function frame(now) {
     }
     for (const u of state.units) {
       if (u.hp <= 0 && u.type !== 'phantom') {
+        if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
         Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
         // a cattle mutilator near the wreck renders it down for minerals
         const mut = nearest(u, state.units, m => m.hp > 0 && !m.garrisoned &&

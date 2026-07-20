@@ -1016,6 +1016,38 @@
     ctx.beginPath(); ctx.ellipse(2.1, -0.9, 0.8, 0.5, -0.5, 0, TAU); ctx.fill();
     ctx.beginPath(); ctx.ellipse(2.1, 0.9, 0.8, 0.5, 0.5, 0, TAU); ctx.fill();
   };
+  D.abductor = (ctx, t, o) => {
+    // Abductor Saucer: a darker, meaner disc with a violet tractor emitter
+    // slung under the belly (the beam itself is drawn by the sim while it locks)
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3.5);
+    // underbelly abduction glow
+    const under = ctx.createRadialGradient(0, 0, 1, 0, 0, 14);
+    under.addColorStop(0, `rgba(190,140,255,${0.4 + 0.3 * pulse})`);
+    under.addColorStop(1, 'rgba(190,140,255,0)');
+    ctx.fillStyle = under; ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fill();
+    // hull: dark gunmetal disc
+    const hull = ctx.createRadialGradient(-2.5, -2.5, 1.5, 0, 0, 11.5);
+    hull.addColorStop(0, '#585f6b'); hull.addColorStop(0.7, '#3a3f49'); hull.addColorStop(1, '#23262d');
+    ctx.fillStyle = hull; ctx.beginPath(); ctx.arc(0, 0, 11.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#181b21'; ctx.lineWidth = 1; ctx.stroke();
+    // hull ridges
+    ctx.strokeStyle = 'rgba(20,22,27,0.6)'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.arc(0, 0, 8.4, 0, TAU); ctx.stroke();
+    // rotating rim lights (violet)
+    for (let i = 0; i < 6; i++) {
+      const a = (i / 6) * TAU + t * 1.4;
+      const b = 0.35 + 0.65 * (0.5 + 0.5 * Math.sin(t * 5 + i * 1.9));
+      ctx.fillStyle = `rgba(200,150,255,${b})`;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 9.6, Math.sin(a) * 9.6, 1.1, 0, TAU); ctx.fill();
+    }
+    // central emitter lens — bright when it's actively beaming
+    const lensR = o.firing ? 4.6 : 3.4;
+    const lens = ctx.createRadialGradient(0, 0, 0.5, 0, 0, lensR);
+    lens.addColorStop(0, o.firing ? 'rgba(240,220,255,0.98)' : 'rgba(210,180,255,0.85)');
+    lens.addColorStop(1, 'rgba(120,70,190,0.5)');
+    ctx.fillStyle = lens; ctx.beginPath(); ctx.arc(0, 0, lensR, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,50,140,0.8)'; ctx.lineWidth = 0.8; ctx.stroke();
+  };
   function wingedLizard(ctx, t, o, bodyCol, wingCol, crest) {
     const flap = Math.sin(t * 6);
     for (const s of [-1, 1]) {
@@ -4867,6 +4899,36 @@
       ctx2.moveTo(-2, 0); ctx2.lineTo(-2, 3); ctx2.lineTo(-3, 4);
       ctx2.moveTo(2, 0); ctx2.lineTo(2, 3); ctx2.lineTo(3, 4);
       ctx2.stroke();
+    },
+  });
+  // Gravity-Well Projector: a hovering brass-ringed pod, no wheels — an
+  // anti-grav cushion glows beneath it and a gimballed lens sits on top
+  I.gravwell = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, wid: 14, hgt: 5, body: '#5b5266',
+    path: (ctx2) => { ctx2.beginPath(); ctx2.ellipse(0, 0, 11, 7, 0, 0, TAU); },
+    detail: (ctx2) => {
+      // brass containment ring + core socket
+      ctx2.fillStyle = '#6e6478';
+      ctx2.beginPath(); ctx2.ellipse(0, 0, 7.5, 4.6, 0, 0, TAU); ctx2.fill();
+      ctx2.strokeStyle = '#b89a5a'; ctx2.lineWidth = 1.1;
+      ctx2.beginPath(); ctx2.ellipse(0, 0, 5.4, 3.3, 0, 0, TAU); ctx2.stroke();
+      ctx2.strokeStyle = 'rgba(60,50,72,0.7)'; ctx2.lineWidth = 0.7;
+      for (let i = 0; i < 6; i++) { const a = i / 6 * TAU; ctx2.beginPath(); ctx2.moveTo(Math.cos(a) * 5.4, Math.sin(a) * 3.3); ctx2.lineTo(Math.cos(a) * 9, Math.sin(a) * 5.6); ctx2.stroke(); }
+    },
+    above: (ctx2, t2, o2) => {
+      // anti-grav cushion under the hull (drawn low, ground-pooled)
+      ctx2.save();
+      ctx2.scale(1, 0.5);
+      const cush = ctx2.createRadialGradient(0, 14, 1, 0, 14, 12);
+      cush.addColorStop(0, `rgba(200,160,255,${0.35 + 0.2 * Math.sin(t2 * 4)})`);
+      cush.addColorStop(1, 'rgba(200,160,255,0)');
+      ctx2.fillStyle = cush; ctx2.beginPath(); ctx2.arc(0, 14, 12, 0, TAU); ctx2.fill();
+      ctx2.restore();
+      // gimballed singularity lens on a short mast — flares when it fires
+      isoDome(ctx2, 5, 3, '#6e6478');
+      const core = o2.firing ? 0.95 : 0.4 + 0.35 * Math.sin(t2 * 6);
+      ctx2.fillStyle = `rgba(215,180,255,${core})`;
+      ctx2.beginPath(); ctx2.arc(0, -5, o2.firing ? 2.8 : 1.8, 0, TAU); ctx2.fill();
     },
   });
   D.fpv = (ctx, t, o) => {
