@@ -88,7 +88,7 @@ const FACTIONS = {
       factory: 'Truck Garage', airpad: 'Balloon Dock', tech: 'Institute of Truth',
       watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
       wall: 'Ice Wall Segment', gate: 'Checkpoint Gate', mine: 'IED',
-      superweapon: 'Rocket Launch Pad',
+      superweapon: 'Katyusha Battery',
     },
   },
   resistance: {
@@ -109,7 +109,7 @@ const FACTIONS = {
       watchtower: 'Watchtower', aanest: 'AA Gun Nest',
       sleepercell: 'Sleeper Cell',
       wall: 'Scrap Barricade', gate: 'Checkpoint Gate', mine: 'IED',
-      superweapon: 'Loitering-Munition Battery',
+      superweapon: 'Loitering-Munition Bay',
     },
   },
   glob: {

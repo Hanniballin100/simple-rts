@@ -4208,49 +4208,75 @@
     const heat = o.on ? 0.5 + 0.5 * Math.sin(t * 2) : 0;
 
     if (kind === 'rocket') {
-      // Flat Earth Rocket Launch Pad: a TEL with a rack of skyward tubes that
-      // salvo-launch their rockets on fire
-      isoBox(ctx, -20, -7, 40, 14, 6, '#4a5240');
-      ctx.strokeStyle = '#3c4436'; ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(15, 5); ctx.lineTo(15, -3); ctx.lineTo(-15, -3); ctx.stroke(); // erector rail
-      for (let i = 0; i < 4; i++) {
-        const bx = -12 + i * 8, by = -3 + (i % 2) * 4;
-        billboard(ctx, bx, by, () => {
-          ctx.rotate(-0.5); // tilt back toward launch
-          ctx.fillStyle = '#3a4038'; rr(ctx, -2.2, -20, 4.4, 22, 1.5); ctx.fill();
-          ctx.strokeStyle = '#565f4a'; ctx.lineWidth = 0.6; ctx.stroke();
-          const lift = firing ? fp * 46 : 0; // rocket climbs out of the tube
-          if (lift < 42) {
-            ctx.fillStyle = '#d8dde2'; rr(ctx, -1.6, -19 - lift, 3.2, 15, 1.2); ctx.fill();
-            ctx.fillStyle = '#b04a3a';
-            ctx.beginPath(); ctx.moveTo(-1.6, -19 - lift); ctx.lineTo(0, -25 - lift); ctx.lineTo(1.6, -19 - lift); ctx.closePath(); ctx.fill();
+      // Flat Earth Katyusha Battery — a FIXED emplacement: an earthwork
+      // revetment and a steel rail rack of rockets angled skyward that
+      // ripple-launch in a salvo (no truck; it's dug in)
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(2, 8, 27, 15, 0, 0, TAU); ctx.fill();
+      isoBox(ctx, -22, -3, 44, 16, 5, '#6f6247'); // sandbag revetment
+      ctx.fillStyle = shade('#6f6247', -0.2); // sandbag courses on the front face
+      for (let i = -3; i <= 3; i++) { ctx.beginPath(); ctx.ellipse(i * 6, 11, 3.2, 1.7, 0, 0, TAU); ctx.fill(); }
+      billboard(ctx, -2, -1, () => {
+        ctx.rotate(-0.4); // rack tilted back for launch
+        const cols = 5, rows = 2;
+        ctx.strokeStyle = '#3c4436'; ctx.lineWidth = 2.6; // side beams of the frame
+        ctx.beginPath(); ctx.moveTo(-17, 4); ctx.lineTo(-17, -30); ctx.moveTo(17, 4); ctx.lineTo(17, -30); ctx.stroke();
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            const rx = -14 + c * 7, base = -2 - r * 12;
+            ctx.strokeStyle = '#565f4a'; ctx.lineWidth = 0.7; // launch rail
+            ctx.beginPath(); ctx.moveTo(rx, 4); ctx.lineTo(rx, -28); ctx.stroke();
+            const lp = firing ? Math.max(0, Math.min(1, (fp - (r * cols + c) / (cols * rows) * 0.55) / 0.45)) : 0;
+            const lift = lp * 66; // this rocket's ripple progress up the rail
+            if (lp < 0.96) {
+              ctx.fillStyle = '#dce1e6'; rr(ctx, rx - 1.5, base - 13 - lift, 3, 14, 1.2); ctx.fill(); // body
+              ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.moveTo(rx - 1.5, base - 13 - lift); ctx.lineTo(rx, base - 19 - lift); ctx.lineTo(rx + 1.5, base - 13 - lift); ctx.closePath(); ctx.fill(); // nose
+              ctx.fillStyle = '#8a939e'; ctx.fillRect(rx - 2.6, base + 1 - lift, 1.1, 3.4); ctx.fillRect(rx + 1.5, base + 1 - lift, 1.1, 3.4); // fins
+            }
+            if (firing && lp > 0.02 && lp < 0.92) { // exhaust flame + smoke
+              ctx.fillStyle = `rgba(255,${(200 - lp * 110) | 0},70,${0.9 - lp * 0.4})`;
+              ctx.beginPath(); ctx.moveTo(rx - 2.4, base + 2 - lift); ctx.lineTo(rx, base + 13 - lift); ctx.lineTo(rx + 2.4, base + 2 - lift); ctx.closePath(); ctx.fill();
+              ctx.fillStyle = `rgba(190,190,190,${0.35 * (1 - lp)})`;
+              ctx.beginPath(); ctx.arc(rx, base + 6, 3 + lp * 5, 0, TAU); ctx.fill();
+            }
           }
-          if (firing && fp < 0.85) { // exhaust plume
-            ctx.fillStyle = `rgba(255,${(180 - fp * 90) | 0},70,${0.9 - fp * 0.6})`;
-            ctx.beginPath(); ctx.moveTo(-2.4, -3); ctx.lineTo(0, 8); ctx.lineTo(2.4, -3); ctx.closePath(); ctx.fill();
-          }
-        });
-      }
-      if (o.on && !firing) blinker(ctx, t, -18, 9, '#ff5f5f', 2);
+        }
+      });
+      if (o.on && !firing) blinker(ctx, t, -19, 10, '#ff5f5f', 2);
 
     } else if (kind === 'barrage') {
-      // Resistance Loitering-Munition Battery: a scrap rack of quad-drones that
-      // buzz off as a swarm when fired
-      isoBox(ctx, -18, -12, 36, 24, 5, '#4c4636');
-      ctx.fillStyle = shade('#4c4636', -0.3); rr(ctx, -15, -9, 30, 18, 2); ctx.fill();
-      for (let i = 0; i < 6; i++) {
-        const gx = -10 + (i % 3) * 10, gy = -5 + ((i / 3) | 0) * 10;
-        const away = firing ? fp * (10 + i * 3) : 0, lift = firing ? fp * 24 : 0;
+      // Resistance Loitering-Munition Bay — an armored bay of big cruise
+      // missiles on angled rails that streak off one after another on fire
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.beginPath(); ctx.ellipse(2, 9, 25, 14, 0, 0, TAU); ctx.fill();
+      isoBox(ctx, -20, -12, 40, 24, 8, '#4c4636'); // armored bay
+      ctx.fillStyle = shade('#4c4636', -0.28); rr(ctx, -17, -9, 34, 18, 2); ctx.fill(); // roof deck
+      ctx.strokeStyle = 'rgba(200,170,60,0.5)'; ctx.lineWidth = 1; // hazard chevrons
+      for (let i = -14; i <= 12; i += 5) { ctx.beginPath(); ctx.moveTo(i, -8); ctx.lineTo(i + 3, 8); ctx.stroke(); }
+      for (let i = 0; i < 3; i++) {
+        const gx = -11 + i * 11, gy = -3 + (i % 2) * 5;
+        const lp = firing ? Math.max(0, Math.min(1, (fp - i / 3 * 0.5) / 0.5)) : 0;
         billboard(ctx, gx, gy, () => {
-          ctx.translate((i % 2 ? 1 : -1) * away, -lift);
-          ctx.strokeStyle = '#2c3128'; ctx.lineWidth = 1;
-          ctx.beginPath(); ctx.moveTo(-3, -3); ctx.lineTo(3, 3); ctx.moveTo(-3, 3); ctx.lineTo(3, -3); ctx.stroke();
-          ctx.fillStyle = 'rgba(160,170,150,0.55)';
-          for (const [px, py] of [[-3, -3], [3, -3], [-3, 3], [3, 3]]) { ctx.beginPath(); ctx.arc(px, py, 1.8, 0, TAU); ctx.fill(); }
-          ctx.fillStyle = '#8a5c2f'; ctx.fillRect(-1.4, -1, 3, 2);
+          ctx.rotate(-0.5); // angled launch rail
+          const away = lp * 60;
+          ctx.strokeStyle = '#2c3128'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(0, 4); ctx.lineTo(0, -16); ctx.stroke();
+          if (lp < 0.95) {
+            const my = -8 - away;
+            ctx.fillStyle = '#cfd4da'; rr(ctx, -2, my - 9, 4, 17, 1.6); ctx.fill(); // fat missile body
+            ctx.fillStyle = '#b0453a'; ctx.beginPath(); ctx.moveTo(-2, my - 9); ctx.lineTo(0, my - 15); ctx.lineTo(2, my - 9); ctx.closePath(); ctx.fill(); // warhead
+            ctx.fillStyle = '#8a939e'; ctx.fillRect(-4.4, my + 1, 2.4, 4); ctx.fillRect(2, my + 1, 2.4, 4); // stub wings
+            ctx.fillStyle = '#6a7280'; ctx.fillRect(-1, my + 8, 2, 3); // tail
+            if (firing && lp > 0.02 && lp < 0.9) { // exhaust + smoke
+              ctx.fillStyle = `rgba(255,${(200 - lp * 110) | 0},70,${0.9 - lp * 0.4})`;
+              ctx.beginPath(); ctx.moveTo(-2, my + 9); ctx.lineTo(0, my + 20); ctx.lineTo(2, my + 9); ctx.closePath(); ctx.fill();
+              ctx.fillStyle = `rgba(190,190,190,${0.3 * (1 - lp)})`;
+              ctx.beginPath(); ctx.arc(0, my + 14, 3 + lp * 5, 0, TAU); ctx.fill();
+            }
+          }
         });
       }
-      if (o.on && !firing) blinker(ctx, t, 15, -10, '#ff5f5f', 2.4);
+      if (o.on && !firing) blinker(ctx, t, 16, -10, '#ff5f5f', 2.4);
 
     } else if (kind === 'orbital') {
       // Globalist Orbital Kinetic Array: a slewing rail dish that fires a rod
