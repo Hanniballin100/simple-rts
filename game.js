@@ -2578,8 +2578,11 @@ function updateBuilding(b, dt) {
     if ((b.charge || 0) < superChargeOf(b)) b.announcedReady = false;
   }
 
-  // blacked-out structures do nothing: no fire, no production
+  // blacked-out structures do nothing: no fire, no production. A tractor beam
+  // that gets EMP'd drops its lock (so the beam can't keep drawing / holding
+  // an aircraft while the tower is dark).
   if (isOffline(b)) {
+    if (b.beamId) { b.beamId = null; b.beamHold = 0; }
     if (Math.random() < 0.25) Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.6, b.y - b.h / 2, 2);
     return;
   }
