@@ -557,9 +557,18 @@ function fireSuperweapon(b, x, y) {
   b.fireT = state.time; // drives the launch animation on the silo art
   const seen = tileState(x, y) === 2;
   if (kind === 'rocket') {
-    // Soviet missile-truck strike: one colossal blast lands after a beat
-    state.projectiles.push({ kind: 'superrocket', x, y, tx: x, ty: y, owner, t: 0,
-      dur: 2.2, hgt: 0, stats: { dmg: 320, splash: 130, bldgBonus: 1.5 } });
+    // Katyusha saturation salvo: a spread of heavy rockets rains across a small
+    // area around the mark — inaccurate individually, devastating together, and
+    // harder-hitting than the Resistance barrage but over a tighter footprint
+    const N = 8, scatterR = 100;
+    for (let i = 0; i < N; i++) {
+      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * scatterR;
+      const px = clamp(x + Math.cos(a) * rr, 10, WORLD_W - 10);
+      const py = clamp(y + Math.sin(a) * rr, 10, WORLD_H - 10);
+      state.projectiles.push({ kind: 'superrocket', x: px, y: py, tx: px, ty: py, owner, t: 0,
+        dur: 1.5 + Math.random() * 1.5, hgt: 0, stats: { dmg: 95, splash: 54, bldgBonus: 1.5 } });
+    }
+    if (seen) sfx('boom');
   } else if (kind === 'orbital') {
     // rods from god: instant, pinpoint, brutal
     splashDamage(x, y, 90, 380, owner, { bldgBonus: 1.4 }, true);
@@ -4247,7 +4256,7 @@ function drawOverlays() {
   // superweapon targeting reticle at the cursor (world-space ground ellipse)
   if (superTargeting) {
     const sw = state.buildings.find(b => b.id === superTargeting);
-    const R = { rocket: 130, orbital: 90, quake: 240, emp: 260, barrage: 170, ray: 120, coup: 200 }[sw ? superKindOf(sw) : 'rocket'] || 130;
+    const R = { rocket: 110, orbital: 90, quake: 240, emp: 260, barrage: 170, ray: 120, coup: 200 }[sw ? superKindOf(sw) : 'rocket'] || 130;
     const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
     ctx.strokeStyle = 'rgba(255,95,95,0.85)';
     ctx.lineWidth = 2;

@@ -220,7 +220,7 @@ const FACTIONS = {
 // One tech-gated structure per faction (the shared `superweapon` building
 // type below); charge = seconds to ready, kind = what firing it does.
 const SUPER_DEFS = {
-  flat:       { charge: 180, kind: 'rocket',  desc: 'Heavy rocket strike — one colossal blast at the target point' },
+  flat:       { charge: 180, kind: 'rocket',  desc: 'Katyusha salvo — a spread of heavy rockets saturates a small area (inaccurate but devastating)' },
   resistance: { charge: 130, kind: 'barrage', desc: 'Loitering-munition swarm — waves of drones rain on the zone' },
   glob:       { charge: 180, kind: 'orbital', desc: 'Orbital kinetic strike — instant, precise, devastating' },
   deep:       { charge: 150, kind: 'emp',     desc: 'Total Blackout — enemy structures in the zone go dark for 20s' },
