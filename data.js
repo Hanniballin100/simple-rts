@@ -155,10 +155,10 @@ const FACTIONS = {
   },
   hollow: {
     name: 'Hollow Earthers', family: 'EARTHERS', emoji: '🕳️',
-    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and Cave Bat swarms. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and hulking Bore Rigs haul oversized loads.',
+    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and burrowing raiders. From the Cavern Roost rise brass Haunebu saucers and fire-breathing Feathered Serpents. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and hulking Bore Rigs haul oversized loads.',
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
-    air: [], tower: 'stalagmite', aaTower: 'geyser',
+    air: ['haunebu', 'serpent'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'engineer'], advanced: ['ironmole', 'vrildisc'],
     structs: ['wall', 'gate', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
     powers: {
@@ -381,6 +381,11 @@ const UNIT_TYPES = {
   // Hollow: a Jules-Verne borer — burrows across the map and erupts in the
   // enemy base with a huge emergence blast, then chews structures
   ironmole: { name: 'Iron Mole', role: 'combat', builtAt: 'factory', hp: 680, speed: 48, dmg: 42, atkRange: 32, cooldown: 1.4, sight: 200, cost: 500, r: 18, buildTime: 21, shape: 'square', armor: 0.3, bldgBonus: 3, burrow: true, emergeAoE: { r: 110, dmg: 95 }, req: 'tech' },
+  // Hollow air wing (Cavern Roost): the Haunebu is a bell-domed dieselpunk Vril
+  // saucer that rakes ground and air alike; the Feathered Serpent is a swift
+  // Quetzalcoatl wyrm that breathes a lingering ember-fire over ground targets
+  haunebu: { name: 'Haunebu', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 210, speed: 104, dmg: 16, atkRange: 150, cooldown: 0.7, sight: 300, cost: 185, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer' },
+  serpent: { name: 'Feathered Serpent', flyH: 28, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 165, speed: 118, dmg: 16, atkRange: 85, cooldown: 1.0, sight: 270, cost: 175, r: 11, buildTime: 11, flying: true, targets: 'ground', shape: 'tri', weapon: 'spray', groundEffect: { kind: 'fire', r: 22, dur: 1.8, dps: 7 } },
   // Hollow advanced air: brass-riveted Vril Disc with a channeled beam
   vrildisc: { name: 'Vril Disc', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   // Greys: a heavy capital saucer — hovers and rakes a broadside of plasma

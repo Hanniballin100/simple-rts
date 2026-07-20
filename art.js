@@ -1426,6 +1426,87 @@
       ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(20, 0); ctx.stroke();
     }
   };
+  D.haunebu = (ctx, t, o) => {
+    // Haunebu: a bell-domed dieselpunk Vril saucer — wide copper base, spinning
+    // porthole ring, and a TALL central bell (distinct from the flat Vril Disc)
+    const pulse = 0.5 + 0.5 * Math.sin(t * 3);
+    const glow = ctx.createRadialGradient(0, 0, 2, 0, 0, 18);
+    glow.addColorStop(0, `rgba(120,255,214,${0.22 + 0.12 * pulse})`);
+    glow.addColorStop(1, 'rgba(120,255,214,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(0, 0, 18, 0, TAU); ctx.fill();
+    // wide riveted copper saucer base
+    const base = ctx.createRadialGradient(-3, -3, 2, 0, 0, 14);
+    base.addColorStop(0, '#b98f52'); base.addColorStop(0.7, '#7a5c34'); base.addColorStop(1, '#4a3820');
+    ctx.fillStyle = base; ctx.beginPath(); ctx.ellipse(0, 0, 14, 9, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#3a2c18'; ctx.lineWidth = 1; ctx.stroke();
+    // spinning porthole ring
+    for (let i = 0; i < 12; i++) {
+      const a = (i / 12) * TAU + t * 0.6;
+      const b = 0.4 + 0.6 * (0.5 + 0.5 * Math.sin(t * 4 + i));
+      ctx.fillStyle = `rgba(255,210,120,${b})`;
+      ctx.beginPath(); ctx.arc(Math.cos(a) * 11, Math.sin(a) * 6.8, 0.9, 0, TAU); ctx.fill();
+    }
+    ctx.strokeStyle = '#5a4527'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.ellipse(0, 0, 8, 5, 0, 0, TAU); ctx.stroke();
+    // tall central bell dome
+    const dome = ctx.createLinearGradient(0, -9, 0, 2);
+    dome.addColorStop(0, '#f0d89a'); dome.addColorStop(1, '#8a6c3c');
+    ctx.fillStyle = dome;
+    ctx.beginPath(); ctx.moveTo(-4.5, 1); ctx.quadraticCurveTo(-5, -8, 0, -9); ctx.quadraticCurveTo(5, -8, 4.5, 1); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#4a3a20'; ctx.lineWidth = 0.8; ctx.stroke();
+    // vril core at the bell tip
+    ctx.fillStyle = o.firing ? 'rgba(180,255,235,0.98)' : `rgba(125,255,214,${0.6 + 0.35 * pulse})`;
+    ctx.beginPath(); ctx.arc(0, -8, 1.8, 0, TAU); ctx.fill();
+    if (o.firing) {
+      ctx.strokeStyle = 'rgba(255,190,120,0.9)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(12, 0); ctx.lineTo(19, 0); ctx.stroke();
+    }
+  };
+  D.serpent = (ctx, t, o) => {
+    // Feathered Serpent: a Quetzalcoatl wyrm, nose at +x — an undulating body
+    // from head to tail, quetzal-plumed wings mid-body, a crested head, and a
+    // breath of ember-fire when it attacks
+    const flap = Math.sin(t * 7);
+    const wave = o.moving ? 1 : 0.7;
+    const seg = [];
+    for (let i = 0; i < 8; i++) { seg.push([8 - i * 3.1, Math.sin(t * 4 - i * 0.7) * 2.2 * wave * (0.4 + i * 0.08)]); }
+    // body ribbon (dark scale over a lighter belly ridge)
+    ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+    ctx.strokeStyle = '#2f7d5a'; ctx.lineWidth = 4.2;
+    ctx.beginPath(); ctx.moveTo(seg[0][0], seg[0][1]); for (const [x, y] of seg) ctx.lineTo(x, y); ctx.stroke();
+    ctx.strokeStyle = '#4fae7e'; ctx.lineWidth = 1.8;
+    ctx.beginPath(); ctx.moveTo(seg[0][0], seg[0][1]); for (const [x, y] of seg) ctx.lineTo(x, y); ctx.stroke();
+    // quetzal-plumed wings at the third segment
+    const wx = seg[2][0], wy = seg[2][1];
+    for (const s of [-1, 1]) {
+      for (let f = 0; f < 3; f++) {
+        ctx.fillStyle = ['#e0b23a', '#2fae8a', '#d94f6a'][f];
+        const sp = s * (6 + f * 3 + flap * 2);
+        ctx.beginPath();
+        ctx.moveTo(wx + 1, wy);
+        ctx.quadraticCurveTo(wx - 2, wy + s * 4, wx - 4 - f * 1.4, wy + sp);
+        ctx.quadraticCurveTo(wx - 1, wy + s * 3, wx - 1, wy);
+        ctx.closePath(); ctx.fill();
+      }
+    }
+    // tail plume
+    const tx = seg[7][0], ty = seg[7][1];
+    ctx.fillStyle = '#e0b23a';
+    ctx.beginPath(); ctx.moveTo(tx + 2, ty); ctx.lineTo(tx - 4, ty - 3); ctx.lineTo(tx - 3, ty); ctx.lineTo(tx - 4, ty + 3); ctx.closePath(); ctx.fill();
+    // crested head + eye
+    const hx = seg[0][0], hy = seg[0][1];
+    ctx.fillStyle = '#39916a';
+    ctx.beginPath(); ctx.ellipse(hx + 2, hy, 3.6, 2.8, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#d94f6a';
+    ctx.beginPath(); ctx.moveTo(hx + 1, hy - 2); ctx.lineTo(hx - 1, hy - 6); ctx.lineTo(hx + 2, hy - 2.4); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#ffd75f'; ctx.beginPath(); ctx.arc(hx + 3.4, hy - 0.8, 0.9, 0, TAU); ctx.fill();
+    // ember breath
+    if (o.firing) {
+      ctx.fillStyle = 'rgba(255,150,60,0.85)';
+      ctx.beginPath(); ctx.moveTo(hx + 5, hy); ctx.lineTo(hx + 13, hy - 3); ctx.lineTo(hx + 16, hy); ctx.lineTo(hx + 13, hy + 3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,220,120,0.9)'; ctx.beginPath(); ctx.arc(hx + 7, hy, 1.6, 0, TAU); ctx.fill();
+    }
+  };
   D.draco = (ctx, t, o) => {
     // a Draconian overlord: an oversized winged serpent wreathed in fire
     wingedLizard(ctx, t, o, '#6a4a7a', '#4a3358', true);
