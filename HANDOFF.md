@@ -79,19 +79,26 @@ Full faction redesigns done: **Globalists**, **Flat Earth** (Killdozer, Firework
 Prophet, Pigeon Drone "birds aren't real", Barrage Balloon), **Resistance** (MANPAD, Shahed,
 Chemtrail Biplane).
 
-## TODO — remaining faction redesigns (locked with the user; also refresh each faction's AIR art as you go)
-- **Deep State** — a stealth identity so it stops feeling like a Globalist clone: units passively
-  cloak when stationary, plus 1–2 signature units (e.g. a cloaked ambush tank, a "Disinfo Van" that
-  spawns phantom signatures, leaning into their Gaslight power). Still shares B-1/B-2/Black Drone —
-  give it its own air.
-- **Greys** — anti-grav lore vehicles (ground units hover, no wheels/tracks); Plasma Mortar →
-  "Gravity-Well Projector" (lobs a singularity that pulls units together then hits); Bio Bomber →
-  "Abductor Saucer" (beams up/removes a ground unit). Hybrid already cut.
-- **Reptilians** — Basilisk Crawler → a proper full **basilisk** (big multi-segment serpent-lizard,
-  keep the petrify gaze); Broodmother → fragile, weak attack, but a persistent brood that follows her
-  and attacks whatever she attacks/wherever she goes (the swarm is her weapon).
-- **Hollow Earth** — its `air` list is currently EMPTY (the cuts opened it). Fill with **both** a
-  Haunebu Vril saucer and a Feathered Serpent (Quetzalcoatl-style airborne wyrm). Keep the Vril Disc.
+## TODO — remaining faction redesigns
+All four DONE (committed on main):
+- **Deep State** — cloak-when-stationary faction identity (`cloakStill`: mib/blackrig/blackvan cloak
+  when idle, drop it on move/fire, doubled ambush first-strike). New Redacted ambush tank, Disinfo Van
+  (seeds phantom signatures via `spawns:{type:'phantom'}`), TR-3B Black Triangle stealth aircraft.
+- **Greys** — anti-grav (ground craft hover, `hover` bob). Plasma Mortar → Gravity-Well Projector
+  (new `singularity` zone: pulls ground units in, then collapse blast). Bio Bomber → Abductor Saucer
+  (`weapon:'abduct'` tractor-lift removes a ground unit after a channel; heavies over `abductMax`
+  immune; `u.abducted` vanishes with no wreck). Reptilians KEEP mortarcrawler/biobomber (divergence).
+- **Reptilians** — Basilisk Crawler → Basilisk (rewrote I.basilisk as a multi-segment undulating
+  serpent w/ gaze cone; bigger/tougher, keeps petrify). Broodmother → fragile with a bound brood
+  (`brood:{count,regen}` + `u.broodOf`: hatchlings shadow her, focus her target, regrow, expire on her
+  death). Old `spawns` timer mechanic is still used by the Disinfo Van.
+- **Hollow Earth** — filled the empty `air` list with Haunebu (bell-domed Vril saucer, targets both)
+  and Feathered Serpent (Quetzalcoatl, spray + fire zone). Kept the tech-gated Vril Disc.
+
+New reusable mechanics added this pass (all in game.js): `cloakStill`/`u.cloaked` dynamic cloak +
+`u.movedT` tracking in moveToward; `singularity` zone (pull + delayed collapse) via extended
+groundEffect fields (pull/dmg/blastAt); `abduct` weapon kind; `brood`/`broodOf` bound-swarm; `hover`
+draw bob. Verified per-faction via offscreen contact sheets + scripted mechanic tests + 20s live sims.
 
 ## Working style the user likes
 Implement each faction fully (art + mechanics), verify in-engine with a screenshot contact sheet,
