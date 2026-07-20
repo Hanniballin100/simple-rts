@@ -100,6 +100,17 @@ New reusable mechanics added this pass (all in game.js): `cloakStill`/`u.cloaked
 groundEffect fields (pull/dmg/blastAt); `abduct` weapon kind; `brood`/`broodOf` bound-swarm; `hover`
 draw bob. Verified per-faction via offscreen contact sheets + scripted mechanic tests + 20s live sims.
 
+## Quality-of-life pass (DONE, committed on main)
+- Contextual cursor: `hoverContext(x,y)` (read-only mirror of `issueCommand`) + `drawReticle()` in
+  `drawOverlays` — attack/repair/capture/probe/garrison/tunnel/harvest reticles on hover.
+- Minimap right-click = order selected units (`minimapCommand`); left-click still pans. Ground `state.pings`.
+- Scout `explore` order + `nearestUnexplored()`; Explore button [V] / `exploreSelection()`.
+- Box-select adds your garrisoned civilian buildings → Evacuate (N) button; `refreshPanel` multi-branch
+  is now building-safe (guard `s.kind==='unit'` before `UNIT_TYPES[s.type]`).
+- Unit emerge: trained ground units spawn at the door with `u.bornT` (scale-pop in `drawUnitIso`),
+  face out, puff exhaust, and muster clear of the doorway.
+- Turreted-vehicle tracers now leave from the turret barrel height (towers were already correct).
+
 ## Working style the user likes
 Implement each faction fully (art + mechanics), verify in-engine with a screenshot contact sheet,
 commit per faction with a descriptive message, then briefly checkpoint. Commit-message trailer:
