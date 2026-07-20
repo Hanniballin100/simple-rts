@@ -321,7 +321,7 @@ const UNIT_TYPES = {
   // artillery (minRange: can't fire when rushed; lobbed projectiles with splash)
   // Firework Battery: a flatbed of bottle-rocket tubes that lobs a fast, wildly
   // inaccurate saturation volley (scatter spreads each shot around the aim)
-  fireworks:     { name: 'Firework Battery', role: 'combat', builtAt: 'factory', hp: 130, speed: 46, dmg: 15, atkRange: 275, minRange: 90, cooldown: 0.9, sight: 300, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.4, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 26, scatter: 46 },
+  fireworks:     { name: 'Firework Battery', role: 'combat', builtAt: 'factory', hp: 130, speed: 46, dmg: 15, atkRange: 275, minRange: 90, cooldown: 0.9, sight: 300, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.4, shape: 'square', weapon: 'lob', projectile: 'firework', splash: 26, scatter: 46 },
   haarp:         { name: 'HAARP Truck',      role: 'combat', builtAt: 'factory', hp: 150, speed: 50, dmg: 15, atkRange: 300, minRange: 120, cooldown: 3.5, sight: 320, cost: 180, r: 13, buildTime: 12, shape: 'square', weapon: 'storm' },
   magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 28, atkRange: 270, minRange: 100, cooldown: 3,   sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square', weapon: 'lob', projectile: 'magma', splash: 34, groundEffect: { kind: 'fire', r: 26, dur: 2.2, dps: 8 } },
   mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 32, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square', weapon: 'lob', projectile: 'plasma', splash: 40 },
@@ -393,7 +393,7 @@ const UNIT_TYPES = {
   // Reptilians: a winged Draconian overlord raining fire
   draco:    { name: 'Draco', flyH: 34, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 640, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 540, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, req: 'tech' },
   // Resistance: a janky scrap missile truck — cheap-for-its-power siege apex
-  cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'rock', splash: 55, bldgBonus: 2, req: 'tech' },
+  cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'cruise', splash: 55, bldgBonus: 2, req: 'tech' },
   // faction-power units (never trainable)
   smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
   phantom:  { name: 'Unknown Contact', role: 'scout', hp: 20,  speed: 60, dmg: 0, atkRange: 0, cooldown: 1, sight: 40,  cost: 0, r: 9,  buildTime: 0 },

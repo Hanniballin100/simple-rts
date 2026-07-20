@@ -43,6 +43,8 @@ const WALL_STEP = 26;        // world spacing between segments of a dragged wall
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let panDrag = null;          // middle- or right-mouse camera drag
 let mmDown = false;          // dragging on minimap
+let lastClick = { t: -1e9, x: 0, y: 0 }; // for double-click select-all-of-type
+let lastPanelSig = null;     // action buttons rebuild only when this changes
 const groups = {};           // control groups 1-5
 let lastUnderAttack = -1e9;
 
@@ -1380,13 +1382,17 @@ function splashDamage(cx, cy, radius, dmg, owner, stats, hitAir = false) {
   }
 }
 
+const FIREWORK_COLORS = [[255, 90, 90], [255, 210, 90], [120, 220, 255], [180, 130, 255], [120, 255, 150], [255, 130, 220]];
 function spawnProjectile(kind, x, y, tx, ty, owner, stats) {
   const d = Math.hypot(tx - x, ty - y);
-  state.projectiles.push({
+  const p = {
     kind, sx: x, sy: y, x, y, tx, ty, owner, stats,
     t: 0, dur: kind === 'bomb' ? 0.55 : Math.max(0.35, d / 260),
     arc: kind === 'bomb' ? 26 : clamp(d * 0.18, 18, 55),
-  });
+    angle: Math.atan2(ty - y, tx - x),
+  };
+  if (kind === 'firework') p.col = FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)];
+  state.projectiles.push(p);
 }
 
 function updateProjectiles(dt) {
@@ -1432,11 +1438,20 @@ function updateProjectiles(dt) {
       continue;
     }
     p.t += dt;
+    // in-flight trails: a cruise missile smokes, a firework showers sparks
+    if (p.kind === 'cruise') {
+      p.trail = (p.trail || 0) - dt;
+      if (p.trail <= 0) { p.trail = 0.04; Particles.smoke(p.x, p.y, 1.4, p.hgt || 0); }
+    } else if (p.kind === 'firework') {
+      p.trail = (p.trail || 0) - dt;
+      if (p.trail <= 0) { p.trail = 0.03; Particles.spawn({ kind: 'spark', x: p.x, y: p.y, z: p.hgt || 0, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, drag: 3, life: 0.3, col: p.col }); }
+    }
     if (p.t >= p.dur) {
       p.done = true;
       const s = p.stats;
       splashDamage(p.tx, p.ty, s.splash || 36, s.dmg, p.owner, s);
-      Particles.boom(p.tx, p.ty, p.kind === 'bomb' ? 1.1 : 0.85);
+      if (p.kind === 'firework') { Particles.pulse(p.tx, p.ty, 34, p.col); for (let i = 0; i < 10; i++) { const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 90; Particles.spawn({ kind: 'spark', x: p.tx, y: p.ty, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, drag: 3, life: 0.4 + Math.random() * 0.3, col: p.col }); } }
+      else Particles.boom(p.tx, p.ty, p.kind === 'bomb' ? 1.1 : 0.85);
       if (tileState(p.tx, p.ty) === 2) sfx('boom');
       if (s.groundEffect) {
         const ge = s.groundEffect;
@@ -2724,6 +2739,13 @@ function clickHitsUnit(u, wx, wy, pad = 4) {
     isoY(u.x, u.y) - alt - isoY(wx, wy)) <= t.r * UNIT_DRAW_SCALE + pad;
 }
 
+// is the unit's sprite currently within the camera viewport?
+function onScreen(u) {
+  const sx = (isoX(u.x, u.y) - cam.x) * cam.zoom;
+  const sy = (isoY(u.x, u.y) - unitAlt(u) - cam.y) * cam.zoom;
+  return sx >= 0 && sx <= canvas.width && sy >= 0 && sy <= canvas.height;
+}
+
 function selectAt(x, y) {
   const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, x, y, 4));
   const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
@@ -3191,9 +3213,36 @@ function startGame(faction) {
   eva('Battle control online');
 }
 
+// which buttons SHOULD be showing right now, as a cheap string — so the
+// periodic panel refresh can update the info text live without tearing down
+// and rebuilding the action buttons every tick (a rebuild mid-click drops the
+// click, which is why Launch/orders sometimes needed several presses)
+function panelSignature() {
+  let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
+    (abilityTargeting || '') + (superTargeting || '') + (wallDrag ? 'w' : '') + '|';
+  for (const e of selection) {
+    if (e.hp <= 0) continue;
+    s += e.kind + e.id + '·';
+    if (e.kind === 'building') {
+      const bt = bstatsOf(e);
+      if (e.garrison) s += 'g' + e.garrison.length;
+      if (bt.superweapon) s += 'S' + (((e.charge || 0) >= superChargeOf(e) && !isOffline(e)) ? '1' : '0');
+    } else {
+      const ut = UNIT_TYPES[e.type];
+      if (ut.burrow) s += e.burrowed ? 'B1' : 'B0';
+      if (ut.plantMine) s += e.planted ? 'P1' : 'P0';
+    }
+  }
+  return s;
+}
+
 function refreshPanel() {
-  elActions.innerHTML = '';
   selection = selection.filter(e => e.hp > 0);
+  const sig = panelSignature();
+  const rebuild = sig !== lastPanelSig;
+  lastPanelSig = sig;
+  const addAction = el => { if (rebuild) elActions.appendChild(el); };
+  if (rebuild) elActions.innerHTML = '';
 
   if (placing) {
     elSelInfo.textContent = `Placing ${facOf(PLAYER).buildingNames[placing] || placing} — click a spot near your base, Esc to cancel`;
@@ -3267,7 +3316,7 @@ function refreshPanel() {
         const btn = document.createElement('button');
         btn.textContent = `Evacuate (${first.garrison.length})`;
         btn.onclick = () => evacuate(first);
-        elActions.appendChild(btn);
+        addAction(btn);
       }
       return;
     }
@@ -3280,7 +3329,7 @@ function refreshPanel() {
         const btn = document.createElement('button');
         btn.textContent = 'Launch [click target]';
         btn.onclick = () => { superTargeting = first.id; refreshPanel(); };
-        elActions.appendChild(btn);
+        addAction(btn);
       }
       return;
     }
@@ -3313,13 +3362,13 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = `Evacuate (${total})`;
       btn.onclick = () => { gbs.forEach(evacuate); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
-      elActions.appendChild(btn);
+      addAction(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
       const btn = document.createElement('button');
       btn.textContent = 'Attack-Move [A]';
       btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
-      elActions.appendChild(btn);
+      addAction(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine)) {
       const ready = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && !s.planted);
@@ -3327,20 +3376,20 @@ function refreshPanel() {
       btn.textContent = 'Plant IED [E]';
       btn.disabled = !ready;
       btn.onclick = () => { plantArmed = true; attackMoveArmed = false; refreshPanel(); };
-      elActions.appendChild(btn);
+      addAction(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.transit)) {
       const anyUp = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.burrowed);
       const btn = document.createElement('button');
       btn.textContent = (anyUp ? 'Burrow' : 'Surface') + ' [X]';
       btn.onclick = toggleBurrowSelection;
-      elActions.appendChild(btn);
+      addAction(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) {
       const btn = document.createElement('button');
       btn.textContent = 'Explore [V]';
       btn.onclick = exploreSelection;
-      elActions.appendChild(btn);
+      addAction(btn);
     }
   }
 }
@@ -4000,7 +4049,27 @@ function drawProjectilesIso() {
       ctx.restore();
       continue;
     }
-    if (p.kind === 'rock') {
+    if (p.kind === 'firework') {
+      // a bright bottle-rocket riding its arc, trailing a colored spark
+      const c = p.col || [255, 210, 90];
+      ctx.strokeStyle = `rgba(${c[0]},${c[1]},${c[2]},0.6)`; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.moveTo(hx - Math.cos(isoAngle(p.angle)) * 7, hy - Math.sin(isoAngle(p.angle)) * 7); ctx.lineTo(hx, hy); ctx.stroke();
+      ctx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`;
+      ctx.beginPath(); ctx.arc(hx, hy, 2.4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(hx, hy, 1.1, 0, Math.PI * 2); ctx.fill();
+    } else if (p.kind === 'cruise') {
+      // a finned cruise missile, nose along its travel, exhaust behind
+      ctx.save();
+      ctx.translate(hx, hy);
+      ctx.rotate(isoAngle(p.angle));
+      ctx.fillStyle = '#d8dce2'; ctx.fillRect(-6, -1.7, 12, 3.4);
+      ctx.fillStyle = '#8b939e'; ctx.fillRect(-6.5, -3.4, 2.2, 6.8); // tail fins
+      ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.moveTo(6, -1.7); ctx.lineTo(10, 0); ctx.lineTo(6, 1.7); ctx.closePath(); ctx.fill(); // warhead
+      ctx.fillStyle = `rgba(255,${170 + Math.floor(Math.random() * 60)},70,0.9)`;
+      ctx.beginPath(); ctx.moveTo(-6, -1.3); ctx.lineTo(-11 - Math.random() * 4, 0); ctx.lineTo(-6, 1.3); ctx.closePath(); ctx.fill();
+      ctx.restore();
+    } else if (p.kind === 'rock') {
       ctx.fillStyle = '#8a7f6e';
       ctx.beginPath(); ctx.arc(hx, hy, 3.6, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = '#5c5347'; ctx.lineWidth = 1; ctx.stroke();
@@ -4806,7 +4875,9 @@ window.addEventListener('mousemove', e => {
   if (panDrag) {
     cam.x = panDrag.camX - (e.clientX - panDrag.sx) / cam.zoom;
     cam.y = panDrag.camY - (e.clientY - panDrag.sy) / cam.zoom;
-    if (Math.abs(e.clientX - panDrag.sx) + Math.abs(e.clientY - panDrag.sy) > 5) panDrag.moved = true;
+    // only a deliberate drag pans; a small jitter during a click must still
+    // count as a command (a 5px threshold ate legitimate right-click orders)
+    if (Math.abs(e.clientX - panDrag.sx) + Math.abs(e.clientY - panDrag.sy) > 14) panDrag.moved = true;
     clampCam();
   }
 });
@@ -4837,7 +4908,17 @@ window.addEventListener('mouseup', e => {
   const y1 = Math.min(s.y1, s.y2), y2 = Math.max(s.y1, s.y2);
   if (x2 - x1 < 6 && y2 - y1 < 6) {
     const w = isoUnproject(x1, y1);
-    selectAt(w.x, w.y);
+    // double-click a unit → select every on-screen unit of the same type
+    const now = state.time;
+    const dbl = now - lastClick.t < 0.35 && Math.abs(x1 - lastClick.x) < 10 && Math.abs(y1 - lastClick.y) < 10;
+    lastClick = { t: now, x: x1, y: y1 };
+    const hit = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, w.x, w.y, 4));
+    if (dbl && hit) {
+      selection = state.units.filter(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && u.type === hit.type && onScreen(u));
+      sfx('click');
+    } else {
+      selectAt(w.x, w.y);
+    }
   } else {
     // the box is iso-screen-aligned: test each unit's DRAWN position
     // (airborne sprites ride FLY_H above their ground point)
