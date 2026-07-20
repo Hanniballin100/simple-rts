@@ -135,11 +135,11 @@ const FACTIONS = {
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Men in Black hit hard; Surveillance Vans see everything, from very far away. Well-funded facilities, with sharp-eyed Unmarked Rigs doing the dirty work.',
+    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. Surveillance Vans see everything from very far away; Disinfo Vans flood the radar with ghosts; the TR-3B haunts the sky unseen. A detector is the only way to find any of them.',
     economy: { workers: 3 },
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
-    air: ['drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    air: ['tr3b', 'drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'haarp', 'spooktank', 'disinfovan', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
@@ -247,7 +247,7 @@ const UNIT_TYPES = {
   // (alive + queued). The flat-earth family's carry less but come lightly
   // armed; the Bore Rig is a slow armored hauler with a drill for a face.
   harvester:  { name: 'Mining Rig',   role: 'worker', builtAt: 'hq', hp: 200, speed: 55, dmg: 5, atkRange: 90, cooldown: 1,   sight: 200, cost: 110, r: 13, buildTime: 9,  carry: 14, shape: 'square', limit: 4 },
-  blackrig:   { name: 'Unmarked Rig', role: 'worker', builtAt: 'hq', hp: 190, speed: 58, dmg: 6, atkRange: 95, cooldown: 1,   sight: 260, cost: 105, r: 13, buildTime: 9,  carry: 12, shape: 'square', limit: 4 },
+  blackrig:   { name: 'Unmarked Rig', role: 'worker', builtAt: 'hq', hp: 190, speed: 58, dmg: 6, atkRange: 95, cooldown: 1,   sight: 260, cost: 105, r: 13, buildTime: 9,  carry: 12, shape: 'square', limit: 4, cloakStill: true },
   truthrig:   { name: 'Rig of Truth', role: 'worker', builtAt: 'hq', hp: 150, speed: 60, dmg: 4, atkRange: 85, cooldown: 0.9, sight: 190, cost: 90,  r: 12, buildTime: 8,  carry: 9,  shape: 'square', limit: 6 },
   salvagerig: { name: 'Salvage Rig',  role: 'worker', builtAt: 'hq', hp: 130, speed: 72, dmg: 4, atkRange: 90, cooldown: 0.9, sight: 200, cost: 80,  r: 12, buildTime: 7,  carry: 8,  shape: 'square', limit: 5 },
   borerig:    { name: 'Bore Rig',     role: 'worker', builtAt: 'hq', hp: 240, speed: 45, dmg: 8, atkRange: 24, cooldown: 1.1, sight: 170, cost: 120, r: 13, buildTime: 10, carry: 16, shape: 'square', limit: 5 },
@@ -255,7 +255,7 @@ const UNIT_TYPES = {
   militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5, plantMine: true },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4, plantMine: true },
   agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6 },
-  mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7 },
+  mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7, cloakStill: true, cloakDelay: 1.8 },
   moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true, plantMine: true },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
@@ -304,7 +304,12 @@ const UNIT_TYPES = {
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
   technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both' },
   suv:       { name: 'Black SUV',        role: 'combat', builtAt: 'factory', hp: 200, speed: 95,  dmg: 13, atkRange: 110, cooldown: 0.6,  sight: 220, cost: 110, r: 12, buildTime: 8,  shape: 'square' },
-  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
+  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true, cloakStill: true },
+  // Deep State signature armor: a blacked-out ambush tank that vanishes when
+  // it stops (cloakStill) and lands a doubled first strike from concealment;
+  // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
+  spooktank: { name: 'Redacted', role: 'combat', builtAt: 'factory', hp: 260, speed: 78, dmg: 24, atkRange: 155, cooldown: 1.6, sight: 250, cost: 155, r: 12, buildTime: 9, shape: 'square', armor: 0.15, cloakStill: true, cloakDelay: 1.3 },
+  disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, spawns: { type: 'phantom', every: 7, count: 2, expires: 14 } },
   drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square', burrow: true, emergeAoE: { r: 60, dmg: 30 } },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
   // basilisk gaze: light damage, but the stare turns victims to stone
@@ -346,6 +351,9 @@ const UNIT_TYPES = {
   // heavies — an orbiting AC-130 and the stealth-black flying wing
   b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
   b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
+  // Deep State signature air: a TR-3B black triangle that hovers dead silent —
+  // invisible (stealth) until it opens fire, then it lights up for a moment
+  tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
   // Globalist strike wing (replaces the B-1/B-2): the A-10 makes low gun runs
   // that shred ground and armour but can't touch aircraft and spray wide; the
   // MQ-9 Reaper loiters high, sees far, and picks targets off with Hellfires

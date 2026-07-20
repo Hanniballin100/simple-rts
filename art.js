@@ -1237,6 +1237,33 @@
       ctx.fillRect(-8.2, s * 6 - 0.8, 1.8, 1.6);
     }
   };
+  D.tr3b = (ctx, t, o) => {
+    // TR-3B: matte-black equilateral triangle craft, nose at +x, with the three
+    // signature corner lights and a pulsing central reactor ring
+    const pulse = 0.55 + 0.45 * Math.sin(t * 3);
+    // faint anti-grav underglow bleeding past the hull edges
+    ctx.fillStyle = `rgba(120,170,255,${0.10 + 0.06 * pulse})`;
+    ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-11, -15); ctx.lineTo(-11, 15); ctx.closePath(); ctx.fill();
+    // hull: near-black triangle with a subtle top-lit gradient
+    const g = ctx.createLinearGradient(12, 0, -10, 0);
+    g.addColorStop(0, '#26292f'); g.addColorStop(1, '#0d0e11');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-9.5, -12.5); ctx.lineTo(-9.5, 12.5); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#3a3f47'; ctx.lineWidth = 0.9; ctx.stroke();
+    // paneling toward the nose
+    ctx.strokeStyle = 'rgba(90,100,115,0.4)'; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(9, 0); ctx.lineTo(-7, -6); ctx.moveTo(9, 0); ctx.lineTo(-7, 6); ctx.stroke();
+    // central reactor: dark ring with a pulsing plasma core
+    ctx.fillStyle = '#111318'; ctx.beginPath(); ctx.arc(-2, 0, 3.6, 0, TAU); ctx.fill();
+    ctx.fillStyle = `rgba(140,200,255,${0.5 + 0.5 * pulse})`;
+    ctx.beginPath(); ctx.arc(-2, 0, 2 + pulse * 0.8, 0, TAU); ctx.fill();
+    // three corner lights (steady amber)
+    ctx.fillStyle = 'rgba(255,196,90,0.95)';
+    for (const [cx, cy] of [[12, 0], [-8.5, -11.5], [-8.5, 11.5]]) {
+      ctx.beginPath(); ctx.arc(cx, cy, 1.5, 0, TAU); ctx.fill();
+    }
+    if (o.firing) { ctx.fillStyle = 'rgba(180,220,255,0.95)'; ctx.beginPath(); ctx.arc(14, 0, 2.6, 0, TAU); ctx.fill(); }
+  };
   D.a10 = (ctx, t, o) => {
     // A-10 Warthog: olive straight-wing attack jet, nose at +x
     ctx.fillStyle = '#5c6450';                       // straight wings
@@ -5375,6 +5402,72 @@
       c.save(); c.translate(0, -4); c.scale(Math.sin(t * 1.6), 1);
       c.strokeStyle = '#c8cdd5'; c.lineWidth = 1.1;
       c.beginPath(); c.arc(0, 0, 3.2, Math.PI * 0.15, Math.PI * 0.85, true); c.stroke();
+      c.restore();
+    },
+  });
+  // Redacted: a low, angular, matte-black stealth tank — faceted hull, no
+  // markings, a heavy turret it keeps trained on target
+  I.spooktank = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 28,
+    under: (c, t, o) => treads(c, t, o, 26, 4.5, 8.8),
+    tiers: [
+      { // faceted glacis hull
+        poly: [[14, -2.6], [14, 2.6], [9, 6], [-13, 5.4], [-14, 0], [-13, -5.4], [9, -6]],
+        h: 4.6, body: '#1a1d22',
+        detail: (c) => {
+          // sloped front plate + a dull sheen line down the spine
+          c.fillStyle = shade('#1a1d22', 0.14);
+          c.beginPath(); c.moveTo(6, -4.6); c.lineTo(12.5, -2); c.lineTo(12.5, 2); c.lineTo(6, 4.6); c.closePath(); c.fill();
+          c.strokeStyle = shade('#1a1d22', -0.5); c.lineWidth = 0.5;
+          c.beginPath(); c.moveTo(9, 0); c.lineTo(-12, 0); c.stroke();
+          // side skirt seams
+          for (const s of [-1, 1]) { c.beginPath(); c.moveTo(-11, s * 4.4); c.lineTo(7, s * 4.4); c.stroke(); }
+        },
+      },
+    ],
+  });
+  // low-profile turret with a long smoothbore, tracks the target
+  T.spooktank = (ctx, t, o) => {
+    const a = o.turret !== undefined ? o.turret : (o.facing || 0);
+    ctx.save();
+    ctx.translate(0, -6.2);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    ctx.rotate(a);
+    // faceted turret box
+    ctx.fillStyle = '#24282f';
+    ctx.beginPath(); ctx.moveTo(5, -3.4); ctx.lineTo(-4.4, -3); ctx.lineTo(-5.2, 0); ctx.lineTo(-4.4, 3); ctx.lineTo(5, 3.4); ctx.lineTo(6.4, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = shade('#24282f', 0.5); ctx.lineWidth = 0.5; ctx.stroke();
+    // long gun + muzzle brake
+    ctx.fillStyle = '#12151a'; ctx.fillRect(6, -0.75, 10, 1.5);
+    ctx.fillStyle = '#3a4049'; ctx.fillRect(15, -1, 2, 2);
+    if (o.firing) { ctx.fillStyle = 'rgba(200,225,255,0.95)'; ctx.beginPath(); ctx.arc(19, 0, 2.3, 0, TAU); ctx.fill(); }
+    ctx.restore();
+  };
+  // Disinfo Van: a windowless black van bristling with antennas and a spoofing
+  // dish — the gear that fills the enemy radar with ghosts
+  I.disinfovan = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24,
+    under: (c, t, o) => wheels(c, t, o, [[-7.5, -7.1], [-7.5, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [11, 6], [-12, 6], [-12, -6], [11, -6]], h: 7.5, body: '#1d2026',
+        detail: (c) => {
+          c.fillStyle = shade('#1d2026', 0.12); rr(c, -11, -5, 20, 10, 1.5); c.fill(); // roof
+          c.fillStyle = '#14171c'; c.fillRect(9.5, -4.5, 2, 9);                          // blacked windshield
+          // hazard chevrons on the flank (unmarked but for these)
+          c.strokeStyle = 'rgba(180,150,60,0.5)'; c.lineWidth = 0.6;
+          for (let i = -8; i <= 4; i += 3) { c.beginPath(); c.moveTo(i, -4.5); c.lineTo(i + 1.6, 0); c.lineTo(i, 4.5); c.stroke(); }
+        },
+      },
+    ],
+    above: (c, t) => {
+      // roof antenna farm + a sweeping spoofer dish, faint EM shimmer at the tips
+      c.strokeStyle = '#7d848e'; c.lineWidth = 0.8;
+      for (const [ax, ah] of [[-4, 5], [-1, 6.5], [2, 4.5]]) { c.beginPath(); c.moveTo(ax, -0.5); c.lineTo(ax, -ah); c.stroke(); }
+      c.fillStyle = `rgba(150,200,255,${0.4 + 0.4 * Math.sin(t * 6)})`;
+      for (const [ax, ah] of [[-4, 5], [-1, 6.5], [2, 4.5]]) { c.beginPath(); c.arc(ax, -ah, 0.9, 0, TAU); c.fill(); }
+      c.save(); c.translate(5, -4.5); c.scale(Math.sin(t * 1.4), 1);
+      c.strokeStyle = '#c8cdd5'; c.lineWidth = 1;
+      c.beginPath(); c.arc(0, 0, 2.6, Math.PI * 0.15, Math.PI * 0.85, true); c.stroke();
       c.restore();
     },
   });

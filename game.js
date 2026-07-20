@@ -214,7 +214,7 @@ function hiddenFrom(e, owner) {
   if (e.trackedBy && e.trackedBy[owner]) return false; // an implanted tracker pierces everything
   if (e.disguised) return true;
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
-  const cloaked = e.burrowed ||
+  const cloaked = e.burrowed || e.cloaked || // e.cloaked: deep-state hold-still cloak (set in updateUnit)
     (stats.stealth && !(e.exposedUntil > state.time)) ||
     (e.kind === 'unit' && e.transit); // underground in a tunnel: gone entirely
   if (!cloaked) return false;
@@ -294,7 +294,7 @@ function visibleToPlayer(e) {
 // and for enemies whose detector has it pinned)
 function isCloaked(e) {
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
-  return !!(e.burrowed || (stats.stealth && !(e.exposedUntil > state.time)));
+  return !!(e.burrowed || e.cloaked || (stats.stealth && !(e.exposedUntil > state.time)));
 }
 
 function makeUnit(owner, type, x, y) {
@@ -1258,6 +1258,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       u.x = clamp(u.x + Math.cos(u.facing) * drive, 10, WORLD_W - 10);
       u.y = clamp(u.y + Math.sin(u.facing) * drive, 10, WORLD_H - 10);
       u.travel += drive;
+      u.movedT = state.time; // maneuvering breaks the hold-still cloak
     }
     return false;
   }
@@ -1268,6 +1269,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   if (Math.abs(mdx) > 0.01 || Math.abs(mdy) > 0.01) {
     u.facing = Math.atan2(mdy, mdx);
     u.travel += Math.hypot(mdx, mdy);
+    u.movedT = state.time; // moving breaks the hold-still cloak
   }
   return false;
 }
@@ -1528,7 +1530,8 @@ function fireAt(u, target, t) {
     let dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
     u.disguised = false; // skin suit drops the moment they open fire
     if (t.stealth) u.exposedUntil = state.time + 2.5; // muzzle flash gives it away
-    if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing first-strike bonus
+    if (t.cloakStill) { if (u.cloaked) u.ambush = true; u.exposedUntil = state.time + 1.6; }
+    if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing / decloak first-strike bonus
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
     if (u.weakenedUntil > state.time) dmg *= 0.55; // shouted down by a Megaphone Prophet
     u.cooldown = t.cooldown;
@@ -1695,6 +1698,14 @@ function updateUnit(u, dt) {
 
   // petrified: a statue until the stone wears off
   if (u.petrifiedUntil > state.time) return;
+
+  // deep-state passive: units run silent when they hold still (and aren't
+  // still lit up from a recent shot). Moving or firing drops the cloak; a
+  // detector still sees them. A first shot from cloak lands as an ambush.
+  if (stats.cloakStill) {
+    u.cloaked = !u.transit && !(u.exposedUntil > state.time) &&
+      (state.time - (u.movedT || -99) > (stats.cloakDelay || 1.5));
+  }
 
   // turreted vehicles: the gun slews toward its aim point (set in tryAttack
   // while a target is engaged) and drifts back to the hull heading otherwise,
@@ -3064,6 +3075,8 @@ function refreshPanel() {
       if (ut.captures) info += ' — right-click an enemy structure to capture it';
       if (ut.repair) info += ' — repairs nearby damaged allies';
       if (ut.detector) info += ' — detector: reveals stealthed & burrowed enemies';
+      if (ut.cloakStill) info += uu.cloaked ? ' — cloaked (holding still)' : ' — cloaks when it holds still';
+      if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
       if (ut.plantMine) info += uu.planted ? ' — IED spent' : ' — can plant one IED [E]';
     }
     elSelInfo.textContent = info;
