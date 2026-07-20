@@ -196,7 +196,7 @@ const FACTIONS = {
   },
   reptilian: {
     name: 'The Reptilians', family: 'ALIENS', emoji: '🦎',
-    desc: 'They walk among us — and bite. Melee Reptoid Warriors, the armored Basilisk Crawler, and fire-breathing Sky Drakes. No miners: the nest generates minerals — or steal an enemy worker and put it to work.',
+    desc: 'They walk among us — and bite. Melee Reptoid Warriors, the great stone-gazing Basilisk serpent, and fire-breathing Sky Drakes. The Chitauri Broodmother is frail herself, but drags a bound swarm of hatchlings that fights wherever she does. No miners: the nest generates minerals — or steal an enemy worker and put it to work.',
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
     air: ['orb'], tower: 'pylon', aaTower: 'tractor',
@@ -283,9 +283,11 @@ const UNIT_TYPES = {
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
   vivisector: { name: 'Zeta Vivisector',  role: 'combat', builtAt: 'barracks', hp: 85,  speed: 74, dmg: 5, atkRange: 120, cooldown: 0.8, sight: 240, cost: 120, r: 9,  buildTime: 8, repair: 6, leech: true },
   mutilator:  { name: 'Cattle Mutilator', role: 'combat', builtAt: 'factory',  hp: 200, speed: 85, dmg: 7, atkRange: 110, cooldown: 0.9, sight: 240, cost: 130, r: 12, buildTime: 9, shape: 'square', scavenge: 12 },
-  // reptilian brood: the broodmother hatches free swarms on a timer and her
-  // presence emboldens nearby infantry (+25% damage)
-  broodmother: { name: 'Chitauri Broodmother', role: 'combat', builtAt: 'barracks', hp: 220, speed: 60, dmg: 8, atkRange: 100, cooldown: 1,   sight: 230, cost: 180, r: 12, buildTime: 12, req: 'tech', spawns: { type: 'hatchling', every: 12, count: 2, expires: 45 }, buffAura: { r: 160 } },
+  // reptilian brood: the mother herself is fragile with a feeble bite — her
+  // weapon is a bound swarm of hatchlings that shadows her, tops itself back
+  // up as it dies, and dogpiles whatever she attacks. Kill her, kill the swarm.
+  // She still emboldens nearby infantry (+25% damage via buffAura).
+  broodmother: { name: 'Chitauri Broodmother', role: 'combat', builtAt: 'barracks', hp: 150, speed: 64, dmg: 4, atkRange: 90, cooldown: 1.2, sight: 230, cost: 175, r: 12, buildTime: 12, req: 'tech', brood: { count: 5, regen: 5 }, buffAura: { r: 160 } },
   hatchling:   { name: 'Chitauri Hatchling',   role: 'combat', hp: 35,  speed: 95, dmg: 6, atkRange: 24,  cooldown: 0.6, sight: 200, cost: 0,   r: 7,  buildTime: 0 },
   // hollow-earth court: the priestess channels Vril (repair aura), the
   // guardian and saurian are the heavy line — all of it can go underground
@@ -312,9 +314,10 @@ const UNIT_TYPES = {
   disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, spawns: { type: 'phantom', every: 7, count: 2, expires: 14 } },
   drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square', burrow: true, emergeAoE: { r: 60, dmg: 30 } },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
-  // basilisk gaze: light damage, but the stare turns victims to stone
-  // (petrify: stunned N seconds — can't move or fire). Unique crowd control.
-  basilisk:  { name: 'Basilisk Crawler', role: 'combat', builtAt: 'factory', hp: 350, speed: 60,  dmg: 12, atkRange: 120, cooldown: 1.4,  sight: 220, cost: 150, r: 14, buildTime: 11, bldgBonus: 1.5, shape: 'square', petrify: 2 },
+  // Basilisk: a full multi-segment serpent-lizard. Its gaze does light damage
+  // but turns victims to stone (petrify: stunned N seconds — can't move or
+  // fire). Unique crowd control, and a heavy, hard-to-kill body.
+  basilisk:  { name: 'Basilisk', role: 'combat', builtAt: 'factory', hp: 400, speed: 58, dmg: 13, atkRange: 120, cooldown: 1.4, sight: 230, cost: 165, r: 15, buildTime: 12, bldgBonus: 1.5, shape: 'square', petrify: 2 },
   // artillery (minRange: can't fire when rushed; lobbed projectiles with splash)
   // Firework Battery: a flatbed of bottle-rocket tubes that lobs a fast, wildly
   // inaccurate saturation volley (scatter spreads each shot around the aim)

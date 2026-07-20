@@ -1762,6 +1762,42 @@ function updateUnit(u, dt) {
     u.order = tgt ? { type: 'move', x: tgt.x, y: tgt.y } : { type: 'idle' };
   }
 
+  // reptilian brood: the mother keeps a bound swarm of hatchlings — spawned
+  // once, then topped back up as they die. The swarm is her weapon.
+  if (stats.brood && !u.transit) {
+    if (!u.broodInit) {
+      u.broodInit = true;
+      for (let i = 0; i < stats.brood.count; i++) {
+        const h = makeUnit(u.owner, 'hatchling', u.x + (Math.random() - 0.5) * 30, u.y + 12 + i * 3);
+        h.broodOf = u.id;
+      }
+    } else {
+      const alive = state.units.reduce((n, h) => n + (h.broodOf === u.id && h.hp > 0 ? 1 : 0), 0);
+      u.broodT = (u.broodT || 0) + dt;
+      if (alive < stats.brood.count && u.broodT >= stats.brood.regen) {
+        u.broodT = 0;
+        makeUnit(u.owner, 'hatchling', u.x + (Math.random() - 0.5) * 24, u.y + 14).broodOf = u.id;
+      }
+    }
+  }
+  // a bound hatchling shadows its mother and dogpiles whatever she attacks;
+  // cut loose by her death it scatters and soon expires (no queen, no swarm)
+  if (u.broodOf) {
+    const mom = state.units.find(m => m.id === u.broodOf && m.hp > 0);
+    if (!mom) {
+      if (u.expires === undefined) u.expires = state.time + 6;
+    } else {
+      const mo = mom.order || { type: 'idle' };
+      if (mo.type === 'attack' && mo.targetId && findEntity(mo.targetId)) {
+        u.order = { type: 'attack', targetId: mo.targetId };
+      } else if (dist(u, mom) > 80) {
+        u.order = { type: 'move', x: mom.x, y: mom.y };
+      } else if (u.order.type === 'move') {
+        u.order = { type: 'idle' }; // arrived near her: snap at whatever's close
+      }
+    }
+  }
+
   // broodmother: hatch free swarms on a timer, embolden nearby infantry
   if (stats.spawns && !u.transit) {
     u.spawnT = (u.spawnT || 0) + dt;

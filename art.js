@@ -5557,31 +5557,41 @@
     ],
     above: (c) => isoDome(c, 1, 3.4, '#6b6152'),
   });
-  I.basilisk = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 30, wid: 13, hgt: 4.5, body: '#4a6a54',
-    path: (ctx2) => {
-      // segmented crawler silhouette
-      ctx2.beginPath();
-      ctx2.ellipse(10, 0, 6.5, 6, 0, 0, TAU);
-      ctx2.ellipse(0, 0, 6, 5.4, 0, 0, TAU);
-      ctx2.ellipse(-9.5, 0, 5.2, 4.6, 0, 0, TAU);
-    },
-    detail: (ctx2, t2, o2) => {
-      ctx2.fillStyle = shade('#4a6a54', -0.25);
-      for (const [sx, sr] of [[10, 4.4], [0, 3.9], [-9.5, 3.3]]) {
-        ctx2.beginPath(); ctx2.ellipse(sx, 0, sr, sr * 0.85, 0, 0, TAU); ctx2.fill();
-      }
-      // eyes on the head segment
-      ctx2.fillStyle = '#ffd75f';
-      ctx2.beginPath();
-      ctx2.arc(14.5, -2.2, 1, 0, TAU);
-      ctx2.arc(14.5, 2.2, 1, 0, TAU);
-      ctx2.fill();
-    },
-    above: (ctx2, t2, o2) => {
-      if (o2.firing) isoBarrel(ctx2, o2, 4, 7, 2, '#3c5c48');
-    },
-  });
+  I.basilisk = (ctx, t, o) => {
+    // a full serpent-lizard: a chain of body segments that undulates side to
+    // side along its heading, a raised gazing head at the front, a tapering
+    // tail behind. Segments are laid out once and shared by path + detail.
+    const body = '#4a6a54';
+    const amp = o.moving ? 3 : 1.3;
+    const ph = (o.dist || 0) * 0.28 + (o.moving ? 0 : t * 1.1);
+    const segDefs = [[16, 3.0], [11, 4.4], [5, 5.2], [-2, 5.0], [-9, 4.2], [-15, 3.2], [-20, 2.1]];
+    const segs = segDefs.map(([x, r], i) => ({ x, r, y: Math.sin(ph + i * 0.8) * amp * (0.35 + i * 0.12) }));
+    const h = segs[0];
+    isoVehicle(ctx, t, o, {
+      len: 40, wid: 12, hgt: 4.2, body,
+      path: (c) => { c.beginPath(); for (const s of segs) { c.moveTo(s.x + s.r, s.y); c.ellipse(s.x, s.y, s.r, s.r * 0.82, 0, 0, TAU); } },
+      detail: (c) => {
+        // dorsal scale plates + a lighter speckle down the spine
+        for (const s of segs) { c.fillStyle = shade(body, -0.26); c.beginPath(); c.ellipse(s.x, s.y, s.r * 0.6, s.r * 0.5, 0, 0, TAU); c.fill(); }
+        c.fillStyle = shade(body, 0.12);
+        for (const s of segs) { c.beginPath(); c.ellipse(s.x, s.y - s.r * 0.2, s.r * 0.3, s.r * 0.22, 0, 0, TAU); c.fill(); }
+        // the stone gaze: a pale cone thrown forward from the head while firing
+        if (o.firing) {
+          c.fillStyle = 'rgba(225,220,180,0.3)';
+          c.beginPath(); c.moveTo(h.x + 6, h.y - 2); c.lineTo(h.x + 23, h.y - 9); c.lineTo(h.x + 23, h.y + 9); c.lineTo(h.x + 6, h.y + 2); c.closePath(); c.fill();
+        }
+        // raised head: snout, petrifying eyes, flicking forked tongue
+        c.fillStyle = '#5a7a62';
+        c.beginPath(); c.ellipse(h.x + 2.5, h.y, 4.4, 3.2, 0, 0, TAU); c.fill();
+        c.strokeStyle = shade('#5a7a62', -0.4); c.lineWidth = 0.5; c.stroke();
+        c.fillStyle = o.firing ? '#fff3a0' : '#ffd75f';
+        c.beginPath(); c.arc(h.x + 4.5, h.y - 1.8, o.firing ? 1.4 : 1, 0, TAU); c.arc(h.x + 4.5, h.y + 1.8, o.firing ? 1.4 : 1, 0, TAU); c.fill();
+        c.strokeStyle = '#c8406a'; c.lineWidth = 0.7;
+        const tl = 3 + Math.max(0, Math.sin(t * 5)) * 2;
+        c.beginPath(); c.moveTo(h.x + 6, h.y); c.lineTo(h.x + 6 + tl, h.y - 0.9); c.moveTo(h.x + 6, h.y); c.lineTo(h.x + 6 + tl, h.y + 0.9); c.stroke();
+      },
+    });
+  };
   I.tripod = (ctx, t, o) => {
     // towering three-legged strider: upright billboard walker
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
