@@ -40,6 +40,9 @@ let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for 
 let wallDrag = null;         // { x0, y0 } while dragging out a wall stretch (RA2-style)
 let plantArmed = false;      // 'E' pressed, next left-click sends infantry to plant an IED
 const WALL_STEP = 26;        // world spacing between segments of a dragged wall line
+const STRUCT_GAP = 8;        // min world gap between structure footprints (RA2-tight).
+                             // Units route AROUND clusters this seals rather than
+                             // squeezing between — the path grid + A* handle it.
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let panDrag = null;          // middle- or right-mouse camera drag
 let mmDown = false;          // dragging on minimap
@@ -201,12 +204,14 @@ function entityRadius(e) {
 let detMemo = { t: -1 };
 function detectorsOf(owner) {
   if (detMemo.t !== state.time) detMemo = { t: state.time };
-  return detMemo[owner] || (detMemo[owner] =
-    state.units.filter(u => u.owner === owner && u.hp > 0 && !u.garrisoned && UNIT_TYPES[u.type].detector));
+  return detMemo[owner] || (detMemo[owner] = [
+    ...state.units.filter(u => u.owner === owner && u.hp > 0 && !u.garrisoned && UNIT_TYPES[u.type].detector),
+    ...state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).detector), // Radar Station etc.
+  ]);
 }
 
 function isRevealed(e, owner) {
-  return detectorsOf(owner).some(d => dist(d, e) <= UNIT_TYPES[d.type].sight);
+  return detectorsOf(owner).some(d => dist(d, e) <= (d.kind === 'building' ? bstatsOf(d).sight : UNIT_TYPES[d.type].sight));
 }
 
 // is entity e hidden from `owner` right now? (covers the reptilian disguise,
@@ -343,11 +348,15 @@ function makeBuilding(owner, type, x, y) {
   if (t.slots) b.garrison = []; // unit ids stationed inside
   state.buildings.push(b);
   markPathDirty(); // footprints reshape the walkable grid
+  // a Refinery ships with a free miner (and lifts the mining cap — see trainUnit)
+  if (t.dropoff && facOf(owner) && facOf(owner).worker) {
+    makeUnit(owner, facOf(owner).worker, x + (Math.random() - 0.5) * 24, y + t.h / 2 + 22);
+  }
   return b;
 }
 
-function makePatch(x, y, amount = 900) {
-  state.patches.push({ id: nextId++, kind: 'patch', x, y, amount });
+function makePatch(x, y, amount = 900, opts = {}) {
+  state.patches.push({ id: nextId++, kind: 'patch', x, y, amount, rich: !!opts.rich, yield: opts.yield || 1 });
 }
 
 function setupWorld(map) {
@@ -370,10 +379,13 @@ function setupWorld(map) {
     }
   }
 
-  // 3-patch cluster at every generated mineral spot
+  // 3-patch cluster at every generated mineral spot; urban ore fields (found in
+  // city lots and parks) are a tighter, richer cluster — more minerals per haul
   for (const spot of map.patchSpots) {
-    for (let i = 0; i < 3; i++) {
-      makePatch(spot.x + (i - 1) * 42, spot.y + (i % 2) * 34, spot.amount);
+    if (spot.rich) {
+      for (let i = 0; i < 4; i++) makePatch(spot.x + (i % 2 - 0.5) * 40, spot.y + ((i >> 1) - 0.5) * 34, spot.amount, { rich: true, yield: spot.yield || 1.7 });
+    } else {
+      for (let i = 0; i < 3; i++) makePatch(spot.x + (i - 1) * 42, spot.y + (i % 2) * 34, spot.amount);
     }
   }
 
@@ -467,7 +479,7 @@ function placementBlocked(owner, type, x, y) {
   // exception: they snap flush against other wall pieces to form a line.
   return state.buildings.some(b => {
       if (b.hp <= 0 || bstatsOf(b).noBlock) return false; // mines don't crowd out anything
-      const gap = (t.wallKind && bstatsOf(b).wallKind) ? -2 : 32;
+      const gap = (t.wallKind && bstatsOf(b).wallKind) ? -2 : STRUCT_GAP;
       return Math.abs(b.x - x) < (b.w + t.w) / 2 + gap && Math.abs(b.y - y) < (b.h + t.h) / 2 + gap;
     })
     || state.patches.some(p => p.amount > 0 && dist(p, { x, y }) < t.w / 2 + 30)
@@ -476,7 +488,7 @@ function placementBlocked(owner, type, x, y) {
 
 function withinBuildRadius(owner, x, y) {
   return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done &&
-    (b.type === 'hq' || b.type === 'powerplant') && dist(b, { x, y }) <= BUILD_RADIUS);
+    (b.type === 'hq' || b.type === 'powerplant' || bstatsOf(b).anchor) && dist(b, { x, y }) <= BUILD_RADIUS);
 }
 
 function tryPlace(owner, x, y) {
@@ -523,6 +535,35 @@ function commitWallLine(x0, y0, x1, y1) {
   if (placed) sfx('click');
   // keep the wall tool armed for another stretch unless we've run dry or capped
   if (state.minerals[PLAYER] < st.cost || atStructCap(PLAYER, 'wall')) placing = null;
+  refreshPanel(); refreshSidebar();
+}
+
+// gates aren't dropped on open ground — you cut one into your own wall. Returns
+// the player wall under (x,y) IF it sits on a straight run (wall neighbors on
+// opposite sides, so the gate reads as an inline door), else null.
+function gateTargetWall(x, y) {
+  const wall = state.buildings.find(b => b.owner === PLAYER && b.type === 'wall' && b.hp > 0 &&
+    Math.abs(b.x - x) <= b.w / 2 + 4 && Math.abs(b.y - y) <= b.h / 2 + 4);
+  if (!wall) return null;
+  const c = wallConn(wall); // e=1,w=2,n=4,s=8
+  const straight = (((c & 1) && (c & 2)) || ((c & 4) && (c & 8)));
+  return straight ? wall : null;
+}
+
+// convert a straight wall segment under the cursor into a gate (charges the
+// upgrade cost — the wall's cost is already sunk). Keeps the tool armed.
+function convertWallToGate(x, y) {
+  const wall = gateTargetWall(x, y);
+  if (!wall) { eva('Gates go on a straight wall segment'); return; }
+  const cost = Math.max(0, bstats(PLAYER, 'gate').cost - bstats(PLAYER, 'wall').cost);
+  if (state.minerals[PLAYER] < cost) { eva('Insufficient funds'); return; }
+  state.minerals[PLAYER] -= cost;
+  const gx = wall.x, gy = wall.y;
+  state.buildings = state.buildings.filter(b => b !== wall); // swap wall -> gate in place
+  makeBuilding(PLAYER, 'gate', gx, gy);
+  markPathDirty();
+  sfx('click');
+  if (state.minerals[PLAYER] < cost) { placing = null; }
   refreshPanel(); refreshSidebar();
 }
 
@@ -730,8 +771,11 @@ function updateAbilities(dt) {
     const fkey = state.factions[owner];
     sig.timer += dt;
     if (fkey === 'glob' && sig.timer >= 10) {
+      // Quantitative Easing: each Fusion Plant prints minerals on the income tick
       sig.timer -= 10;
-      state.minerals[owner] = Math.floor(state.minerals[owner] * 1.02);
+      let plants = 0;
+      for (const b of state.buildings) if (b.owner === owner && b.hp > 0 && b.done && b.type === 'powerplant') plants++;
+      state.minerals[owner] += plants * 12;
     } else if (fkey === 'flat' && sig.timer >= 180) {
       sig.timer -= 180;
       documentaryDrop(owner);
@@ -742,10 +786,35 @@ function updateAbilities(dt) {
       sig.timer -= 120;
       spawnDeepCoverRecruit(owner);
     }
-    // AIs cast their manual powers on simple rules
+    // AIs cast their manual powers on simple rules (throttled so the cluster
+    // scans don't run every frame)
     if (owner !== PLAYER) {
-      if (fkey === 'deep' && sig.cd <= 0) castGaslight(owner);
-      if (fkey === 'reptilian' && !sig.used && ais[owner].time > 240) castRevealInfiltrator(owner);
+      sig.tryT = (sig.tryT || 0) - dt;
+      if (sig.tryT <= 0) {
+        sig.tryT = 2;
+        if (fkey === 'deep' && sig.cd <= 0) castGaslight(owner);
+        else if (fkey === 'reptilian' && !sig.used && ais[owner].time > 240) castRevealInfiltrator(owner);
+        else if (fkey === 'glob' && sig.cd <= 0) {
+          // rain on the densest enemy GROUND cluster to blunt an attack/defense
+          let best = null, bestN = 0;
+          for (const e of state.units) {
+            if (e.owner === owner || e.owner === NEUTRAL || e.hp <= 0 || UNIT_TYPES[e.type].flying || hiddenFrom(e, owner)) continue;
+            let n = 0;
+            for (const o of state.units) if (o.owner !== owner && o.owner !== NEUTRAL && o.hp > 0 && !UNIT_TYPES[o.type].flying && dist(e, o) <= 150) n++;
+            if (n > bestN) { bestN = n; best = e; }
+          }
+          if (best && bestN >= 2) castWeather(owner, best.x, best.y);
+        } else if (fkey === 'grey' && sig.cd <= 0) {
+          // clone the AI's most valuable combat unit — a free copy at the barracks
+          let best = null, bestCost = 0;
+          for (const u of state.units) {
+            if (u.owner !== owner || u.hp <= 0 || UNIT_TYPES[u.type].role !== 'combat' || u.garrisoned) continue;
+            const c = UNIT_TYPES[u.type].cost || 0;
+            if (c > bestCost) { bestCost = c; best = u; }
+          }
+          if (best && bestCost >= 120) castClone(owner, best);
+        }
+      }
     }
   }
 }
@@ -874,6 +943,20 @@ function blocksUnit(b, owner) {
   return true;
 }
 
+// A wall flanking one of a unit's OWN open gates yields to that unit. Wall
+// segments sit one WALL_STEP apart, so the collision radii of the two walls
+// beside a gate meet across the opening and seal it — this carves the corridor
+// back open, but only for the gate's owner (enemies still hit the walls).
+function wallByOpenGate(wall, u) {
+  if (wall.type !== 'wall') return false;
+  for (const g of bldNear(wall.x, wall.y)) {
+    if (g.type !== 'gate' || g.hp <= 0 || g.owner !== u.owner) continue;
+    if (Math.abs(g.x - wall.x) <= WALL_STEP * 1.2 && Math.abs(g.y - wall.y) <= WALL_STEP * 1.2 &&
+        Math.hypot(u.x - g.x, u.y - g.y) <= WALL_STEP * 1.7) return true;
+  }
+  return false;
+}
+
 function terrainNear(x, y) {
   return terrainIndex.get(((x / OB_CELL) | 0) * 8192 + ((y / OB_CELL) | 0)) || EMPTY_ARR;
 }
@@ -969,6 +1052,20 @@ function ensurePathGrid() {
         const cx2 = gx * PATH_CELL + PATH_CELL / 2, cy2 = gy * PATH_CELL + PATH_CELL / 2;
         if (Math.abs(cx2 - b.x) < ex && Math.abs(cy2 - b.y) < ey) pgPass[gy * pgW + gx] = 0;
       }
+    }
+  }
+  // gates punch a passable corridor through the wall line so A* actually routes
+  // units THROUGH them — the flanking walls' expansion otherwise pinches the
+  // lone gate cell too narrow to find, and paths detour around the whole wall.
+  // Clear across the passage axis (perpendicular to the wall run).
+  for (const b of state.buildings) {
+    if (b.hp <= 0 || !bstatsOf(b).gate) continue;
+    const c = wallConn(b);                       // e=1,w=2,n=4,s=8
+    const wallEW = (c & 1) || (c & 2);           // walls run E-W -> passage is N-S
+    for (let s = -PATH_CELL; s <= PATH_CELL; s += PATH_CELL) {
+      const px = (c && !wallEW) ? b.x + s : b.x; // vary along the passage
+      const py = (c && !wallEW) ? b.y : b.y + s;
+      pgPass[clamp((py / PATH_CELL) | 0, 0, pgH - 1) * pgW + clamp((px / PATH_CELL) | 0, 0, pgW - 1)] = 1;
     }
   }
 }
@@ -1217,7 +1314,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
       delete u.veer;
       let bld = null;
       for (const b of bldNear(nx, ny)) {
-        if (b.hp > 0 && b.id !== ignoreId && blocksUnit(b, u.owner) &&
+        if (b.hp > 0 && b.id !== ignoreId && blocksUnit(b, u.owner) && !wallByOpenGate(b, u) &&
             Math.abs(nx - b.x) < b.w / 2 + t.r && Math.abs(ny - b.y) < b.h / 2 + t.r) { bld = b; break; }
       }
       if (bld) {
@@ -1730,7 +1827,10 @@ function repairAcquire(u, dt) {
 }
 
 function depositTarget(u) {
-  return nearest(u, state.buildings, b => b.owner === u.owner && b.type === 'hq' && b.hp > 0);
+  // haul to the nearest drop-off: the HQ or any finished Refinery. A forward
+  // refinery near a distant field keeps the round-trip short.
+  return nearest(u, state.buildings, b => b.owner === u.owner && b.hp > 0 &&
+    (b.type === 'hq' || (bstatsOf(b).dropoff && b.done)));
 }
 
 // distance from a unit to a building's actual footprint rectangle — radial
@@ -1786,6 +1886,23 @@ function updateUnit(u, dt) {
   const o = u.order;
   const stats = UNIT_TYPES[u.type];
 
+  // --- airborne feel (visual): craft ease onto their flight ceiling instead of
+  // snapping, and bank into turns. u.alt drives the render lift + weapon origins
+  // (see unitAlt); u.roll tips the sprite by how hard it's turning this frame.
+  if (stats.flying) {
+    const tgtAlt = u.landed ? 0 : (stats.flyH || FLY_H);
+    if (u.alt === undefined) u.alt = tgtAlt;
+    u.alt += (tgtAlt - u.alt) * Math.min(1, dt * 2.5);
+    const pf = u._pf === undefined ? (u.facing || 0) : u._pf;
+    const df = ((u.facing - pf + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+    u._pf = u.facing || 0;
+    // saucers/blimps hold level; winged & rotor craft roll. Cap the bank.
+    const bankK = (stats.shape === 'saucer' || stats.shape === 'blimp') ? 0.04 : 0.16;
+    const tgtRoll = clamp(df / Math.max(dt, 0.001) * bankK, -0.5, 0.5);
+    if (u.roll === undefined) u.roll = 0;
+    u.roll += (tgtRoll - u.roll) * Math.min(1, dt * 6);
+  }
+
   // stationed aircraft lift off the moment they get a real order
   if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
 
@@ -1820,10 +1937,11 @@ function updateUnit(u, dt) {
   // reptilian brood: the mother keeps a bound swarm of hatchlings — spawned
   // once, then topped back up as they die. The swarm is her weapon.
   if (stats.brood && !u.transit) {
+    const broodType = stats.brood.type || 'hatchling';
     if (!u.broodInit) {
       u.broodInit = true;
       for (let i = 0; i < stats.brood.count; i++) {
-        const h = makeUnit(u.owner, 'hatchling', u.x + (Math.random() - 0.5) * 30, u.y + 12 + i * 3);
+        const h = makeUnit(u.owner, broodType, u.x + (Math.random() - 0.5) * 30, u.y + 12 + i * 3);
         h.broodOf = u.id;
       }
     } else {
@@ -1831,7 +1949,7 @@ function updateUnit(u, dt) {
       u.broodT = (u.broodT || 0) + dt;
       if (alive < stats.brood.count && u.broodT >= stats.brood.regen) {
         u.broodT = 0;
-        makeUnit(u.owner, 'hatchling', u.x + (Math.random() - 0.5) * 24, u.y + 14).broodOf = u.id;
+        makeUnit(u.owner, broodType, u.x + (Math.random() - 0.5) * 24, u.y + 14).broodOf = u.id;
       }
     }
   }
@@ -1920,11 +2038,15 @@ function updateUnit(u, dt) {
   // commitment. Forget the steering plan; if that didn't help either, slide
   // the unit out along the least-blocked direction (escalation, rare).
   u.wdT = (u.wdT || 0) + dt;
+  if (u.wdX === undefined) { u.wdX = u.x; u.wdY = u.y; }
   if (u.wdT >= 2.5) {
     // only units that actually TRIED to move count as pinned — a mortar
-    // holding position to fire is standing still on purpose, not wedged
+    // holding position to fire is standing still on purpose, not wedged.
+    // Measure NET displacement over the window, not accumulated travel: a unit
+    // oscillating in a tight lane racks up travel while going nowhere, and the
+    // old travel-based check let it stay wedged forever.
     if (u.wdWant && o.type !== 'idle' && o.type !== 'loiter' && !u.landed &&
-        u.travel - (u.wdTravel || 0) < 5) {
+        Math.hypot(u.x - u.wdX, u.y - u.wdY) < 5) {
       delete u.dodge;
       delete u.veer;
       delete u.path; // stale route may be the reason we're pinned — re-plan
@@ -1956,7 +2078,8 @@ function updateUnit(u, dt) {
     }
     u.wdT = 0;
     u.wdWant = false;
-    u.wdTravel = u.travel;
+    u.wdX = u.x;
+    u.wdY = u.y;
   }
 
   // out of ammo: break off and return to the airfield (unless already parked —
@@ -2101,7 +2224,7 @@ function updateUnit(u, dt) {
         u.mineTimer += dt;
         if (u.mineTimer >= HARVEST_TIME) {
           u.mineTimer = 0;
-          const take = Math.min(carry, patch.amount);
+          const take = Math.min(carry * (patch.yield || 1), patch.amount); // urban ore hauls richer
           patch.amount -= take;
           u.carrying = take;
           u.order = { type: 'return', patchId: patch.id };
@@ -2329,7 +2452,13 @@ function unitCount(owner, type) {
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
   if (ut.req && !hasStruct(owner, ut.req)) return false;
-  if (ut.limit && unitCount(owner, unitType) >= ut.limit) return false;
+  if (ut.limit) {
+    // each Refinery lifts the mining cap by one, so building out drop-offs is
+    // what actually grows a worker economy
+    const bonus = ut.role === 'worker'
+      ? state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).dropoff).length : 0;
+    if (unitCount(owner, unitType) >= ut.limit + bonus) return false;
+  }
   let trainers = state.buildings.filter(b =>
     b.owner === owner && b.hp > 0 && b.done && b.type === ut.builtAt && b.queue.length < 5);
   if (ut.pad) trainers = trainers.filter(b => padLoad(b) < padCapOf(b)); // needs a free pad slot
@@ -2356,6 +2485,64 @@ function updateBuilding(b, dt) {
       if (prey) b.hp = 0;
     }
     return;
+  }
+
+  // captured hospital / fuel depot: mends the owner's nearby units in a radius
+  // (a neutral, unclaimed one does nothing — it works only once garrisoned); a
+  // depot also tops off passing aircraft so they needn't fly home to rearm
+  if (bt.healAura && b.done && b.owner !== NEUTRAL) {
+    b.healT = (b.healT || 0) - dt;
+    if (b.healT <= 0) {
+      b.healT = 0.5;
+      for (const u of state.units) {
+        if (u.owner !== b.owner || u.hp <= 0 || u.garrisoned || dist(u, b) > bt.healAura.r) continue;
+        if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + bt.healAura.rate * 0.5);
+        if (bt.rearm && UNIT_TYPES[u.type].maxAmmo) u.ammo = UNIT_TYPES[u.type].maxAmmo;
+      }
+    }
+  }
+  // captured Research Lab / Monument: an aura that emboldens the owner's units
+  // (buffedUntil is read in the damage step for +25%)
+  if (bt.buffAura && b.done && b.owner !== NEUTRAL) {
+    b.auraT = (b.auraT || 0) - dt;
+    if (b.auraT <= 0) {
+      b.auraT = 0.4;
+      for (const u of state.units)
+        if (u.owner === b.owner && u.hp > 0 && !u.garrisoned && dist(u, b) <= bt.buffAura.r) u.buffedUntil = state.time + 0.6;
+    }
+  }
+  // captured 5G Mast: an aura that weakens enemy units nearby (−45% damage)
+  if (bt.debuffAura && b.done && b.owner !== NEUTRAL) {
+    b.debT = (b.debT || 0) - dt;
+    if (b.debT <= 0) {
+      b.debT = 0.4;
+      for (const e of state.units)
+        if (e.owner !== b.owner && e.owner !== NEUTRAL && e.hp > 0 && !e.garrisoned && dist(e, b) <= bt.debuffAura.r) e.weakenedUntil = state.time + 0.6;
+    }
+  }
+  // captured Black Site / UFO Crash Site: rolls out a free unit on a timer
+  if (bt.spawns && b.done && b.owner !== NEUTRAL) {
+    b.spawnT = (b.spawnT || 0) + dt;
+    if (b.spawnT >= bt.spawns.every) {
+      b.spawnT = 0;
+      makeUnit(b.owner, bt.spawns.type, b.x + (Math.random() - 0.5) * 20, b.y + b.h / 2 + 22);
+      if (b.owner === PLAYER) eva('Reinforcements salvaged');
+    }
+  }
+  // captured TV Station: manufactures consent — flips a random enemy combat unit
+  // to the owner every so often
+  if (bt.convert && b.done && b.owner !== NEUTRAL) {
+    b.convT = (b.convT || 0) + dt;
+    if (b.convT >= bt.convert.every) {
+      b.convT = 0;
+      const pool = state.units.filter(u => u.owner !== b.owner && u.owner !== NEUTRAL && u.hp > 0 && !u.garrisoned &&
+        u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' && dist(u, b) <= bt.convert.r);
+      if (pool.length) {
+        const v = pool[Math.floor(Math.random() * pool.length)];
+        v.owner = b.owner; v.disguised = false; v.order = { type: 'idle' };
+        Particles.pulse(v.x, v.y, 30, [150, 200, 255]);
+      }
+    }
   }
 
   // repair pad: mends the owner's vehicles and aircraft sitting on it
@@ -2558,22 +2745,53 @@ function updateBuilding(b, dt) {
 }
 
 function aiPickSpot(owner, type) {
+  // forward refinery: plant it right beside its chosen field (it's `anywhere`,
+  // so it needn't hug the home base — it becomes the new forward anchor)
+  if (type === 'refinery' && ais[owner] && ais[owner]._refSpot) {
+    const c = ais[owner]._refSpot;
+    for (const rad of [75, 100, 130, 165]) {
+      for (let i = 0; i < 12; i++) {
+        const a = i * (Math.PI * 2 / 12);
+        const x = c.x + Math.cos(a) * rad, y = c.y + Math.sin(a) * rad;
+        if (!placementBlocked(owner, type, x, y)) return { x, y };
+      }
+    }
+  }
   // search rings around every grid anchor (HQ + power plants) until a spot fits
   const anchors = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done &&
-    (b.type === 'hq' || b.type === 'powerplant'));
+    (b.type === 'hq' || b.type === 'powerplant' || bstatsOf(b).anchor));
   if (!anchors.length) return null;
   const hq = anchors.find(b => b.type === 'hq') || anchors[0];
   const f = facOf(owner);
+  const t = bstats(owner, type);
+  // don't wall the economy off: keep clear of mineral fields (so haulers can
+  // still reach them AND get back to the HQ to deposit), and leave a walkable
+  // lane between structures — a base packed to the bare STRUCT_GAP minimum can
+  // seal its own workers away from the ore. The AI builds looser than a player.
+  const patchClear = (x, y) => !state.patches.some(p => p.amount > 0 && Math.hypot(p.x - x, p.y - y) < t.w / 2 + 90);
+  const laneClear = (x, y) => !state.buildings.some(b => b.hp > 0 && !bstatsOf(b).wallKind &&
+    Math.abs(b.x - x) < (b.w + t.w) / 2 + 34 && Math.abs(b.y - y) < (b.h + t.h) / 2 + 34);
   // towers scan toward the map center first; support structures scan away from it
   const centerAngle = Math.atan2(WORLD_H / 2 - hq.y, WORLD_W / 2 - hq.x);
   const startAngle = (type === f.tower || type === f.aaTower) ? centerAngle : centerAngle + Math.PI;
   for (const anchor of anchors) {
-    for (const rad of [110, 150, 190, 230, 270, 320, 380]) {
+    for (const rad of [120, 160, 200, 240, 285, 335, 390]) {
       for (let i = 0; i < 12; i++) {
         const a = startAngle + i * (Math.PI * 2 / 12);
         const x = anchor.x + Math.cos(a) * rad;
         const y = anchor.y + Math.sin(a) * rad;
-        if (!placementBlocked(owner, type, x, y) && withinBuildRadius(owner, x, y)) return { x, y };
+        if (!placementBlocked(owner, type, x, y) && withinBuildRadius(owner, x, y) &&
+            patchClear(x, y) && laneClear(x, y)) return { x, y };
+      }
+    }
+  }
+  // fallback: relax the extra lane spacing rather than fail to build at all
+  for (const anchor of anchors) {
+    for (const rad of [130, 175, 220, 270, 330, 390]) {
+      for (let i = 0; i < 12; i++) {
+        const a = startAngle + i * (Math.PI * 2 / 12);
+        const x = anchor.x + Math.cos(a) * rad, y = anchor.y + Math.sin(a) * rad;
+        if (!placementBlocked(owner, type, x, y) && withinBuildRadius(owner, x, y) && patchClear(x, y)) return { x, y };
       }
     }
   }
@@ -2593,6 +2811,19 @@ function aiDesiredStructure(owner, counts, power) {
   if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
   // once teched up, everyone wants their doomsday device (needs the extra power)
   if (superweaponsOn && (f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
+  // income structures (e.g. Hollow's Crystal Geode) ARE economy for the worker
+  // factions — slot them into the MID game (2 right after the factory, the rest
+  // woven in later) so they're paying out before the late-game choke, not after
+  const incomeStruct = (f.structs || []).find(s => (bstats(owner, s).income || 0) > 0);
+  if (incomeStruct) {
+    const cap = bstats(owner, incomeStruct).cap || 3;
+    const at = order.indexOf('factory');
+    if (at >= 0) order.splice(at + 1, 0, incomeStruct);   // one early (don't stall the tech rush)
+    for (let i = 1; i < cap; i++) order.push(incomeStruct); // the rest fill in during expansion
+  }
+  // late-game expansion tail: keep thickening power, defense and production so a
+  // finished base never goes fully static while it still has minerals to spend
+  order.push('powerplant', f.tower, f.aaTower, 'factory', 'powerplant', f.tower, f.aaTower, 'barracks');
   const want = {};
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
@@ -2653,6 +2884,34 @@ function updateAI(owner, dt) {
     }
   }
 
+  // forward economy: once established, drop a Refinery next to a rich field that
+  // sits far from every current drop-off, so haulers stop crossing the map. The
+  // spot is stashed for aiPickSpot; the refinery anchors a new forward base.
+  const refReq = bstats(owner, 'refinery').req;
+  if (f.worker && (f.structs || []).includes('refinery') && !state.construction[owner] && ai.time > 75 &&
+      (!refReq || counts[refReq]) &&
+      (counts['refinery'] || 0) < (bstats(owner, 'refinery').cap || 4)) {
+    const drops = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && (b.type === 'hq' || bstatsOf(b).dropoff));
+    let bestP = null, bestScore = -Infinity;
+    for (const p of state.patches) {
+      if (p.amount < 350) continue;
+      const dHome = Math.min(...drops.map(b => dist(b, p)));
+      if (dHome < 520) continue;                 // already served from home
+      const score = p.amount - dHome * 0.3;      // rich, but not absurdly far
+      if (score > bestScore) { bestScore = score; bestP = p; }
+    }
+    if (bestP && state.minerals[owner] >= bstats(owner, 'refinery').cost + 60) {
+      startConstruction(owner, 'refinery');
+      ai._refSpot = { x: bestP.x, y: bestP.y };
+    }
+  }
+
+  // economy recovery: below the starting workforce (raided, or just off the
+  // start), rebuild rigs FIRST — a starved base can't fund anything else
+  const workerCap = f.worker ? Math.max(f.economy.workers, UNIT_TYPES[f.worker].limit || 0) : 0;
+  const starved = f.worker && workers.length < f.economy.workers;
+  if (starved && state.minerals[owner] >= UNIT_TYPES[f.worker].cost) trainUnit(owner, f.worker);
+
   // start next structure; reserve its cost so unit spam can't starve it
   const desired = !state.construction[owner] ? aiDesiredStructure(owner, counts, power) : null;
   if (desired && (!f.worker || workers.length >= 3) && state.minerals[owner] >= bstats(owner, desired).cost) {
@@ -2660,8 +2919,10 @@ function updateAI(owner, dt) {
   }
   const reserve = (!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0;
 
-  // rigs (income factions have none to train; trainUnit enforces the cap)
-  if (f.worker && workers.length < f.economy.workers &&
+  // grow the workforce all the way to the rig CAP (not just the start count) —
+  // mining throughput, not patch size, is what chokes the worker economies.
+  // (income factions have no rig to train; trainUnit still enforces the cap)
+  if (f.worker && !starved && workers.length < workerCap &&
       state.minerals[owner] >= UNIT_TYPES[f.worker].cost + reserve) {
     trainUnit(owner, f.worker);
   }
@@ -2695,16 +2956,83 @@ function updateAI(owner, dt) {
     }
     const totalW = mix.reduce((s, [, w]) => s + w, 0);
     const totalArmy = mix.reduce((s, [t]) => s + (byType[t] || 0), 0);
+    // pick the most-deficient unit the AI can AFFORD right now (respecting the
+    // structure reserve). Only considering affordable units means a poor faction
+    // still diversifies with what it can pay for, instead of endlessly waiting on
+    // one pricey pick and defaulting to cheap infantry forever.
     let pick = null, worst = -Infinity;
     for (const [t, w] of mix) {
+      if (state.minerals[owner] < UNIT_TYPES[t].cost + reserve) continue;
       const deficit = w / totalW - (byType[t] || 0) / (totalArmy || 1);
       if (deficit > worst) { worst = deficit; pick = t; }
     }
-    if (pick && state.minerals[owner] >= UNIT_TYPES[pick].cost + reserve) trainUnit(owner, pick);
+    if (pick) trainUnit(owner, pick);
   }
 
-  // defense (disguised reptilian infantry don't register as hostile)
-  const threat = nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned), u => !hiddenFrom(u, owner) && dist(hq, u) < 450);
+  // fortify: lay a square wall perimeter around the base once established, with
+  // a gap in the middle of each side (and open corners) so the army can still
+  // sortie. A couple segments per think, only when flush so production isn't
+  // starved. Segments snap to the wall grid so they join into a rampart.
+  if (ai.time > 100 && state.minerals[owner] > 300) {
+    if (!ai.wallPlan) {
+      ai.wallPlan = []; ai.wallIdx = 0;
+      const snap = v => Math.round(v / WALL_STEP) * WALL_STEP;
+      const R = snap(290), hx = snap(hq.x), hy = snap(hq.y), n = (2 * R) / WALL_STEP;
+      const side = (fx, fy, dx, dy) => {
+        for (let i = 0; i <= n; i++) {
+          if (i > n * 0.38 && i < n * 0.62) continue; // gap in the middle of each side
+          ai.wallPlan.push({ x: fx + dx * i * WALL_STEP, y: fy + dy * i * WALL_STEP });
+        }
+      };
+      side(hx - R, hy - R, 1, 0); side(hx - R, hy + R, 1, 0); // top, bottom
+      side(hx - R, hy - R, 0, 1); side(hx + R, hy - R, 0, 1); // left, right
+    }
+    let laid = 0;
+    while (ai.wallIdx < ai.wallPlan.length && laid < 2 && state.minerals[owner] > 280) {
+      const p = ai.wallPlan[ai.wallIdx++];
+      if (!placementBlocked(owner, 'wall', p.x, p.y) && withinBuildRadius(owner, p.x, p.y)) {
+        state.minerals[owner] -= bstats(owner, 'wall').cost;
+        makeBuilding(owner, 'wall', p.x, p.y);
+        laid++;
+      }
+    }
+  }
+
+  // claim landmarks: send spare infantry to garrison the most valuable unclaimed
+  // neutral in reach — derricks/banks (income), hospitals & fuel depots (healing),
+  // labs/monuments (buffs), radar (detection), substations (power), black sites &
+  // UFO wrecks (free units), TV stations (conversion). Only when the army can
+  // spare a body, so defense isn't gutted. Sends a few claimers at once.
+  if (ai.time > 25 && army.length > 3) {
+    const worth = b => { const s = bstatsOf(b);
+      return (s.income || 0) + (s.spawns ? 22 : 0) + (s.convert ? 20 : 0) + (s.healAura ? 16 : 0) +
+        (s.buffAura ? 15 : 0) + (s.debuffAura ? 12 : 0) + (s.detector ? 12 : 0) + (s.power > 0 ? 10 : 0); };
+    const targets = state.buildings
+      .filter(b => b.hp > 0 && b.owner === NEUTRAL && bstatsOf(b).slots && worth(b) > 0 &&
+        (!b.garrison || b.garrison.length < bstatsOf(b).slots) &&
+        !state.units.some(s => s.owner === owner && s.order.type === 'garrison' && s.order.destId === b.id) &&
+        dist(hq, b) < 1700)
+      .sort((a, b) => (worth(b) - worth(a)) || (dist(hq, a) - dist(hq, b)));
+    const claimers = army.filter(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
+    for (let i = 0; i < Math.min(targets.length, claimers.length, 2); i++) {
+      claimers[i].order = { type: 'garrison', destId: targets[i].id };
+    }
+  }
+
+  // defense: react to enemies threatening ANY base structure, not just the HQ.
+  // Pick the threat closest to the HQ (HQ-proximate attackers weighted first),
+  // and pull the whole army onto it (disguised reptilians don't register).
+  const myBldgs = state.buildings.filter(b => b.owner === owner && b.hp > 0);
+  let threat = null, best = Infinity;
+  for (const u of state.units) {
+    if (u.owner === owner || u.hp <= 0 || u.garrisoned || hiddenFrom(u, owner)) continue;
+    const dh = dist(hq, u);
+    let score = dh < 560 ? dh : Infinity;             // wide ring around the HQ
+    if (score === Infinity) {                          // else: raiding an outlying building?
+      for (const b of myBldgs) { if (dist(b, u) < 300) { score = 400 + dh * 0.01; break; } }
+    }
+    if (score < best) { best = score; threat = u; }
+  }
   if (threat) {
     for (const s of army) {
       if (canTarget(UNIT_TYPES[s.type], threat)) orderAttack(s, threat);
@@ -3254,7 +3582,10 @@ function refreshPanel() {
   if (rebuild) elActions.innerHTML = '';
 
   if (placing) {
-    elSelInfo.textContent = `Placing ${facOf(PLAYER).buildingNames[placing] || placing} — click a spot near your base, Esc to cancel`;
+    const nm = facOf(PLAYER).buildingNames[placing] || placing;
+    elSelInfo.textContent = placing === 'gate'
+      ? `Placing ${nm} — click a straight segment of your wall, Esc to cancel`
+      : `Placing ${nm} — click a spot near your base, Esc to cancel`;
     return;
   }
   if (attackMoveArmed) {
@@ -3361,6 +3692,7 @@ function refreshPanel() {
       if (ut.detector) info += ' — detector: reveals stealthed & burrowed enemies';
       if (ut.cloakStill) info += uu.cloaked ? ' — cloaked (holding still)' : ' — cloaks when it holds still';
       if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
+      if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
       if (ut.plantMine) info += uu.planted ? ' — IED spent' : ' — can plant one IED [E]';
     }
     elSelInfo.textContent = info;
@@ -3638,11 +3970,16 @@ function renderProp(ctx, kind, s, v) {
   }
 }
 
-// mineral patches: ground stain + a cluster of upright crystal shards
+// mineral patches: ground stain + a cluster of upright crystal shards. Country
+// ore is teal crystal; urban ore (found in city lots) is amber, richer per haul.
 function drawPatchIso(p) {
   const ix = isoX(p.x, p.y), iy = isoY(p.x, p.y);
   const s = 10 + 8 * Math.min(1, p.amount / 900);
-  ctx.fillStyle = 'rgba(31,106,102,0.45)';
+  const rich = p.rich;
+  const crys = rich ? '#e6a63a' : '#3fd7d0';
+  const edge = rich ? '#96631d' : '#1a8a85';
+  const lit = rich ? 'rgba(255,236,182,0.55)' : 'rgba(220,255,252,0.5)';
+  ctx.fillStyle = rich ? 'rgba(150,108,36,0.42)' : 'rgba(31,106,102,0.45)';
   ctx.beginPath();
   ctx.ellipse(ix, iy, s * 1.7, s * 0.85, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -3650,7 +3987,7 @@ function drawPatchIso(p) {
     const a = p.id * 2.1 + i * 2.4;
     const ox = Math.cos(a) * s * 0.7, oy = Math.sin(a) * s * 0.35;
     const h = s * (0.75 + 0.2 * ((p.id + i) % 3));
-    ctx.fillStyle = '#3fd7d0';
+    ctx.fillStyle = crys;
     ctx.beginPath();
     ctx.moveTo(ix + ox, iy + oy - h);
     ctx.lineTo(ix + ox + h * 0.38, iy + oy);
@@ -3658,10 +3995,10 @@ function drawPatchIso(p) {
     ctx.lineTo(ix + ox - h * 0.38, iy + oy);
     ctx.closePath();
     ctx.fill();
-    ctx.strokeStyle = '#1a8a85';
+    ctx.strokeStyle = edge;
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.fillStyle = 'rgba(220,255,252,0.5)'; // lit NE facet
+    ctx.fillStyle = lit; // lit NE facet
     ctx.beginPath();
     ctx.moveTo(ix + ox, iy + oy - h);
     ctx.lineTo(ix + ox + h * 0.38, iy + oy);
@@ -3861,8 +4198,11 @@ function drawBuildingIso(b) {
 // while jets, bombers and capital craft carry a higher t.flyH.
 function unitAlt(u) {
   const t = UNIT_TYPES[u.type];
-  if (!t.flying || u.landed) return 0;
-  return t.flyH || FLY_H;
+  if (!t.flying) return 0;
+  // eased altitude (set in updateUnit) so takeoff/landing ramp smoothly and
+  // weapon/particle origins track the climb; fall back to the instant ceiling
+  if (u.alt !== undefined) return u.alt;
+  return u.landed ? 0 : (t.flyH || FLY_H);
 }
 
 function drawUnitIso(u) {
@@ -3881,17 +4221,22 @@ function drawUnitIso(u) {
   const ix = isoX(u.x, u.y), iy = isoY(u.x, u.y);
   // airborne craft ride a purely-visual screen altitude; sy anchors the sprite
   const alt = unitAlt(u);
+  const airborne = alt > 0.5;
   const sy = iy - alt;
   // your own gaslight phantoms look ghostly to you; enemy ones look real
   if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
   // cloaked/burrowed units draw ghosted: to their owner as a reminder, to
   // the enemy only while a detector pins them (visibleToPlayer gates that)
   if (isCloaked(u)) ctx.globalAlpha = u.owner === PLAYER ? 0.55 : 0.45;
-  if (alt) {
-    // shadow stays on the ground while the craft flies above it (live)
-    ctx.fillStyle = 'rgba(0,0,0,0.32)';
+  if (airborne) {
+    // shadow stays on the ground and SLIDES OUT from under the craft as it
+    // climbs (sun from the upper-left): a low drone hugs its shadow, a high
+    // gunship throws one well down-right — a strong altitude read
+    const sh = clamp(alt / 90, 0, 1);
+    const ssc = 1 + sh * 0.5;
+    ctx.fillStyle = `rgba(0,0,0,${0.34 - sh * 0.15})`;
     ctx.beginPath();
-    ctx.ellipse(ix + 5, iy + 3, rs * 0.9, rs * 0.45, 0, 0, Math.PI * 2);
+    ctx.ellipse(ix + 4 + alt * 0.18, iy + 2 + alt * 0.09, rs * 0.9 * ssc, rs * 0.45 * ssc, 0, 0, Math.PI * 2);
     ctx.fill();
   }
   // body sprite from a SHARED cache: keyed by type + color + 32-facing
@@ -3903,14 +4248,14 @@ function drawUnitIso(u) {
   const qf = Math.round((u.facing || 0) / (Math.PI / 16)) & 31;
   const gait = Math.floor((u.travel || 0) / 7) & 7;
   const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' +
-    ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (alt ? 16 : 0));
+    ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (airborne ? 16 : 0));
   const qFacing = qf * (Math.PI / 16); // render the bucket's representative pose
   const cw = Math.ceil(rs * 3.4 + 26), chh = Math.ceil(rs * 4 + 30);
   const ax = cw / 2, ay = Math.ceil(rs * 2.8 + 16);
   // interval 32: idle/ambient animations repaint in place at ~2Hz
   const spr = cachedSprite(key, cw, chh, ax, ay, 'u', 32, g => {
     g.scale(dscale, dscale);
-    if (!alt) Art.shadow(g, t.r * 1.15, t.r * 0.6, 0, 1.5); // contact shadow
+    if (!airborne) Art.shadow(g, t.r * 1.15, t.r * 0.6, 0, 1.5); // contact shadow
     g.save();
     g.scale(1, 0.5); // squash the glow into a ground pool
     Art.teamGlow(g, t.r + 8, drawCol);
@@ -3953,7 +4298,18 @@ function drawUnitIso(u) {
     ctx.drawImage(spr.cv, ix - ax, cyp - ay);
     ctx.restore();
   } else {
-    ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
+    // bank: shear the sprite about its anchor so it tips into turns (airborne
+    // only; saucers/blimps get a tiny bank via their smaller u.roll)
+    const roll = airborne ? (u.roll || 0) : 0;
+    if (roll) {
+      const cy = sy + bob;
+      ctx.save();
+      ctx.translate(ix, cy); ctx.transform(1, 0, -roll * 0.7, 1, 0, 0); ctx.translate(-ix, -cy);
+      ctx.drawImage(spr.cv, ix - ax, cy - ay);
+      ctx.restore();
+    } else {
+      ctx.drawImage(spr.cv, ix - ax, sy + bob - ay);
+    }
   }
   ctx.filter = 'none';
   // live turret: rendered over the cached hull so the gun tracks its target
@@ -4300,6 +4656,15 @@ function drawOverlays() {
         ctx.fillStyle = (!placementBlocked(PLAYER, 'wall', x, y) && withinBuildRadius(PLAYER, x, y)) ? '#4da3ff' : '#ff5f5f';
         ctx.fillRect(x - t.w / 2, y - t.h / 2, t.w, t.h);
       }
+    } else if (placing === 'gate') {
+      // highlight the wall segment under the cursor: blue = convertible to a
+      // gate (straight run), red = a wall but not a straight segment
+      const wallUnder = state.buildings.find(b => b.owner === PLAYER && b.type === 'wall' && b.hp > 0 &&
+        Math.abs(b.x - mouse.x) <= b.w / 2 + 4 && Math.abs(b.y - mouse.y) <= b.h / 2 + 4);
+      if (wallUnder) {
+        ctx.fillStyle = gateTargetWall(mouse.x, mouse.y) ? '#4da3ff' : '#ff5f5f';
+        ctx.fillRect(wallUnder.x - wallUnder.w / 2, wallUnder.y - wallUnder.h / 2, wallUnder.w, wallUnder.h);
+      }
     } else {
       ctx.fillStyle = ok ? '#4da3ff' : '#ff5f5f';
       ctx.fillRect(mouse.x - t.w / 2, mouse.y - t.h / 2, t.w, t.h);
@@ -4462,6 +4827,13 @@ function frame(now) {
     // destruction effects
     for (const b of state.buildings) {
       if (b.hp <= 0) {
+        // Too Big To Fail: a Globalist structure refunds a quarter of its cost
+        // when it falls (cheap field structures excepted)
+        if (!b._refunded && state.factions[b.owner] === 'glob' &&
+            b.type !== 'wall' && b.type !== 'gate' && b.type !== 'mine') {
+          state.minerals[b.owner] = (state.minerals[b.owner] || 0) + Math.floor((bstatsOf(b).cost || 0) * 0.25);
+          b._refunded = true;
+        }
         Particles.boom(b.x, b.y, 1.7);
         if (tileState(b.x, b.y) === 2) sfx('boom');
         if (b.owner === PLAYER && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
@@ -4833,6 +5205,8 @@ canvas.addEventListener('mousedown', e => {
         wallDrag = { x0: Math.round(p.x / WALL_STEP) * WALL_STEP, y0: Math.round(p.y / WALL_STEP) * WALL_STEP };
         return;
       }
+      // gates cut into an existing straight wall segment, not open ground
+      if (placing === 'gate') { convertWallToGate(p.x, p.y); return; }
       const instant = bstats(PLAYER, placing).instant;
       if (tryPlace(PLAYER, p.x, p.y)) {
         sfx('click');

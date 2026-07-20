@@ -158,22 +158,36 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     farFrom(TERRAIN, bx, by, 135) &&
     neutrals.every(n => dist2(n.x, n.y, bx, by) > 165);
 
-  // fill one block with an aligned lot layout picked by zone (0 core - 1 edge)
+  // fill one block with a dense, aligned lot layout picked by zone (0 core-1 edge)
   const fillBlock = (bx, by, zone) => {
     const roll = prand(seed++);
     const put = (type, ox, oy) => neutrals.push({ type, x: bx + ox, y: by + oy });
-    if (zone < 0.38) { // downtown: towers over storefronts
-      if (roll < 0.42) { put('office', -34, 0); put('shop', 42, -34); put('shop', 42, 34); }
-      else if (roll < 0.8) { put('apartment', -38, 0); put('apartment', 30, 0); }
-      else { put('office', 30, 22); put('shop', -40, -34); decor.push({ kind: 'lot', x: -34 + bx, y: 22 + by, w: 74, h: 68, seed: seed++ }); }
-    } else if (zone < 0.72) { // mid-ring: commerce and civic lots
-      if (roll < 0.3) { put('church', -34, 0); put('house', 40, -28); decor.push({ kind: 'park', x: bx + 34, y: by + 32, w: 70, h: 56, seed: seed++ }); }
-      else if (roll < 0.62) { put('shop', -42, -30); put('shop', -42, 32); put('apartment', 34, 0); }
-      else { put('warehouse', -26, -28); put('shop', 34, 34); decor.push({ kind: 'lot', x: bx + 34, y: by - 30, w: 66, h: 58, seed: seed++ }); }
-    } else { // edge: residential sprawl, the odd gas station
-      if (roll < 0.24) { put('gasstation', -36, -32); put('house', 34, -30); put('house', 34, 34); }
-      else if (roll < 0.5) { put('warehouse', -26, 28); put('house', 36, -30); }
-      else { put('house', -36, -30); put('house', 38, -30); put('house', -36, 32); if (prand(seed++) < 0.6) put('house', 38, 32); }
+    const packHouses = (cols, rows, sx, sy) => {
+      const x0 = -(cols - 1) * sx / 2, y0 = -(rows - 1) * sy / 2;
+      for (let c = 0; c < cols; c++) for (let r = 0; r < rows; r++) put('house', x0 + c * sx, y0 + r * sy);
+    };
+    // ~1 block in 8 is an urban ore field — a parking lot or park you can mine,
+    // so the city isn't pocked with empty grass. Richer per haul than open ore.
+    if (prand(seed++) < 0.13) {
+      patchSpots.push({ x: bx, y: by, amount: 1800, rich: true });
+      decor.push({ kind: prand(seed++) < 0.5 ? 'lot' : 'park', x: bx, y: by, w: BLOCK_W - 12, h: BLOCK_H - 12, seed: seed++ });
+      return;
+    }
+    if (zone < 0.38) { // downtown: towers packed tight over storefronts
+      if (roll < 0.2) { put('skyscraper', -4, -4); put('shop', 50, 44); put('shop', -52, 42); }
+      else if (roll < 0.3) { put('radiotower', -36, -34); put('office', 26, 24); put('shop', 44, -38); put('shop', -40, 42); }
+      else if (roll < 0.62) { put('office', -34, -28); put('office', 34, 30); put('shop', 44, -38); put('shop', -46, 38); }
+      else { put('apartment', -34, -2); put('apartment', 36, -2); put('shop', -2, -46); put('shop', -2, 46); }
+    } else if (zone < 0.72) { // mid-ring: civic landmark or packed commerce
+      if (roll < 0.16) { const L = ['hospital', 'bank', 'researchlab', 'tvstation', 'radar', 'monument', 'substation', 'fueldepot', 'blacksite']; put(L[Math.floor(prand(seed++) * L.length)], -2, -2); put('shop', 52, 42); put('shop', -52, -42); }
+      else if (roll < 0.36) { put('church', -34, -2); put('house', 44, -34); put('house', 44, 34); decor.push({ kind: 'park', x: bx + 42, y: by, w: 44, h: 92, seed: seed++ }); }
+      else if (roll < 0.66) { put('shop', -50, -32); put('shop', 0, -32); put('shop', 50, -32); put('apartment', -30, 32); put('apartment', 36, 32); }
+      else { put('warehouse', -24, -28); put('shop', 44, 32); put('shop', 44, -36); put('house', -44, 36); }
+    } else { // edge: dense residential
+      if (roll < 0.2) { packHouses(3, 2, 50, 52); put('gasstation', 0, 12); }
+      else if (roll < 0.44) { put('warehouse', -22, -22); put('house', 42, -34); put('house', 42, 34); put('house', -44, 40); }
+      else if (roll < 0.72) { packHouses(3, 3, 50, 44); }
+      else { packHouses(2, 3, 58, 44); put('shop', 42, 0); }
     }
   };
 
@@ -251,7 +265,15 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     }
   };
 
-  if (setting === 'urban') {
+  if (setting === 'metropolis') {
+    // wall-to-wall city: one enormous grid covering the bulk of the map, so
+    // 75%+ of the battlefield is streets, blocks and towers. Blocks near the
+    // player starts and mineral fields stay clear (blockClear handles it), so
+    // there's always room to raise a base at the edges of the sprawl.
+    const bw = Math.max(4, Math.floor((WORLD_W * 0.96) / PITCH_X));
+    const bh = Math.max(4, Math.floor((WORLD_H * 0.96) / PITCH_Y));
+    placeCity(cx, cy, bw, bh);
+  } else if (setting === 'urban') {
     // one metropolis near the middle of the map...
     const big = Math.random() < 0.5 ? [5, 3] : [4, 4];
     for (let tries = 0; tries < 40; tries++) {
@@ -282,6 +304,27 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     if (!neutrals.filter(n => n.type === 'derrick').every(n => dist2(n.x, n.y, x, y) > 550)) continue;
     neutrals.push({ type: 'derrick', x, y });
     i++;
+  }
+
+  // capturable landmarks out in the open country/town (cities seed their own via
+  // the block filler): the full slate of contestable special structures
+  if (setting !== 'metropolis' && setting !== 'urban') {
+    const LANDMARKS = ['hospital', 'bank', 'radiotower', 'radar', 'researchlab', 'substation', 'mast5g', 'tvstation', 'monument', 'fueldepot', 'blacksite'];
+    const nLandmark = 2 + Math.round(area / 3.5e6);
+    for (let i = 0, tries = 0; i < nLandmark && tries < 400; tries++) {
+      const x = 200 + Math.random() * (WORLD_W - 400), y = 200 + Math.random() * (WORLD_H - 400);
+      if (!clearForNeutral(x, y, 430)) continue;
+      neutrals.push({ type: LANDMARKS[Math.floor(Math.random() * LANDMARKS.length)], x, y });
+      i++;
+    }
+    // the rural mystery: a downed saucer — hold it and salvaged UFO tech is yours
+    const nUfo = 1 + (area > 8e6 ? 1 : 0);
+    for (let i = 0, tries = 0; i < nUfo && tries < 200; tries++) {
+      const x = 220 + Math.random() * (WORLD_W - 440), y = 220 + Math.random() * (WORLD_H - 440);
+      if (!clearForNeutral(x, y, 460)) continue;
+      neutrals.push({ type: 'ufocrash', x, y });
+      i++;
+    }
   }
 
   // ---- solid terrain: ridge, central feature, scattered obstacles ----

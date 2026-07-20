@@ -117,7 +117,7 @@
         } else if (p.kind === 'smoke') {
           ctx.fillStyle = `rgba(105,105,105,${f * 0.35})`;
           ctx.beginPath();
-          ctx.arc(px, py, p.r + (1 - f) * p.grow, 0, TAU);
+          ctx.arc(px, py, Math.max(0, p.r + (1 - f) * p.grow), 0, TAU);
           ctx.fill();
         } else if (p.kind === 'flash') {
           ctx.fillStyle = `rgba(${c[0]},${c[1]},${c[2]},${f * 0.9})`;
@@ -3718,6 +3718,147 @@
     });
     blinker(ctx, t, rt[0] + (w - 18) / 2, rt[1] + 3, '#ff5f5f', 2.2);
   };
+  B.skyscraper = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    // a real high-rise: three glass tiers stacked and stepped inward, crowned by
+    // an antenna mast with a warning beacon — towers over everything else
+    const WIN = s => ({ win: { rows: 4, paneH: 3.4, inset: 2.2, litRate: 2, seed: s, litCol: 'rgba(180,222,255,0.6)' } });
+    let rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 30, '#4b535e', { ...WIN(3), doorSE: { w: 11, h: 9 } });
+    rt = isoBox(ctx, rt[0] + 7, rt[1] + 7, w - 20, h - 20, 28, '#58606c', { ...WIN(8), noShadow: true });
+    rt = isoBox(ctx, rt[0] + 7, rt[1] + 7, w - 34, h - 34, 24, '#657182', { ...WIN(13), noShadow: true });
+    const mx = rt[0] + (w - 34) / 2, my = rt[1] + (h - 34) / 2;
+    billboard(ctx, mx, my, () => { ctx.strokeStyle = '#9aa2ac'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -15); ctx.stroke(); });
+    blinker(ctx, t, mx, my - 15, '#ff5f5f', 2);
+  };
+  B.hospital = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 16, '#e4e8ec', {
+      win: { rows: 3, paneH: 3.2, inset: 2.4, litRate: 3, seed: 4, litCol: 'rgba(150,210,255,0.5)' }, doorSE: { w: 12, h: 8 },
+    });
+    const cx2 = rt[0] + (w - 6) / 2, cy2 = rt[1] + (h - 6) / 2;
+    ctx.fillStyle = '#d23b2e'; // red cross on the roof
+    ctx.fillRect(cx2 - 2.5, cy2 - 7.5, 5, 15); ctx.fillRect(cx2 - 7.5, cy2 - 2.5, 15, 5);
+    ctx.fillStyle = '#3aa0d0'; ctx.fillRect(rt[0] + 4, rt[1] + 4, 6, 4); // rooftop AC unit
+  };
+  B.bank = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 16, '#cfc7ac', { doorSE: { w: 16, h: 10 } });
+    // classical columns marching across the lit SE facade
+    ctx.fillStyle = '#e6dfc6';
+    for (let i = 0; i < 5; i++) ctx.fillRect(-w / 2 + 8 + i * ((w - 16) / 5), 2, 3, 10);
+    // gold seal on the roof
+    ctx.fillStyle = '#d7b24a';
+    ctx.beginPath(); ctx.arc(rt[0] + (w - 6) / 2, rt[1] + (h - 6) / 2, 6.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#a5842f'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = '#8a6f26'; ctx.font = 'bold 8px Georgia'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('$', rt[0] + (w - 6) / 2, rt[1] + (h - 6) / 2 + 0.5);
+  };
+  B.radiotower = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 8, '#565c66'); // equipment shed
+    billboard(ctx, 0, -2, () => {
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1.4; // lattice mast (three legs)
+      ctx.beginPath(); ctx.moveTo(-3.2, 0); ctx.lineTo(0, -36); ctx.lineTo(3.2, 0); ctx.moveTo(0, 0); ctx.lineTo(0, -36); ctx.stroke();
+      ctx.lineWidth = 0.6;
+      for (let i = 1; i < 7; i++) { const yy = -i * 5, wd = 3.2 * (1 - i / 8); ctx.beginPath(); ctx.moveTo(-wd, yy); ctx.lineTo(wd, yy); ctx.stroke(); }
+      const p = (t * 0.7) % 1; // pulsing broadcast rings
+      ctx.strokeStyle = `rgba(120,220,255,${0.55 * (1 - p)})`; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.arc(0, -36, 3 + p * 11, 0, TAU); ctx.stroke();
+    });
+    blinker(ctx, t, 0, -38, '#ff5f5f', 3);
+  };
+  B.radar = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 12, '#4e5560', { doorSE: { w: 9, h: 6 } });
+    billboard(ctx, rt[0] + (w - 6) / 2, rt[1] + (h - 6) / 2, () => {
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -7); ctx.stroke();
+      ctx.save(); ctx.translate(0, -8); ctx.scale(1, 0.5); ctx.rotate(t * 1.6); // sweeping dish
+      ctx.fillStyle = '#c8cdd5'; ctx.beginPath(); ctx.ellipse(0, 0, 8, 8, 0, -1.15, 1.15); ctx.lineTo(0, 0); ctx.fill();
+      ctx.strokeStyle = '#5d646d'; ctx.lineWidth = 0.8; ctx.stroke(); ctx.restore();
+    });
+  };
+  B.researchlab = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 14, '#586472', {
+      win: { rows: 2, paneH: 3, inset: 2.5, litRate: 2, seed: 5, litCol: 'rgba(150,255,220,0.5)' }, doorSE: { w: 10, h: 7 } });
+    const cx2 = rt[0] + (w - 6) / 2, cy2 = rt[1] + (h - 6) / 2;
+    const g = ctx.createRadialGradient(cx2, cy2, 1, cx2, cy2, 9);
+    g.addColorStop(0, `rgba(125,255,214,${0.6 + 0.3 * Math.sin(t * 3)})`); g.addColorStop(1, 'rgba(60,140,120,0.15)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(cx2, cy2, 8, 6, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#3a7a68'; ctx.lineWidth = 1; ctx.stroke();
+  };
+  B.substation = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 5, '#48483f');
+    for (const dx of [-11, 3]) isoBox(ctx, dx, -6, 10, 12, 14, '#6a6258', { noShadow: true });
+    if (Math.sin(t * 7) > 0.55) { ctx.strokeStyle = 'rgba(160,220,255,0.9)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(-4, -16); ctx.lineTo(-1, -20); ctx.lineTo(-3, -18); ctx.lineTo(0, -22); ctx.stroke(); }
+    ctx.fillStyle = '#d9b24a'; ctx.fillRect(-w / 2 + 5, h / 2 - 7, w - 10, 2);
+  };
+  B.mast5g = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 6, '#4e5560');
+    billboard(ctx, 0, -1, () => {
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -30); ctx.stroke();
+      ctx.fillStyle = '#c8cdd5'; for (let i = 0; i < 3; i++) { ctx.save(); ctx.translate(0, -28); ctx.rotate(i * 2.09); ctx.fillRect(-1, -2, 2, 6); ctx.restore(); }
+      const p = (t * 1.2) % 1; ctx.strokeStyle = `rgba(180,140,255,${0.5 * (1 - p)})`; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(0, -28, 4 + p * 13, 0, TAU); ctx.stroke();
+    });
+    blinker(ctx, t, 0, -30, '#ff5f5f', 3);
+  };
+  B.tvstation = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 13, '#555b64', {
+      win: { rows: 2, paneH: 3, inset: 2.5, litRate: 2, seed: 6, litCol: 'rgba(190,225,255,0.55)' }, doorSE: { w: 10, h: 7 } });
+    ctx.fillStyle = '#c8cdd5'; ctx.beginPath(); ctx.ellipse(rt[0] + 9, rt[1] + 9, 6, 4, -0.5, 0, TAU); ctx.fill();
+    const mx = rt[0] + (w - 6) / 2 + 7, my = rt[1] + (h - 6) / 2;
+    billboard(ctx, mx, my, () => {
+      ctx.strokeStyle = '#9aa2ac'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -24); ctx.stroke();
+      ctx.lineWidth = 0.7; for (let i = 1; i < 4; i++) { const yy = -i * 5.5; ctx.beginPath(); ctx.moveTo(-2.5 * (1 - i / 5), yy); ctx.lineTo(2.5 * (1 - i / 5), yy); ctx.stroke(); }
+    });
+    blinker(ctx, t, mx, my - 24, '#ff5f5f', 2.5);
+  };
+  B.monument = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    let rt = isoBox(ctx, -w / 2 + 4, -h / 2 + 4, w - 8, h - 8, 6, '#8a8272');
+    rt = isoBox(ctx, rt[0] + 6, rt[1] + 6, w - 20, h - 20, 5, '#9a9282', { noShadow: true });
+    billboard(ctx, rt[0] + (w - 20) / 2, rt[1] + (h - 20) / 2, () => {
+      const g = ctx.createLinearGradient(-4, 0, 4, 0); g.addColorStop(0, '#b8b0a0'); g.addColorStop(1, '#867e6e');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-3.5, 0); ctx.lineTo(-2, -22); ctx.lineTo(0, -28); ctx.lineTo(2, -22); ctx.lineTo(3.5, 0); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#6e6658'; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.fillStyle = '#d7b24a'; ctx.beginPath(); ctx.moveTo(-2, -22); ctx.lineTo(0, -28); ctx.lineTo(2, -22); ctx.closePath(); ctx.fill();
+    });
+  };
+  B.fueldepot = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 4, '#48483f');
+    for (const dx of [-13, 6]) {
+      ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(dx + 2, 3, 10, 5, 0, 0, TAU); ctx.fill();
+      const g = ctx.createLinearGradient(dx - 10, 0, dx + 10, 0); g.addColorStop(0, '#847e72'); g.addColorStop(0.5, '#b0aa9c'); g.addColorStop(1, '#6e685c');
+      ctx.fillStyle = g; ctx.fillRect(dx - 10, -15, 20, 17);
+      ctx.fillStyle = '#c2bcae'; ctx.beginPath(); ctx.ellipse(dx, -15, 10, 5, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#c0442e'; ctx.fillRect(dx - 10, -8, 20, 2);
+    }
+  };
+  B.blacksite = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    const rt = isoBox(ctx, -w / 2 + 3, -h / 2 + 3, w - 6, h - 6, 12, '#2c2f36', { doorSE: { w: 14, h: 9 } });
+    ctx.fillStyle = '#1a1c21'; ctx.fillRect(rt[0] + 4, rt[1] + 4, w - 14, h - 14);
+    ctx.fillStyle = '#0d0e11'; ctx.fillRect(-w / 2 + 8, -2, w - 16, 5); // redaction bar on the facade
+    blinker(ctx, t, rt[0] + (w - 6) / 2, rt[1] + 4, '#ff3b30', 1.5);
+  };
+  B.ufocrash = (ctx, t, o) => {
+    const w = o.w, h = o.h;
+    ctx.fillStyle = '#26251f'; ctx.beginPath(); ctx.ellipse(0, 2, w / 2 - 2, h / 2 - 4, 0, 0, TAU); ctx.fill(); // scorched crater
+    ctx.save(); ctx.rotate(-0.2); // a saucer half-buried at a tilt
+    const g = ctx.createLinearGradient(0, -8, 0, 8); g.addColorStop(0, '#9aa3b2'); g.addColorStop(1, '#5a6470');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 22, 10, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#3a4048'; ctx.lineWidth = 1.2; ctx.stroke();
+    const dg = ctx.createRadialGradient(-3, -4, 1, 0, -2, 10); dg.addColorStop(0, '#bfe4ff'); dg.addColorStop(1, '#4a6270');
+    ctx.fillStyle = dg; ctx.beginPath(); ctx.ellipse(-2, -3, 8, 6, 0, 0, TAU); ctx.fill();
+    for (let i = 0; i < 7; i++) { const a = i / 7 * TAU; ctx.fillStyle = Math.sin(t * 3 + i) > 0 ? '#7dffd6' : '#2a6a5a'; ctx.beginPath(); ctx.arc(Math.cos(a) * 18, Math.sin(a) * 8, 1.1, 0, TAU); ctx.fill(); }
+    ctx.restore();
+    billboard(ctx, 8, -6, () => { ctx.fillStyle = `rgba(120,120,120,${0.28 + 0.14 * Math.sin(t * 2)})`; ctx.beginPath(); ctx.arc(0, -6 - Math.sin(t) * 2, 4, 0, TAU); ctx.arc(1, -12, 3, 0, TAU); ctx.fill(); });
+  };
   B.shop = (ctx, t, o) => {
     const w = o.w, h = o.h;
     const v = Math.abs(Math.floor(((o.wx || 0) * 5 + (o.wy || 0) * 17))) % 3;
@@ -4068,9 +4209,16 @@
   // ================= fortifications & service structures =================
   const wallColByFam = fam =>
     fam === 'flat' ? '#a9c3cc' : fam === 'hollow' ? '#6b6152' : fam === 'glob' ? '#79828e' : '#3d4658';
+  // each faction's rampart is its own material — palisade, scrap, concrete,
+  // blacked-out slab, hewn stone, alloy, chitin — so no two teams' walls match
+  const WALL_COL = {
+    flat: '#b1a06a', resistance: '#8a6f4c', glob: '#8a94a2', deep: '#3b414c',
+    hollow: '#6b6152', grey: '#5b6776', reptilian: '#556149',
+  };
+  const wallCol = o => WALL_COL[o.faction] || wallColByFam(o.fam);
 
   B.wall = (ctx, t, o) => {
-    const col = wallColByFam(o.fam);
+    const col = wallCol(o);
     const c = o.conn || {};
     const any = c.e || c.w || c.n || c.s;
     // thin masonry panels reach toward each connected neighbour; a stouter
@@ -4093,15 +4241,32 @@
     isoBox(ctx, -POST / 2, -POST / 2, POST, POST, H + 1.5, col, { r: 1.6, noShadow: true, roofCol: shade(col, 0.34) });
     if (c.e) isoBox(ctx, 0, -PW / 2, HALF, PW, H, col, PANEL);
     if (c.s) isoBox(ctx, -PW / 2, 0, PW, HALF, H, col, PANEL);
-    // family accent: an energy seam winks on the alloy barrier's cap
+    // material accent on the post cap, keyed to the faction; the aliens' alloy
+    // wall runs a glowing energy seam (cyan for Greys, acid-green for Reptilians)
+    const capY = -(H + 1.5);
     if (o.fam === 'alien') {
-      ctx.fillStyle = `rgba(125,255,214,${0.45 + 0.25 * Math.sin(t * 3 + (o.wx || 0) * 0.06)})`;
-      ctx.fillRect(-2.2 - (H + 1.5), -2.2 - (H + 1.5), 4.4, 4.4);
+      const glow = o.faction === 'reptilian' ? '150,220,80' : '125,255,214';
+      ctx.fillStyle = `rgba(${glow},${0.45 + 0.28 * Math.sin(t * 3 + (o.wx || 0) * 0.06)})`;
+      ctx.fillRect(-2.2 + capY, -2.2 + capY, 4.4, 4.4);
+    } else if (o.faction === 'resistance') {
+      // scrap wall: a couple of rivet bolts on the cap
+      ctx.fillStyle = 'rgba(40,28,18,0.55)';
+      ctx.fillRect(-2.6 + capY, -0.4 + capY, 1.5, 1.5);
+      ctx.fillRect(1.1 + capY, 1.4 + capY, 1.5, 1.5);
+    } else if (o.fam === 'hollow') {
+      ctx.fillStyle = 'rgba(0,0,0,0.24)'; // hewn-stone pitting
+      ctx.fillRect(-1.4 + capY, 0.6 + capY, 1.8, 1.8);
     }
+    // team colours: a painted band across the coping so every team's wall is
+    // recognisably theirs even within a shared family (Globalists vs Deep State)
+    ctx.fillStyle = o.color;
+    ctx.globalAlpha = 0.9;
+    ctx.fillRect(-3 + capY, -3 + capY, 6, 1.6);
+    ctx.globalAlpha = 1;
   };
 
   B.gate = (ctx, t, o) => {
-    const col = wallColByFam(o.fam);
+    const col = wallCol(o);
     // low roadway slab the owner's traffic rolls over
     ctx.fillStyle = shade(col, -0.3);
     rr(ctx, -o.w / 2 + 3, -o.h / 2 + 3, o.w - 6, o.h - 6, 2);
@@ -4478,6 +4643,56 @@
     ctx.strokeStyle = o.color;
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(0, 0, 21, 16, 0, 2.6, 4.2); ctx.stroke();
+  };
+  B.datacenter = (ctx, t, o) => {
+    // Globalist server farm: a sealed hall bristling with blinking racks and a
+    // rooftop uplink dish — premium infrastructure that prints minerals
+    pad(ctx, o);
+    const rt = isoBox(ctx, -23, -20, 44, 38, 15, '#38414e', { r: 3 });
+    const [rx, ry] = rt;
+    // roof server-rack rows
+    ctx.fillStyle = '#2a323d';
+    for (let i = 0; i < 3; i++) { rr(ctx, rx + 5, ry + 5 + i * 10, 34, 6.5, 1.5); ctx.fill(); }
+    ctx.strokeStyle = shade('#38414e', 0.15); ctx.lineWidth = 0.5;
+    for (let i = 0; i < 3; i++) for (let j = 1; j < 7; j++) { const lx = rx + 5 + j * 4.8; ctx.beginPath(); ctx.moveTo(lx, ry + 5 + i * 10); ctx.lineTo(lx, ry + 11 + i * 10); ctx.stroke(); }
+    // team-colour trim stripe down the lit edge
+    ctx.fillStyle = o.color; ctx.fillRect(rx + 1.5, ry + 2, 2, 34);
+    // blinking status LEDs marching across the racks
+    for (let i = 0; i < 7; i++) { const on = Math.sin(t * 3 + i * 1.3) > 0; ctx.fillStyle = on ? (i % 2 ? '#8cd0ff' : '#7dffa0') : '#20303a'; ctx.beginPath(); ctx.arc(rx + 7 + i * 4.6, ry + 34, 1, 0, TAU); ctx.fill(); }
+    // rooftop uplink dish
+    billboard(ctx, rx + 30, ry + 8, () => {
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -6); ctx.stroke();
+      ctx.fillStyle = '#c8cdd5'; ctx.beginPath(); ctx.ellipse(1.5, -7, 4, 2.6, -0.5, 0, TAU); ctx.fill();
+    });
+  };
+  B.refinery = (ctx, t, o) => {
+    // ore refinery: a processing block, a fat storage silo and an intake bay
+    // rigs dump into — a forward drop-off so the fields come to the base
+    pad(ctx, o);
+    // intake-bay apron on the SW side (where haulers pull in)
+    ctx.fillStyle = '#3a3f36'; rr(ctx, -26, 8, 26, 18, 2); ctx.fill();
+    ctx.strokeStyle = '#c9b24a'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.strokeRect(-24, 10, 22, 14); ctx.setLineDash([]);
+    // main processing block
+    const rt = isoBox(ctx, -20, -20, 36, 32, 13, '#4c4d43', { r: 2 });
+    const [rx, ry] = rt;
+    ctx.fillStyle = '#3a3b33'; rr(ctx, rx + 4, ry + 4, 28, 24, 2); ctx.fill();
+    ctx.fillStyle = shade('#4c4d43', 0.2); ctx.fillRect(rx + 6, ry + 6, 24, 3);
+    // storage silo (cylinder) beside the block
+    const sx = 20, sy = -4, sr = 9, sh = 22;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)'; ctx.beginPath(); ctx.ellipse(sx + 2, sy + 3, sr, sr * 0.5, 0, 0, TAU); ctx.fill();
+    const sg = ctx.createLinearGradient(sx - sr, 0, sx + sr, 0);
+    sg.addColorStop(0, '#6a6a5c'); sg.addColorStop(0.5, '#8a8a7a'); sg.addColorStop(1, '#565649');
+    ctx.fillStyle = sg; ctx.fillRect(sx - sr, sy - sh, sr * 2, sh);
+    ctx.beginPath(); ctx.ellipse(sx, sy - sh, sr, sr * 0.5, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#9a9a88'; ctx.beginPath(); ctx.ellipse(sx, sy - sh, sr, sr * 0.5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = shade('#8a8a7a', -0.4); ctx.lineWidth = 0.8;
+    for (const yy of [sy - sh * 0.66, sy - sh * 0.33]) { ctx.beginPath(); ctx.moveTo(sx - sr, yy); ctx.lineTo(sx + sr, yy); ctx.stroke(); }
+    ctx.fillStyle = o.color; ctx.fillRect(sx - sr, sy - sh * 0.5, sr * 2, 3); // team band
+    // smelter vent glow + heat shimmer on the block roof
+    const glow = 0.5 + 0.5 * Math.sin(t * 4);
+    ctx.fillStyle = `rgba(255,150,60,${0.4 + glow * 0.4})`;
+    ctx.beginPath(); ctx.arc(rx + 26, ry + 22, 2.4 + glow, 0, TAU); ctx.fill();
   };
 
   const I = {};
@@ -5171,7 +5386,390 @@
     if (cfg.above) cfg.above(ctx, t, o);
   }
 
+  // --- aircraft: a 3D iso silhouette with the SAME dimetric read as the ground
+  // hulls, but authored for the sky. Differences from isoHull3D:
+  //   * NO baked contact shadow — drawUnitIso casts the flying shadow on the
+  //     ground far below, so a shadow welded to the hull would be wrong.
+  //   * `parts` each extrude from THEIR OWN base (not stacked), so a high wing,
+  //     a low fuselage and a tall tail-fin can coexist at different heights.
+  //   * `props` spin as screen-space discs lifted onto their nacelles.
+  //   * `roll` shears the whole craft so it banks into turns (fed by the sim).
+  function isoAircraft(ctx, t, o, cfg) {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    // bank: tip the silhouette about its own fuselage axis. A horizontal shear
+    // reads as roll in this dimetric view without disturbing the heading.
+    const roll = o.roll || 0;
+    if (roll) ctx.transform(1, 0, -Math.sin(roll) * 0.9, 1, 0, 0);
+    const proj = ([fx, fy]) => {
+      const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos;
+      return [wx - wy, (wx + wy) * 0.5];
+    };
+    for (const part of cfg.parts) {
+      const g = part.poly.map(proj);
+      const base = part.base || 0, top = base + part.h;
+      // extrude the footprint straight up the screen; flanks darken toward the
+      // belly so they read as lit vertical faces
+      for (let z = top; z > base; z -= 1) {
+        const f = (z - base) / part.h;
+        ctx.fillStyle = shade(part.body, -0.12 - 0.34 * f);
+        ctx.beginPath();
+        g.forEach(([x, y], i) => (i ? ctx.lineTo(x, y - z) : ctx.moveTo(x, y - z)));
+        ctx.closePath(); ctx.fill();
+      }
+      // lit top face + its deck detailing, elevated onto this part
+      ctx.save();
+      ctx.translate(0, -top);
+      ctx.beginPath();
+      g.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)));
+      ctx.closePath();
+      ctx.fillStyle = part.body; ctx.fill();
+      ctx.strokeStyle = shade(part.body, -0.5); ctx.lineWidth = 0.8; ctx.stroke();
+      if (part.detail) { ctx.transform(1, 0.5, -1, 0.5, 0, 0); ctx.rotate(o.facing); part.detail(ctx, t, o); }
+      ctx.restore();
+    }
+    // spinning props/rotors, each lifted onto its nacelle
+    if (cfg.props) for (const p of cfg.props) {
+      const [px, py] = proj([p.x, p.y]);
+      ctx.save();
+      ctx.translate(px, py - (p.z || 6));
+      ctx.fillStyle = 'rgba(200,205,215,0.05)';
+      ctx.beginPath(); ctx.arc(0, 0, p.r, 0, TAU); ctx.fill();
+      ctx.rotate(t * (p.speed || 26));
+      ctx.strokeStyle = 'rgba(205,210,220,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-p.r, 0); ctx.lineTo(p.r, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, -p.r); ctx.lineTo(0, p.r); ctx.stroke();
+      ctx.fillStyle = '#3c414a'; ctx.beginPath(); ctx.arc(0, 0, 1.2, 0, TAU); ctx.fill();
+      ctx.restore();
+    }
+    // barrels/blinkers/beacons in the ground frame, lifted onto the hull mid-line
+    if (cfg.rig) {
+      ctx.save();
+      ctx.translate(0, -(cfg.rigLift || 4));
+      ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+      ctx.rotate(o.facing);
+      cfg.rig(ctx, t, o);
+      ctx.restore();
+    }
+  }
+
+  // AC-130 gunship: a 3D four-engine airframe with a broadside battery — the
+  // first aircraft on the iso path (drawScale 1.5 enlarges it externally).
+  I.gunship = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    // drawn belly-up: hull and empennage first, then the high wing sits ON TOP
+    // of the fuselage so BOTH wing roots read full-length (the tall hull no
+    // longer paints over the far wing and makes it look stubby)
+    parts: [
+      // pointed fuselage
+      { poly: [[15, 0], [12, -3.4], [-11, -3.6], [-14, -1.4], [-14, 1.4], [-11, 3.6], [12, 3.4]], base: 0, h: 7, body: '#2e333c',
+        detail: (c) => {
+          c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -10, -1.4, 22, 2.8, 1.2); c.fill();     // spine highlight
+          c.fillStyle = '#18384a'; rr(c, 9, -2.6, 4.2, 5.2, 1.8); c.fill();                     // cockpit glass
+          c.fillStyle = 'rgba(150,220,255,0.35)'; rr(c, 10, -1.8, 1.8, 3.6, 1); c.fill();
+          c.strokeStyle = shade('#2e333c', -0.45); c.lineWidth = 0.5;                            // frame seams
+          for (let x = -8; x <= 6; x += 4) { c.beginPath(); c.moveTo(x, -3); c.lineTo(x, 3); c.stroke(); }
+        } },
+      // horizontal stabilizer at the tail
+      { poly: [[-9, -8], [-9, 8], [-13, 6], [-13, -6]], base: 4, h: 1.1, body: '#232830' },
+      // vertical tail fin (thin wall extruded well up)
+      { poly: [[-9, -0.9], [-14, -0.9], [-14, 0.9], [-9, 0.9]], base: 3.5, h: 11, body: '#20242b' },
+      // four turboprop nacelles slung under the wing (drawn before the wing so
+      // its leading edge tucks over their tops)
+      ...[8, 14, -8, -14].map(yc => ({ poly: [[3.5, yc - 1.5], [3.5, yc + 1.5], [-1.5, yc + 1.5], [-1.5, yc - 1.5]], base: 3.4, h: 2.2, body: '#1c2027' })),
+      // long, slightly tapered high wing — full symmetric span on top of the hull
+      { poly: [[4, -19], [4, 19], [-3, 16], [-3, -16]], base: 5, h: 1.4, body: '#262b33',
+        detail: (c) => {
+          c.strokeStyle = 'rgba(255,255,255,0.07)'; c.lineWidth = 0.6; c.beginPath(); c.moveTo(0.5, -18); c.lineTo(0.5, 18); c.stroke();
+          c.strokeStyle = shade('#262b33', -0.4); c.lineWidth = 0.4;
+          for (const y of [-14, -6, 6, 14]) { c.beginPath(); c.moveTo(-2.5, y); c.lineTo(3.5, y); c.stroke(); }
+        } },
+    ],
+    props: [8, 14, -8, -14].map((yc, i) => ({ x: 4.8, y: yc, z: 6.4, r: 3.4, speed: 25 + i })),
+    rigLift: 4,
+    rig: (c, t, o) => {
+      // broadside howitzer + cannon off the port flank, with muzzle flash
+      c.strokeStyle = '#3a3f48'; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(-2, 3.6); c.lineTo(2, 8); c.stroke();
+      c.beginPath(); c.moveTo(-7, 3.6); c.lineTo(-4.5, 7); c.stroke();
+      if (o.firing) { c.fillStyle = 'rgba(255,220,130,0.9)'; c.beginPath(); c.moveTo(2, 8); c.lineTo(6, 12); c.lineTo(1, 10); c.closePath(); c.fill(); }
+      if (Math.sin(t * 6) > 0.2) { c.fillStyle = 'rgba(255,80,80,0.95)'; c.beginPath(); c.arc(-13, 0, 1, 0, TAU); c.fill(); } // tail beacon
+    },
+  });
+
+  // --- flying saucer: a radially-symmetric disc, so it ignores heading and
+  // spins on its own axis. A dark underside crescent reads as rim thickness, a
+  // lit top disc + gradient dome give the dimetric volume, rim lights chase.
+  function isoSaucer(ctx, t, o, cfg) {
+    const R = cfg.R || 12, col = cfg.body || '#8a93a4', th = cfg.thick || 3;
+    const spin = t * (cfg.spin || 1.4);
+    if (cfg.glow) { // hovering underside glow pooled on the belly
+      const gg = ctx.createRadialGradient(0, th + 1, 1, 0, th + 1, R * 1.25);
+      gg.addColorStop(0, cfg.glow); gg.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = gg; ctx.beginPath(); ctx.ellipse(0, th + 3, R * 1.25, R * 0.62, 0, 0, TAU); ctx.fill();
+    }
+    // dark underside — its lower crescent peeks out below the top disc as rim
+    ctx.fillStyle = shade(col, -0.45);
+    ctx.beginPath(); ctx.ellipse(0, th, R, R * 0.5, 0, 0, TAU); ctx.fill();
+    // lit top disc
+    const tg = ctx.createLinearGradient(0, -R * 0.5, 0, R * 0.5);
+    tg.addColorStop(0, shade(col, 0.18)); tg.addColorStop(1, shade(col, -0.14));
+    ctx.fillStyle = tg;
+    ctx.beginPath(); ctx.ellipse(0, 0, R, R * 0.5, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = shade(col, -0.5); ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.strokeStyle = shade(col, -0.28); ctx.lineWidth = 0.6; // panel ring
+    ctx.beginPath(); ctx.ellipse(0, 0, R * 0.64, R * 0.32, 0, 0, TAU); ctx.stroke();
+    // rotating rim lights (dimmer on the far side)
+    const n = cfg.lights || 8;
+    for (let i = 0; i < n; i++) {
+      const a = spin + i / n * TAU;
+      const lit = Math.sin(a) > -0.25;
+      ctx.fillStyle = lit ? (cfg.lightCol || '#ffe487') : shade(cfg.lightCol || '#8a7a3a', -0.35);
+      ctx.beginPath(); ctx.arc(Math.cos(a) * R * 0.83, Math.sin(a) * R * 0.42 + 0.4, 1.1, 0, TAU); ctx.fill();
+    }
+    // dome
+    if (cfg.dome !== false) {
+      const dR = cfg.domeR || R * 0.5, dcol = cfg.domeCol || col;
+      const dg = ctx.createRadialGradient(-dR * 0.35, -R * 0.2 - dR * 0.5, 0.5, 0, -R * 0.15, dR * 1.3);
+      dg.addColorStop(0, shade(dcol, 0.42)); dg.addColorStop(1, shade(dcol, -0.18));
+      ctx.fillStyle = dg;
+      ctx.beginPath(); ctx.ellipse(0, -R * 0.15, dR, dR * 0.72, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = shade(dcol, -0.4); ctx.lineWidth = 0.6; ctx.stroke();
+      if (cfg.cockpit) { ctx.fillStyle = o.firing ? '#ff6a6a' : cfg.cockpit; ctx.beginPath(); ctx.arc(0, -R * 0.2, dR * 0.34, 0, TAU); ctx.fill(); }
+    }
+    if (cfg.top) cfg.top(ctx, t, o);
+  }
+  I.saucer = (ctx, t, o) => isoSaucer(ctx, t, o, { R: 13, body: '#9aa3b2', domeCol: '#c0c8d4', cockpit: '#8cd0ff', glow: 'rgba(140,200,255,0.35)', lightCol: '#bfe4ff', spin: 1.6, lights: 9 });
+  I.haunebu = (ctx, t, o) => isoSaucer(ctx, t, o, { R: 12, body: '#8a8f98', domeCol: '#9aa0aa', domeR: 7, cockpit: '#cfe0ff', glow: 'rgba(180,200,220,0.28)', lightCol: '#cfe0ff', spin: 1.1, lights: 10 });
+  I.vrildisc = (ctx, t, o) => isoSaucer(ctx, t, o, { R: 13, body: '#7d8794', domeCol: '#8fe3d9', cockpit: '#7dffd6', glow: 'rgba(125,255,214,0.4)', lightCol: '#7dffd6', spin: 2.0, lights: 10 });
+  I.abductor = (ctx, t, o) => isoSaucer(ctx, t, o, {
+    R: 12.5, body: '#6f7682', domeCol: '#3a3f4a', cockpit: '#a6ff6a', glow: 'rgba(160,255,90,0.38)', lightCol: '#a6ff6a', spin: 1.5, lights: 9,
+    top: (c, t, o) => { if (o.firing) { c.fillStyle = 'rgba(160,255,90,0.5)'; c.beginPath(); c.moveTo(-3, 4); c.lineTo(3, 4); c.lineTo(7, 16); c.lineTo(-7, 16); c.closePath(); c.fill(); } },
+  });
+  I.mothership = (ctx, t, o) => isoSaucer(ctx, t, o, { R: 22, body: '#6b7280', domeCol: '#8a93a4', domeR: 12, cockpit: '#ff6a6a', glow: 'rgba(200,160,255,0.3)', lightCol: '#d6b8ff', spin: 0.8, lights: 16, thick: 4 });
+
+  // ---- fixed-wing: sleek low-extrusion iso hulls (aircraft, not boxes), with
+  // wings as thin lifted planes and glowing exhaust; each keeps its silhouette
+  I.a10 = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[14, 0], [11, -3], [-12, -3.2], [-14, -1.5], [-14, 1.5], [-12, 3.2], [11, 3]], base: 0, h: 4, body: '#565c44',
+        detail: (c, t, o) => { c.fillStyle = 'rgba(255,255,255,0.08)'; rr(c, -10, -1.2, 20, 2.4, 1); c.fill();
+          c.fillStyle = '#16303a'; rr(c, 6.5, -2, 3.8, 4, 1.6); c.fill();
+          c.fillStyle = '#20242b'; c.fillRect(12, -0.8, 4, 1.6);
+          if (o.firing) { c.fillStyle = 'rgba(255,220,130,0.9)'; c.beginPath(); c.arc(17, 0, 2.2, 0, TAU); c.fill(); } } },
+      { poly: [[-10, -5.5], [-13, -5.5], [-13, 5.5], [-10, 5.5]], base: 2.5, h: 0.9, body: '#4a5038' },
+      { poly: [[-10, -5.5], [-14, -5.5], [-14, -3.3], [-10, -3.3]], base: 2, h: 5, body: '#3e442f' },
+      { poly: [[-10, 3.3], [-14, 3.3], [-14, 5.5], [-10, 5.5]], base: 2, h: 5, body: '#3e442f' },
+      ...[4.5, -4.5].map(y => ({ poly: [[-3, y - 2], [-9, y - 2], [-9, y + 2], [-3, y + 2]], base: 3, h: 3.2, body: '#3a3f30',
+        detail: (c) => { c.fillStyle = '#14171b'; c.beginPath(); c.arc(-3.5, y, 1.6, 0, TAU); c.fill(); } })),
+      { poly: [[3, -17], [3, 17], [-4, 15], [-4, -15]], base: 2.2, h: 1.1, body: '#4e5440',
+        detail: (c) => { c.strokeStyle = shade('#4e5440', -0.4); c.lineWidth = 0.4; for (const y of [-12, -6, 6, 12]) { c.beginPath(); c.moveTo(-3, y); c.lineTo(2.5, y); c.stroke(); } } },
+    ],
+  });
+  I.b1 = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      // swept wings (blended, drawn under the spine)
+      { poly: [[6, 2.5], [-6, 15], [-11, 14], [-4, 2.5]], base: 1.4, h: 1, body: '#333944' },
+      { poly: [[6, -2.5], [-6, -15], [-11, -14], [-4, -2.5]], base: 1.4, h: 1, body: '#333944' },
+      { poly: [[-9, -6], [-13, -6], [-13, 6], [-9, 6]], base: 1.4, h: 0.9, body: '#2c313a' }, // tailplane
+      { poly: [[-9, -0.9], [-14, -0.9], [-14, 0.9], [-9, 0.9]], base: 1.4, h: 6, body: '#262b33' }, // fin
+      { poly: [[18, 0], [13, -2.6], [-13, -3], [-16, -1], [-16, 1], [-13, 3], [13, 2.6]], base: 0, h: 3.6, body: '#3a4049',
+        detail: (c) => { c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -12, -1, 26, 2, 1); c.fill();
+          c.fillStyle = 'rgba(140,220,255,0.5)'; rr(c, 9, -1, 3.6, 2, 1); c.fill(); } },
+    ],
+    rigLift: 1.8,
+    rig: (c, t, o) => { const b = 0.6 + 0.4 * Math.sin(t * 22);
+      for (const y of [-2, 2]) { c.fillStyle = `rgba(255,${150 + Math.floor(b * 70)},60,${0.5 + b * 0.4})`;
+        c.beginPath(); c.moveTo(-15, y - 1.1); c.lineTo(-19 - b * 3, y); c.lineTo(-15, y + 1.1); c.closePath(); c.fill(); } },
+  });
+  I.reaper = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[2, -20], [2, 20], [-2, 20], [-2, -20]], base: 1.8, h: 0.8, body: '#b0b5be' }, // long thin wing
+      { poly: [[-10, -0.8], [-14, -5], [-14.6, -4], [-10.6, -0.8]], base: 1.4, h: 4.2, body: '#9aa0aa' }, // V-tail L
+      { poly: [[-10, 0.8], [-14, 5], [-14.6, 4], [-10.6, 0.8]], base: 1.4, h: 4.2, body: '#9aa0aa' },      // V-tail R
+      { poly: [[14, 0], [12, -1.9], [-13, -2], [-15, 0], [-13, 2], [12, 1.9]], base: 0, h: 3, body: '#c2c7ce',
+        detail: (c) => { c.fillStyle = '#5a6068'; c.beginPath(); c.arc(11.5, 0, 2.4, 0, TAU); c.fill();      // sensor nose
+          c.fillStyle = 'rgba(0,0,0,0.15)'; rr(c, -11, -1.4, 20, 2.8, 1); c.fill(); } },
+    ],
+    props: [{ x: -15.5, y: 0, z: 1.5, r: 2.6, speed: 34 }],
+  });
+  I.drake = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[4, 2], [-7, 13], [-11, 12], [-3, 2]], base: 1.4, h: 1, body: '#54604a' },
+      { poly: [[4, -2], [-7, -13], [-11, -12], [-3, -2]], base: 1.4, h: 1, body: '#54604a' },
+      { poly: [[-8, -0.9], [-13, -0.9], [-13, 0.9], [-8, 0.9]], base: 1.4, h: 5, body: '#414b39' },
+      { poly: [[15, 0], [11, -2.4], [-12, -2.8], [-14, 0], [-12, 2.8], [11, 2.4]], base: 0, h: 3.4, body: '#5d6a50',
+        detail: (c) => { c.fillStyle = 'rgba(255,255,255,0.08)'; rr(c, -10, -1, 22, 2, 1); c.fill();
+          c.fillStyle = 'rgba(150,220,255,0.5)'; rr(c, 8, -1, 3.4, 2, 1); c.fill(); } },
+    ],
+    rigLift: 1.6,
+    rig: (c, t) => { const b = 0.5 + 0.5 * Math.sin(t * 20); c.fillStyle = `rgba(255,150,60,${0.5 + b * 0.4})`;
+      c.beginPath(); c.moveTo(-13, -1); c.lineTo(-17 - b * 2, 0); c.lineTo(-13, 1); c.closePath(); c.fill(); },
+  });
+  I.b2 = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      // one flat chevron with the signature sawtooth trailing edge
+      { poly: [[13, 0], [-9, -16], [-6, -10], [-10, -5], [-6, 0], [-10, 5], [-6, 10], [-9, 16]], base: 0, h: 2.2, body: '#20242b',
+        detail: (c) => { c.strokeStyle = 'rgba(120,130,145,0.4)'; c.lineWidth = 0.7; c.beginPath(); c.moveTo(11, 0); c.lineTo(-6, 0); c.stroke();
+          c.fillStyle = 'rgba(140,220,255,0.35)'; rr(c, 5, -1, 3, 2, 1); c.fill();
+          for (const y of [-6, 6]) { c.fillStyle = 'rgba(255,150,70,0.5)'; c.fillRect(-8, y - 0.8, 1.8, 1.6); } } },
+    ],
+  });
+  I.tr3b = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      // matte-black equilateral triangle, very low profile, corner beacons + reactor
+      { poly: [[15, 0], [-11, -15], [-11, 15]], base: 0, h: 2, body: '#17191e',
+        detail: (c, t, o) => {
+          c.strokeStyle = 'rgba(90,96,105,0.5)'; c.lineWidth = 0.6; c.beginPath(); c.moveTo(13, 0); c.lineTo(-9, -13); c.moveTo(13, 0); c.lineTo(-9, 13); c.stroke();
+          const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+          c.fillStyle = `rgba(125,255,214,${0.4 + pulse * 0.5})`; c.beginPath(); c.arc(-3, 0, 2.4, 0, TAU); c.fill();      // reactor ring
+          for (const [x, y] of [[13, 0], [-9, -13], [-9, 13]]) { c.fillStyle = o.firing ? '#ff6a6a' : '#ffe487'; c.beginPath(); c.arc(x, y, 1.2, 0, TAU); c.fill(); }
+        } },
+    ],
+  });
+  I.chembiplane = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[6, -13], [6, 13], [0, 13], [0, -13]], base: 1, h: 1, body: '#6d6a58' },   // lower wing
+      { poly: [[12, 0], [9, -2], [-11, -2.2], [-13, 0], [-11, 2.2], [9, 2]], base: 0, h: 3, body: '#7a6f52',
+        detail: (c) => { c.fillStyle = '#2c2f36'; rr(c, 2, -1.4, 4, 2.8, 1); c.fill(); } }, // fuselage + open cockpit
+      { poly: [[-9, -0.8], [-13, -0.8], [-13, 0.8], [-9, 0.8]], base: 1, h: 4.5, body: '#5f5a48' }, // fin
+      { poly: [[7, -13], [7, 13], [1, 13], [1, -13]], base: 5, h: 1, body: '#807656',
+        detail: (c) => { for (const y of [-10, -5, 5, 10]) { c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 0.5; c.beginPath(); c.moveTo(1, y); c.lineTo(6.5, y); c.stroke(); } } }, // upper wing
+    ],
+    props: [{ x: 12.5, y: 0, z: 1.6, r: 3, speed: 30 }],
+  });
+
+  // ---- rotorcraft & multirotor drones: iso bodies with spinning discs ----
+  I.heli = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[-5, -1.4], [-18, -1.1], [-18, 1.1], [-5, 1.4]], base: 2.5, h: 2, body: '#20242b' }, // tail boom
+      { poly: [[-16, -0.7], [-19, -0.7], [-19, 0.7], [-16, 0.7]], base: 2.5, h: 4, body: '#262b33' }, // tail fin
+      { poly: [[-1, -10], [3, -10], [3, 10], [-1, 10]], base: 2.8, h: 1.2, body: '#2a2f37',
+        detail: (c) => { for (const y of [-9, 9]) { c.fillStyle = '#3a3f48'; rr(c, -1, y - 1.6, 3.5, 3.2, 1); c.fill(); c.fillStyle = '#14171c'; c.fillRect(2, y - 0.7, 1.2, 1.4); } } }, // stub wings + pods
+      { poly: [[13, 0], [10, -3.4], [-7, -3.6], [-9, -1.6], [-9, 1.6], [-7, 3.6], [10, 3.4]], base: 0, h: 5.5, body: '#2c313a',
+        detail: (c) => { c.fillStyle = 'rgba(255,255,255,0.12)'; rr(c, -6, -1.6, 15, 2.4, 1); c.fill();
+          c.fillStyle = '#101f2a'; rr(c, 6.5, -2.8, 5, 5.6, 2.2); c.fill();
+          c.fillStyle = 'rgba(150,225,255,0.4)'; rr(c, 8, -2, 2.4, 2, 1); c.fill();
+          c.fillStyle = '#3a3f48'; c.beginPath(); c.arc(12, 0, 1.6, 0, TAU); c.fill(); } },
+    ],
+    props: [{ x: 1.5, y: 0, z: 9, r: 15, speed: 34 }, { x: -18.5, y: 0, z: 2.5, r: 3, speed: 42 }],
+    rigLift: 5.5,
+    rig: (c, t) => { if (Math.sin(t * 6) > 0.3) { c.fillStyle = 'rgba(255,70,70,0.95)'; c.beginPath(); c.arc(-6, 0, 1.1, 0, TAU); c.fill(); } },
+  });
+  function quadDrone(body, s, eye) {
+    const arm = 6 * s;
+    return {
+      parts: [{ poly: [[-4 * s, -3 * s], [4 * s, -3 * s], [4 * s, 3 * s], [-4 * s, 3 * s]], base: 1, h: 2.4 * s, body,
+        detail: (c, t, o) => { c.strokeStyle = shade(body, 0.2); c.lineWidth = 1.4 * s;
+          for (const [x, y] of [[arm, -arm], [arm, arm], [-arm, -arm], [-arm, arm]]) { c.beginPath(); c.moveTo(0, 0); c.lineTo(x, y); c.stroke(); }
+          c.fillStyle = o.firing ? '#ff5f5f' : eye; c.beginPath(); c.arc(3 * s, 0, 1.2 * s, 0, TAU); c.fill(); } }],
+      props: [[arm, -arm], [arm, arm], [-arm, -arm], [-arm, arm]].map(([x, y], i) => ({ x, y, z: 2.4 * s, r: 3.2 * s, speed: 40 + i })),
+    };
+  }
+  I.drone = (ctx, t, o) => isoAircraft(ctx, t, o, quadDrone('#1d2129', 1, '#8cd0ff'));
+  I.fpv = (ctx, t, o) => isoAircraft(ctx, t, o, quadDrone('#2a2320', 0.72, '#ff8c4a'));
+  I.pigeon = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[3, -8], [-5, -9], [-6, -8], [-1, -1]], base: 1.5, h: 0.7, body: '#7a8290' }, // wing L
+      { poly: [[3, 8], [-5, 9], [-6, 8], [-1, 1]], base: 1.5, h: 0.7, body: '#7a8290' },      // wing R
+      { poly: [[8, 0], [5, -2], [-7, -1.8], [-9, 0], [-7, 1.8], [5, 2]], base: 0, h: 2.4, body: '#8a929e',
+        detail: (c, t, o) => { c.fillStyle = '#3a3f48'; c.beginPath(); c.arc(6, 0, 1.5, 0, TAU); c.fill(); // camera head
+          c.fillStyle = o.firing ? '#ff5f5f' : '#2ad0ff'; c.beginPath(); c.arc(6.6, 0, 0.7, 0, TAU); c.fill(); } },
+      { poly: [[-7, -3], [-10, -4], [-10, 4], [-7, 3]], base: 0.5, h: 0.6, body: '#6e7682' }, // tail fan
+    ],
+  });
+  I.shahed = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[9, 0], [-8, -9], [-9, -8], [-2, 0], [-9, 8], [-8, 9]], base: 0, h: 2.6, body: '#3c4038', // delta wing
+        detail: (c) => { c.strokeStyle = 'rgba(255,255,255,0.06)'; c.lineWidth = 0.5; c.beginPath(); c.moveTo(8, 0); c.lineTo(-8, 0); c.stroke(); } },
+      { poly: [[10, 0], [7, -1.4], [-9, -1.4], [-9, 1.4], [7, 1.4]], base: 2.4, h: 1.4, body: '#4a4e42',
+        detail: (c) => { c.fillStyle = '#6a5a3a'; c.beginPath(); c.arc(8, 0, 1.3, 0, TAU); c.fill(); } }, // warhead nose spine
+      { poly: [[-8, -0.7], [-11, -0.7], [-11, 0.7], [-8, 0.7]], base: 2, h: 3, body: '#33372f' }, // tail fin
+    ],
+    props: [{ x: -10.5, y: 0, z: 3, r: 2.4, speed: 40 }],
+  });
+
+  // ---- floating orbs: radially-symmetric sensor/utility spheres ----
+  function isoOrb(ctx, t, o, cfg) {
+    const R = cfg.R || 8;
+    if (cfg.halo) { const gg = ctx.createRadialGradient(0, 0, 1, 0, 0, R * 2); gg.addColorStop(0, cfg.halo); gg.addColorStop(1, 'rgba(0,0,0,0)'); ctx.fillStyle = gg; ctx.beginPath(); ctx.arc(0, 0, R * 2, 0, TAU); ctx.fill(); }
+    const g = ctx.createRadialGradient(-R * 0.35, -R * 0.4, 1, 0, 0, R * 1.25);
+    g.addColorStop(0, shade(cfg.body, 0.42)); g.addColorStop(1, shade(cfg.body, -0.28));
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(0, 0, R, 0, TAU); ctx.fill();
+    ctx.strokeStyle = shade(cfg.body, -0.5); ctx.lineWidth = 0.8; ctx.stroke();
+    if (cfg.ring) { ctx.strokeStyle = cfg.ring; ctx.lineWidth = 1; ctx.beginPath(); ctx.ellipse(0, 0, R * 1.18 + Math.sin(t * 2) * 0.6, R * 0.42, 0, 0, TAU); ctx.stroke(); }
+    if (cfg.antenna) { ctx.strokeStyle = '#c8cdd5'; ctx.lineWidth = 0.7; ctx.beginPath(); ctx.moveTo(0, -R); ctx.lineTo(0, -R - 4); ctx.stroke(); ctx.fillStyle = '#ff5f5f'; ctx.beginPath(); ctx.arc(0, -R - 4.4, 0.8, 0, TAU); ctx.fill(); }
+    if (cfg.eye) { ctx.fillStyle = o.firing ? '#ff6a6a' : cfg.eye; ctx.beginPath(); ctx.arc(R * 0.28, 0, R * 0.32, 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.beginPath(); ctx.arc(R * 0.28 - 0.6, -0.6, R * 0.1, 0, TAU); ctx.fill(); }
+  }
+  I.probedrone = (ctx, t, o) => isoOrb(ctx, t, o, { R: 8, body: '#6c7684', ring: 'rgba(150,200,255,0.6)', antenna: true, eye: '#8cd0ff', halo: 'rgba(120,180,255,0.12)' });
+  I.menderorb = (ctx, t, o) => isoOrb(ctx, t, o, { R: 8, body: '#4a6a5c', ring: 'rgba(125,255,214,0.7)', eye: '#7dffd6', halo: 'rgba(125,255,214,0.16)' });
+
+  // ---- organic flyers: undulating body spines + wings (never boxy) ----
+  function organicBody(ctx, t, o, cfg) {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    if (cfg.wings) cfg.wings(ctx, t, o, P);
+    for (let i = cfg.segs.length - 1; i >= 0; i--) {
+      const s = cfg.segs[i];
+      const wob = Math.sin(t * cfg.rate - i * 0.6) * cfg.amp * (0.3 + 0.7 * i / cfg.segs.length);
+      const [x, y] = P(s.x, wob);
+      const g = ctx.createRadialGradient(x - 1, y - s.r, 0.4, x, y, s.r * 1.5);
+      g.addColorStop(0, shade(cfg.body, 0.34)); g.addColorStop(1, shade(cfg.body, -0.22));
+      ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(x, y - 1.2, s.r, s.r * 0.82, 0, 0, TAU); ctx.fill();
+      if (s.spine) { ctx.fillStyle = shade(cfg.body, -0.4); ctx.beginPath(); ctx.moveTo(x, y - s.r - 1.2); ctx.lineTo(x - 1.6, y - s.r + 1); ctx.lineTo(x + 1.6, y - s.r + 1); ctx.closePath(); ctx.fill(); }
+    }
+    if (cfg.head) cfg.head(ctx, t, o, P);
+  }
+  I.serpent = (ctx, t, o) => organicBody(ctx, t, o, {
+    body: '#2f7d5c', rate: 6, amp: 3.2,
+    segs: [{ x: -13, r: 2 }, { x: -10, r: 2.8 }, { x: -7, r: 3.4 }, { x: -4, r: 3.8, spine: 1 }, { x: -1, r: 3.9, spine: 1 }, { x: 2, r: 3.6, spine: 1 }, { x: 5, r: 3.1 }, { x: 8, r: 2.6 }],
+    wings: (c, t, o, P) => { // two feathered fans mid-body
+      const flap = 0.6 + 0.4 * Math.sin(t * 7);
+      for (const s of [-1, 1]) {
+        c.fillStyle = 'rgba(90,220,180,0.85)';
+        c.beginPath();
+        const [ax, ay] = P(-1, s * 2), [bx, by] = P(-6, s * (7 + flap * 4)), [cx2, cy2] = P(2, s * (7 + flap * 4));
+        c.moveTo(ax, ay); c.quadraticCurveTo(bx, by, cx2, cy2); c.closePath(); c.fill();
+        c.strokeStyle = 'rgba(40,150,120,0.7)'; c.lineWidth = 0.6; c.stroke();
+      }
+    },
+    head: (c, t, o, P) => {
+      const [hx, hy] = P(10, Math.sin(t * 6) * 1.2);
+      c.fillStyle = '#3a9a72'; c.beginPath(); c.ellipse(hx, hy - 1.5, 3, 2.6, 0, 0, TAU); c.fill();
+      c.fillStyle = '#ffd75f'; c.beginPath(); c.arc(hx + 1.5, hy - 2, 0.9, 0, TAU); c.fill();
+      c.fillStyle = 'rgba(120,255,210,0.9)'; // feather crest
+      for (const dx of [-1, 0, 1]) { c.beginPath(); c.moveTo(hx + dx, hy - 3.5); c.lineTo(hx + dx - 1.4, hy - 6.5); c.lineTo(hx + dx + 1, hy - 4); c.closePath(); c.fill(); }
+    },
+  });
+  I.draco = (ctx, t, o) => organicBody(ctx, t, o, {
+    body: '#4a5237', rate: 4, amp: 2.2,
+    segs: [{ x: -16, r: 1.8 }, { x: -13, r: 2.6 }, { x: -10, r: 3.6, spine: 1 }, { x: -6, r: 4.6, spine: 1 }, { x: -2, r: 5, spine: 1 }, { x: 2, r: 4.4, spine: 1 }, { x: 6, r: 3.4 }],
+    wings: (c, t, o, P) => { // big membrane wings sweeping with a slow beat
+      const beat = Math.sin(t * 3.4);
+      for (const s of [-1, 1]) {
+        const [rx, ry] = P(-2, s * 3);
+        const [tx, ty] = P(-6, s * (13 + beat * 3));
+        const [fx, fy] = P(5, s * (11 + beat * 2));
+        const g = c.createLinearGradient(rx, ry, tx, ty);
+        g.addColorStop(0, '#5c6647'); g.addColorStop(1, '#3a4230');
+        c.fillStyle = g;
+        c.beginPath(); c.moveTo(rx, ry); c.lineTo(tx, ty); c.lineTo(fx, fy); c.closePath(); c.fill();
+        c.strokeStyle = '#2c3222'; c.lineWidth = 0.8; c.stroke();
+        // wing ribs
+        c.strokeStyle = 'rgba(30,36,22,0.7)'; c.lineWidth = 0.6;
+        c.beginPath(); c.moveTo(rx, ry); c.lineTo((tx + fx) / 2, (ty + fy) / 2); c.stroke();
+      }
+    },
+    head: (c, t, o, P) => {
+      const [hx, hy] = P(9, 0);
+      c.fillStyle = '#5a6342'; c.beginPath(); c.ellipse(hx, hy - 2, 3.4, 2.8, 0, 0, TAU); c.fill();
+      c.fillStyle = '#3a4230'; c.beginPath(); c.moveTo(hx + 2, hy - 3.5); c.lineTo(hx + 5, hy - 2.5); c.lineTo(hx + 2, hy - 1); c.closePath(); c.fill(); // snout
+      c.fillStyle = o.firing ? '#ffae3a' : '#ff6a3a'; c.beginPath(); c.arc(hx + 1, hy - 2.5, 0.9, 0, TAU); c.fill(); // eye
+      for (const s of [-1, 1]) { c.fillStyle = '#2c3222'; c.beginPath(); c.moveTo(hx - 1, hy - 4); c.lineTo(hx - 2.5, hy - 7); c.lineTo(hx + 0.5, hy - 4.5); c.closePath(); c.fill(); } // horns
+    },
+  });
+
   // barrel at a screen lift, pointing along the unit's heading in TRUE iso
+  // (matches the 3D hulls); pass o.turret via {facing: angle} to aim a turret
   // (matches the 3D hulls); pass o.turret via {facing: angle} to aim a turret
   function isoBarrel(ctx, o, lift, len, w2 = 2.2, col = '#2b3138') {
     ctx.save();

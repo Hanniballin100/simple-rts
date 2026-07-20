@@ -78,7 +78,7 @@ const FACTIONS = {
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
     air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['prophet', 'fireworks', 'engineer'], advanced: ['leveler'],
-    structs: ['wall', 'gate', 'superweapon'],
+    structs: ['wall', 'gate', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
@@ -98,7 +98,7 @@ const FACTIONS = {
     worker: 'salvagerig', infantry: 'partisan', aa: 'manpad', vehicle: 'technical',
     air: ['wballoon', 'fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'chembiplane', 'engineer'], advanced: ['cruisetruck'],
-    structs: ['wall', 'gate', 'superweapon'],
+    structs: ['wall', 'gate', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
       sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
@@ -119,9 +119,9 @@ const FACTIONS = {
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['heli'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'reaper', 'a10', 'engineer', 'mechanic'], advanced: ['gunship'],
-    structs: ['wall', 'gate', 'repairpad', 'satellite', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
-      passive: { name: 'Compound Interest', desc: 'Your bank earns 2% interest every 10 seconds.' },
+      passive: { name: 'Quantitative Easing', desc: 'Every Fusion Plant prints minerals passively (+12 every 10s). And when a building falls, 25% of its cost is refunded — too big to fail.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
     },
     buildingNames: {
@@ -129,18 +129,19 @@ const FACTIONS = {
       factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
       tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Spectre Hangar',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Service Bay',
+      refinery: 'Refinery', datacenter: 'Data Center',
       satellite: 'Orbital Uplink',
       superweapon: 'Orbital Kinetic Array',
     },
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. Surveillance Vans see everything from very far away; Disinfo Vans flood the radar with ghosts; the TR-3B haunts the sky unseen. A detector is the only way to find any of them.',
+    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. Disinfo Vans cruise wrapped in a bound escort of phantom contacts; the TR-3B haunts the sky unseen. A detector is the only way to find any of them.',
     economy: { workers: 3 },
-    worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'blackvan',
-    air: ['tr3b', 'drone', 'heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'spooktank', 'disinfovan', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
-    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
+    worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'spooktank',
+    air: ['tr3b'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'disinfovan', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
@@ -160,7 +161,7 @@ const FACTIONS = {
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['haunebu', 'serpent'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'engineer'], advanced: ['ironmole', 'vrildisc'],
-    structs: ['wall', 'gate', 'tunnelentrance', 'vrilreactor', 'geode', 'superweapon'],
+    structs: ['wall', 'gate', 'tunnelentrance', 'geode', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
       sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
@@ -170,7 +171,7 @@ const FACTIONS = {
       factory: 'Drill Works', airpad: 'Cavern Roost', tech: 'Core Forge',
       stalagmite: 'Stalagmite Spitter', geyser: 'Geyser Cannon',
       wall: 'Stone Rampart', gate: 'Stone Gate', mine: 'Sinkhole Trap',
-      tunnelentrance: 'Tunnel Entrance', vrilreactor: 'Vril Reactor', geode: 'Crystal Geode',
+      tunnelentrance: 'Tunnel Entrance', geode: 'Crystal Geode',
       superweapon: 'Seismic Resonator',
     },
   },
@@ -311,7 +312,7 @@ const UNIT_TYPES = {
   // it stops (cloakStill) and lands a doubled first strike from concealment;
   // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
   spooktank: { name: 'Redacted', role: 'combat', builtAt: 'factory', hp: 260, speed: 78, dmg: 24, atkRange: 155, cooldown: 1.6, sight: 250, cost: 155, r: 12, buildTime: 9, shape: 'square', armor: 0.15, cloakStill: true, cloakDelay: 1.3 },
-  disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, spawns: { type: 'phantom', every: 7, count: 2, expires: 14 } },
+  disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, detector: true, brood: { type: 'phantom', count: 4, regen: 6 } },
   drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square', burrow: true, emergeAoE: { r: 60, dmg: 30 } },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
   // Basilisk: a full multi-segment serpent-lizard. Its gaze does light damage
@@ -431,8 +432,15 @@ const BUILDING_TYPES = {
   // other after a distance-scaled transit. anywhere: exempt from the
   // build-radius rule — forward entrances near the enemy are the point.
   tunnelentrance: { name: 'Tunnel Entrance', hp: 280, w: 44, h: 44, cost: 60, buildTime: 8, sight: 200, power: -10, cap: 6, anywhere: true },
-  vrilreactor:    { name: 'Vril Reactor', hp: 300, w: 50, h: 50, cost: 140, buildTime: 12, sight: 180, power: +150, cap: 3, req: 'tech' },
-  geode:          { name: 'Crystal Geode', hp: 340, w: 48, h: 48, cost: 150, buildTime: 14, sight: 170, power: 0, income: 10, cap: 4 },
+  geode:          { name: 'Crystal Geode', hp: 340, w: 48, h: 48, cost: 150, buildTime: 14, sight: 170, power: 0, income: 10, cap: 4, req: 'tech' },
+  // Globalist premium income: a server farm that prints money off the grid.
+  // Power-hungry (fits their infrastructure identity), capped so it's a floor,
+  // not a runaway — the late-game answer for a faction with no field income.
+  datacenter:     { name: 'Data Center', hp: 380, w: 54, h: 54, cost: 170, buildTime: 15, sight: 180, power: -30, income: 16, cap: 4, req: 'tech' },
+  // Refinery: a forward mineral drop-off. Workers deposit here instead of
+  // hauling all the way home, so a base can push out to distant fields. Doubles
+  // as a build-radius anchor (anchor) and can be planted off-grid (anywhere).
+  refinery:       { name: 'Refinery', hp: 440, w: 58, h: 58, cost: 150, buildTime: 13, sight: 210, power: -10, dropoff: true, anchor: true, anywhere: true, cap: 2, req: 'tech' },
   // fortification kind: walls block ground pathing outright; gates pass the
   // owner's units and block everyone else. wallKind lets segments snap flush
   // against each other (normal structures keep a 32px walkway apart).
@@ -468,11 +476,29 @@ const BUILDING_TYPES = {
   church:     { name: 'Old Church',    hp: 520, w: 46, h: 58, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 4 },
   warehouse:  { name: 'Warehouse',     hp: 700, w: 72, h: 52, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 5 },
   gasstation: { name: 'Gas Station',   hp: 320, w: 54, h: 40, cost: 0, buildTime: 0, sight: 190, power: 0, slots: 2, explodes: { r: 95, dmg: 55, fire: { r: 55, dur: 4, dps: 10 } } },
+  // capturable landmarks — garrison infantry to claim, then they serve you:
+  // a towering garrison fortress, a hospital that heals nearby units, a bank
+  // that prints income, and a radio station that lights up a swathe of the map.
+  skyscraper: { name: 'Skyscraper',       hp: 1600, w: 62, h: 62, cost: 0, buildTime: 0, sight: 280, power: 0, slots: 8, tall: true },
+  hospital:   { name: 'General Hospital', hp: 1000, w: 74, h: 66, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 6, healAura: { r: 230, rate: 11 } },
+  bank:       { name: 'Federal Reserve',  hp: 820,  w: 58, h: 54, cost: 0, buildTime: 0, sight: 210, power: 0, slots: 4, income: 22 },
+  radiotower: { name: 'Radio Station',    hp: 440,  w: 40, h: 40, cost: 0, buildTime: 0, sight: 560, power: 0, slots: 2 },
+  radar:      { name: 'Radar Station',    hp: 520,  w: 48, h: 48, cost: 0, buildTime: 0, sight: 420, power: 0, slots: 3, detector: true },
+  researchlab:{ name: 'Research Lab',     hp: 640,  w: 56, h: 52, cost: 0, buildTime: 0, sight: 220, power: 0, slots: 4, buffAura: { r: 190 } },
+  substation: { name: 'Power Substation', hp: 480,  w: 50, h: 46, cost: 0, buildTime: 0, sight: 190, power: 150, slots: 2 },
+  mast5g:     { name: '5G Mast',          hp: 360,  w: 36, h: 36, cost: 0, buildTime: 0, sight: 260, power: 0, slots: 2, debuffAura: { r: 210, weaken: 0.4 } },
+  tvstation:  { name: 'TV Station',       hp: 560,  w: 56, h: 52, cost: 0, buildTime: 0, sight: 240, power: 0, slots: 4, convert: { every: 40, r: 1000 } },
+  monument:   { name: 'Monument',         hp: 760,  w: 48, h: 48, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 3, buffAura: { r: 250 } },
+  fueldepot:  { name: 'Fuel Depot',       hp: 420,  w: 60, h: 48, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 3, healAura: { r: 210, rate: 7 }, rearm: true, explodes: { r: 85, dmg: 50, fire: { r: 50, dur: 4, dps: 9 } } },
+  blacksite:  { name: 'Black Site',       hp: 660,  w: 54, h: 50, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 4, spawns: { type: 'mib', every: 40 } },
+  // rural/roadside mystery: hold it and salvaged saucers roll off the wreck
+  ufocrash:   { name: 'UFO Crash Site',   hp: 500,  w: 64, h: 52, cost: 0, buildTime: 0, sight: 250, power: 0, slots: 3, spawns: { type: 'saucer', every: 70 } },
 };
 
 // map settings: how built-up the countryside is. Chosen on the start screen
 // (or rolled randomly); mapgen reads these to lay out neutral structures.
 const MAP_SETTINGS = {
+  metropolis: { name: 'Metropolis' },
   urban:   { name: 'Urban' },
   town:    { name: 'Town' },
   country: { name: 'Country' },
