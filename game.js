@@ -82,6 +82,12 @@ const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 const hitsAir = stats => stats.targets === 'air' || stats.targets === 'both';
 
+// tank tracks vs footsoldiers: who rolls over whom. Heavy ground hulls crush
+// un-armored foot troops; armored riot gear, giants and vehicles are safe.
+const isCrusher = stats => !stats.flying && stats.r >= 12;
+const isCrushable = stats => !stats.flying && stats.r <= 10 && (stats.armor || 0) < 0.25 &&
+  (!stats.builtAt || stats.builtAt === 'barracks');
+
 // ---------- audio state (functions below) ----------
 
 let muted = false;
@@ -1732,15 +1738,18 @@ function planeAttack(u, target, t, dt) {
     // pylon turn: circle the target and pour sideways fire into it
     flyOrbit(u, target.x, target.y, dt, t.orbitR || 140);
     if (d <= range) fireAt(u, target, t);
-  } else if (t.weapon === 'bomb') {
-    // bombing run: fly straight across the target, release on overflight
-    flyToward(u, target.x, target.y, dt, 0);
-    if (d <= range) fireAt(u, target, t);
   } else {
-    // strafing pass: shoot while lined up, overshoot, bank around, repeat
-    flyToward(u, target.x, target.y, dt, 0);
+    // bombing run / strafing pass: line up, release/shoot, overshoot, bank
+    // around, repeat. Steering straight at a target that sits INSIDE the
+    // plane's turning circle just orbits it forever without ever aligning —
+    // so when close and badly aimed, hold course straight past the target
+    // and come back around from distance instead.
     const aim = Math.abs(((Math.atan2(target.y - u.y, target.x - u.x) - u.facing + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
-    if (d <= range && aim < 0.5) fireAt(u, target, t);
+    const turnR = t.speed / (t.turn || 2);
+    if (d < turnR * 1.6 && aim > 0.45) flyToward(u, u.x + Math.cos(u.facing) * 400, u.y + Math.sin(u.facing) * 400, dt, 0);
+    else flyToward(u, target.x, target.y, dt, 0);
+    if (t.weapon === 'bomb') { if (d <= range) fireAt(u, target, t); }
+    else if (d <= range && aim < 0.5) fireAt(u, target, t);
   }
 }
 
@@ -2505,7 +2514,12 @@ function updateUnit(u, dt) {
       if (!cell) continue;
       for (const other of cell) {
         if (other === u || other.hp <= 0 || other.garrisoned) continue;
-        if (!!UNIT_TYPES[other.type].flying !== myFlying) continue;
+        const ot = UNIT_TYPES[other.type];
+        if (!!ot.flying !== myFlying) continue;
+        // tanks don't yield to enemy footsoldiers (and the footsoldier gets no
+        // shove out from under the tracks) — overlap develops, the crush pass kills
+        if (u.owner !== other.owner &&
+            ((isCrusher(stats) && isCrushable(ot)) || (isCrushable(stats) && isCrusher(ot)))) continue;
         const d = dist(u, other);
         const minD = stats.r + UNIT_TYPES[other.type].r;
         if (d > 0 && d < minD) {
@@ -4988,6 +5002,27 @@ function frame(now) {
     pathBudget = 12; // A* computations allowed this frame (rest retry later)
     rebuildSepGrid();
     for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
+    // heavy hulls grind over light infantry: a big ground vehicle that rolled
+    // this frame crushes un-armored footsoldiers caught under its tracks
+    // (separation lets these pairs overlap — see separate())
+    for (const u of state.units) {
+      if (u.hp <= 0 || u.garrisoned || u.transit) continue;
+      const t = UNIT_TYPES[u.type];
+      const rolled = u._cx !== undefined && Math.hypot(u.x - u._cx, u.y - u._cy) > 14 * dt;
+      u._cx = u.x; u._cy = u.y;
+      if (!isCrusher(t) || !rolled) continue;
+      u.crushT = (u.crushT || 0) - dt;
+      if (u.crushT > 0) continue;
+      u.crushT = 0.12;
+      for (const v of enemiesOf(u.owner)) {
+        if (v.kind !== 'unit' || v.hp <= 0 || v.garrisoned || v.transit || v.burrowed) continue;
+        if (!isCrushable(UNIT_TYPES[v.type])) continue;
+        if (dist(u, v) > t.r + UNIT_TYPES[v.type].r - 4) continue;
+        v.hp = 0; // squished — no disguise, no dodge, no appeal
+        Particles.smoke(v.x, v.y, 4);
+        if (tileState(v.x, v.y) === 2) sfx('boom');
+      }
+    }
     updateTransits();
     for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
     tickConstruction(PLAYER, dt);

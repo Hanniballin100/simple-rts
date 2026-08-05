@@ -5849,27 +5849,6 @@
     rig: (c, t) => { const b = 0.6 + 0.4 * Math.sin(t * 24); c.fillStyle = `rgba(140,200,255,${0.5 + b * 0.4})`;
       c.beginPath(); c.moveTo(-13, -1); c.lineTo(-17 - b * 2.5, 0); c.lineTo(-13, 1); c.closePath(); c.fill(); },
   });
-  I.aurora = (ctx, t, o) => isoAircraft(ctx, t, o, {
-    parts: [
-      // one long chined dart — a hypersonic lifting body, no separate wings
-      { poly: [[17, 0], [8, -3], [-12, -4.5], [-15, -2], [-15, 2], [-12, 4.5], [8, 3]], base: 0, h: 2.6, body: '#1b1e24',
-        detail: (c, t2, o2) => {
-          c.strokeStyle = 'rgba(120,130,145,0.35)'; c.lineWidth = 0.6;
-          c.beginPath(); c.moveTo(15, 0); c.lineTo(-13, 0); c.stroke();
-          c.fillStyle = 'rgba(140,220,255,0.4)'; rr(c, 8, -1, 3.5, 2, 1); c.fill();
-          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(16.5, 0, 2, 0, TAU); c.fill(); }
-        } },
-      // small canted fins at the tail
-      { poly: [[-11, -2.2], [-15, -3.8], [-15.5, -3], [-11.5, -1.6]], base: 1.2, h: 4, body: '#14161b' },
-      { poly: [[-11, 2.2], [-15, 3.8], [-15.5, 3], [-11.5, 1.6]], base: 1.2, h: 4, body: '#14161b' },
-    ],
-    rigLift: 1.5,
-    rig: (c, t) => { // pulse-detonation exhaust: glowing donuts marching aft
-      for (let i = 0; i < 3; i++) { const p = (t * 3 + i / 3) % 1;
-        c.strokeStyle = `rgba(150,210,255,${0.7 * (1 - p)})`; c.lineWidth = 1.2 - p * 0.7;
-        c.beginPath(); c.arc(-15 - p * 9, 0, 1 + p * 1.6, 0, TAU); c.stroke(); }
-    },
-  });
   I.drake = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
       { poly: [[4, 2], [-7, 13], [-11, 12], [-3, 2]], base: 1.4, h: 1, body: '#54604a' },

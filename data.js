@@ -114,7 +114,7 @@ const FACTIONS = {
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Helicopters. The Air Force Base runs a real doctrine: F-35 Interceptors sweep the sky, A-10 Warthogs shred armor on the deck — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
+    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Helicopters. The Air Force Base runs a real doctrine: stealth F-35s sweep the sky unseen (and strafe in a pinch), A-10 Warthogs shred armor on the deck — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['heli', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
@@ -136,10 +136,10 @@ const FACTIONS = {
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. Overhead flies the black-projects budget: the TR-3B haunts the map unseen, the hypersonic SR-91 Aurora runs down anything with wings, B-1 Lancers streak in on bombing runs, and the B-2 Spirit erases city blocks. A detector is the only way to find any of them.',
+    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. The whole air wing flies stealth: the TR-3B haunts the map unseen, B-1 Lancers rule the sky (and strafe the ground in a pinch), and the B-2 Spirit erases city blocks — none of them visible until the ordnance is already falling. A detector is the only way to find any of them.',
     economy: { workers: 3 },
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'spooktank',
-    air: ['tr3b', 'aurora', 'b1'], tower: 'tower5g', aaTower: 'samsite',
+    air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
     powers: {
@@ -394,23 +394,22 @@ const UNIT_TYPES = {
   chembiplane: { name: 'Chemtrail Biplane', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 110, speed: 140, dmg: 8, atkRange: 70, cooldown: 1, sight: 280, cost: 130, r: 10, buildTime: 9, flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
   // the globalist air wing: a fast swing-wing strike jet, and two tech-gated
   // heavies — an orbiting AC-130 and the stealth-black flying wing
-  // fast strike bomber: rakes ground targets on supersonic passes, blind to
-  // the sky — the Aurora flies top cover, the B-1 does the breaking
-  b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 18, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'ground', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6, splash: 14, bldgBonus: 1.2 },
-  b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
+  // Deep State's stealth air-superiority jet: supersonic, hits hard against
+  // anything flying, plinks weakly at the ground on the way home. Invisible
+  // until it fires.
+  b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 22, dmgVsGround: 9, atkRange: 165, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6, stealth: true },
+  // the real one IS a stealth bomber: unseen until the bombs are falling
+  b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, stealth: true, req: 'tech' },
   // Deep State signature air: a TR-3B black triangle that hovers dead silent —
   // invisible (stealth) until it opens fire, then it lights up for a moment
   tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
   // Globalist strike wing: the A-10 makes low gun runs that shred ground and
   // armour but can't touch aircraft
   a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 20, dmgVsGround: 20, atkRange: 150, cooldown: 0.45, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 16, plane: true, turn: 2.2, targets: 'ground', vehBonus: 1.9, splash: 14 },
-  // Globalist interceptor: an AA-only jet that lives on the airfield — it
-  // scrambles off its pad slot, empties eight missile rails into whatever
-  // flies, and returns to base to rearm. Helpless against the ground.
-  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'air', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2 },
-  // Deep State interceptor: hypersonic, stealthed, faster than anything else
-  // in the sky — six heavier rails, then back to the black hangar to reload
-  aurora:  { name: 'SR-91 Aurora', flyH: 42, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 200, speed: 275, dmg: 30, atkRange: 180, cooldown: 0.7, sight: 340, cost: 210, r: 12, buildTime: 12, flying: true, targets: 'air', shape: 'plane', pad: true, maxAmmo: 6, plane: true, turn: 2.4, stealth: true },
+  // Globalist stealth fighter: lives on the airfield, scrambles at hostile
+  // air with eight rails, and can strafe ground targets in a pinch — weakly.
+  // Invisible until it opens fire, briefly lit, then gone again.
+  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, dmgVsGround: 9, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2, stealth: true },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
