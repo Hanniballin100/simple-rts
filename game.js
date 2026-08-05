@@ -17,6 +17,7 @@ let OWNERS = [PLAYER, ENEMY]; // owner 0 is the human; startGame appends extra A
 const state = {
   factions: {},     // owner -> faction key
   minerals: {},     // owner -> bank
+  loosh: {},        // owner -> reptilian blood-currency (harvested from death)
   construction: {}, // owner -> {type,t,duration,ready,announced} | null
   units: [],
   buildings: [],
@@ -56,6 +57,12 @@ const cameoButtons = {}; // sidebar buttons: key -> {btn, costEl, prog, badge, b
 
 // small shared helpers
 const facOf = owner => FACTIONS[state.factions[owner]];
+// ---------- loosh: the Reptilian blood-economy ----------
+// A second currency harvested purely from death — your own brood dying and the
+// enemy infantry you slay both feed it. Pays for the elite caste tier and fuels
+// the Bloodline Throne. Only Reptilian players ever bank it.
+const isReptilian = owner => state.factions[owner] === 'reptilian';
+function grantLoosh(owner, n) { if (isReptilian(owner)) state.loosh[owner] = (state.loosh[owner] || 0) + n; }
 const buildingName = b => (facOf(b.owner) && facOf(b.owner).buildingNames[b.type])
   || BUILDING_TYPES[b.type].name || b.type;
 // building stats vary per faction (a Diesel Shack is not a Fusion Plant);
@@ -1465,7 +1472,26 @@ function dealDamage(attacker, target, dmg, stats) {
   if (target.kind === 'unit' && UNIT_TYPES[target.type].armor) {
     dmg *= 1 - UNIT_TYPES[target.type].armor;
   }
+  // Grey target-painting: a probe-designated target takes extra damage from the
+  // marking player's whole army until the mark lapses
+  if (target.kind === 'unit' && attacker && target.designatedBy === attacker.owner && target.designatedUntil > state.time) {
+    dmg *= 1.3;
+  }
+  // Grey Technician shielding: a hardened ally shrugs off part of the blow
+  if (target.kind === 'unit' && target.hardenedUntil > state.time) dmg *= 0.72;
   target.hp -= dmg;
+  // loosh harvest: book it once, on the lethal blow. A Reptilian killer reaps
+  // loosh from any kill (more from enemy infantry); a Reptilian owner reaps it
+  // from its OWN dying brood — atrocity and martyrdom both pay.
+  if (target.kind === 'unit' && target.hp <= 0 && !target.looshBooked) {
+    target.looshBooked = true;
+    if (attacker && attacker.owner !== target.owner && isReptilian(attacker.owner)) {
+      const tt = UNIT_TYPES[target.type];
+      const infantry = tt.role === 'combat' && !tt.flying && tt.builtAt === 'barracks';
+      grantLoosh(attacker.owner, infantry ? 6 : 3);
+    }
+    grantLoosh(target.owner, 2); // grantLoosh no-ops for non-Reptilian owners
+  }
   if (target.owner === PLAYER) {
     const now = performance.now();
     if (now - lastUnderAttack > 20000) {
@@ -2002,6 +2028,20 @@ function updateUnit(u, dt) {
       }
     }
   }
+  // Grey Technician: hardens nearby infantry (they take reduced damage — the
+  // "Reinforce" half of the network, as a support unit)
+  if (stats.hardenAura) {
+    u.hdT = (u.hdT || 0) - dt;
+    if (u.hdT <= 0) {
+      u.hdT = 0.4;
+      for (const a of state.units) {
+        if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned) continue;
+        const at = UNIT_TYPES[a.type];
+        if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
+        if (dist(a, u) <= stats.hardenAura.r) a.hardenedUntil = state.time + 0.6;
+      }
+    }
+  }
   // Megaphone Prophet: nearby enemies fire weaker (debuffAura); enemy infantry
   // in range slowly desert to the prophet's side (convert)
   if (stats.debuffAura) {
@@ -2260,8 +2300,9 @@ function updateUnit(u, dt) {
     }
 
     case 'probe': {
-      // probe drone: fly onto the mark, implant the tracker, and that's the
-      // last anyone sees of the drone — the tag outlives it
+      // probe drone: fly onto the mark and PAINT it — lasting vision plus a
+      // designation that makes the owner's whole army hit it 30% harder. The
+      // drone survives and can be re-tasked to paint the next target.
       const tgt = findEntity(o.targetId);
       if (!tgt || tgt.kind !== 'unit' || tgt.hp <= 0 || tgt.garrisoned || tgt.transit) {
         u.order = { type: 'idle' };
@@ -2270,9 +2311,11 @@ function updateUnit(u, dt) {
       if (moveToward(u, tgt.x, tgt.y, dt, UNIT_TYPES[tgt.type].r + 6)) {
         tgt.trackedBy = tgt.trackedBy || {};
         tgt.trackedBy[u.owner] = true;
-        u.hp = 0;
+        tgt.designatedBy = u.owner;
+        tgt.designatedUntil = state.time + 20;
+        u.order = { type: 'idle' };
         Particles.pulse(tgt.x, tgt.y, 30, [125, 255, 214]);
-        if (u.owner === PLAYER) eva('Tracker implanted');
+        if (u.owner === PLAYER) eva('Target designated');
       }
       break;
     }
@@ -2471,8 +2514,10 @@ function trainUnit(owner, unitType) {
   if (ut.pad) trainers = trainers.filter(b => padLoad(b) < padCapOf(b)); // needs a free pad slot
   if (!trainers.length) return false;
   if (state.minerals[owner] < ut.cost) return false;
+  if ((ut.loosh || 0) > (state.loosh[owner] || 0)) return false; // caste tier runs on loosh
   trainers.sort((a, b) => ut.pad ? padLoad(a) - padLoad(b) : a.queue.length - b.queue.length);
   state.minerals[owner] -= ut.cost;
+  if (ut.loosh) state.loosh[owner] -= ut.loosh;
   trainers[0].queue.push({ type: unitType, t: 0, duration: ut.buildTime });
   return true;
 }
@@ -2571,7 +2616,16 @@ function updateBuilding(b, dt) {
 
   // superweapon: charge while powered, halt when blacked out
   if (bt.superweapon && b.done) {
-    if (!power.low && !isOffline(b)) b.charge = Math.min(superChargeOf(b), (b.charge || 0) + dt);
+    if (!power.low && !isOffline(b)) {
+      let gain = dt;
+      // Bloodline Throne is loosh-powered: banked suffering pours into the coup,
+      // charging it far faster than the passive timer (up to +6s of charge/sec)
+      if (isReptilian(b.owner)) {
+        const fuel = Math.min(state.loosh[b.owner] || 0, dt * 12);
+        if (fuel > 0) { state.loosh[b.owner] -= fuel; gain += fuel * 0.5; }
+      }
+      b.charge = Math.min(superChargeOf(b), (b.charge || 0) + gain);
+    }
     if (b.owner === PLAYER && !b.announcedReady && superReady(b)) {
       b.announcedReady = true; eva('Superweapon ready');
     }
@@ -3343,6 +3397,7 @@ function sidebarUnitClick(type) {
   if (ut.pad && !padSlotsFree(PLAYER, ut.builtAt)) { eva('Airfields at capacity'); return; }
   if (ut.limit && unitCount(PLAYER, type) >= ut.limit) { eva('Unit limit reached'); return; }
   if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
+  if ((ut.loosh || 0) > (state.loosh[PLAYER] || 0)) { eva('Not enough loosh'); return; }
   if (trainUnit(PLAYER, type)) sfx('click');
   refreshSidebar();
 }
@@ -3459,7 +3514,8 @@ function sigClick() {
 
 function refreshSidebar() {
   if (!started) return;
-  elCredits.textContent = '$ ' + state.minerals[PLAYER];
+  elCredits.textContent = '$ ' + state.minerals[PLAYER] +
+    (isReptilian(PLAYER) ? '   ☠ ' + Math.floor(state.loosh[PLAYER] || 0) : '');
   const power = powerOf(PLAYER);
   elPowerFill.style.width = power.cap ? clamp(100 - power.used / power.cap * 100, 0, 100) + '%' : '0%';
   elPowerFill.classList.toggle('low', power.low);
@@ -3533,7 +3589,7 @@ function refreshSidebar() {
       ui.btn.classList.toggle('disabled', trainers.length === 0 || locked || capped);
       ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req)
         : capped ? 'MAX'
-        : '$' + ui.baseCost + (ut.limit ? ` (${have}/${ut.limit})` : '');
+        : '$' + ui.baseCost + (ut.loosh ? ` ☠${ut.loosh}` : '') + (ut.limit ? ` (${have}/${ut.limit})` : '');
       const queued = trainers.reduce((n, b) => n + b.queue.filter(j => j.type === type).length, 0);
       ui.badge.style.display = queued ? '' : 'none';
       ui.badge.textContent = queued;
@@ -3563,6 +3619,7 @@ function startGame(faction) {
     }
     // worker-less factions get a head start while their income ramps up
     state.minerals[owner] = 300 + (facOf(owner).economy.start || 0);
+    state.loosh[owner] = 0;
   }
 
   setupWorld(generateMap(selectedSize, OWNERS.length, selectedSetting === 'random' ? null : selectedSetting));
@@ -4275,15 +4332,30 @@ function drawUnitIso(u) {
   // repainting its own vector art
   const moving = u.order.type !== 'idle';
   const firing = u.cooldown > t.cooldown - 0.15;
+  // attack phase: 1.0 at the instant of the strike, easing to 0 over ~0.34s.
+  // Quantized into the sprite key (5 buckets) so a swing reads as a short
+  // flip-book — wind-out on the hit, recover — instead of a static pose.
+  const sinceShot = (t.cooldown || 1) - (u.cooldown || 0);
+  const atkPhase = sinceShot < 0.34 ? 1 - sinceShot / 0.34 : 0;
+  const atkB = Math.round(atkPhase * 2) & 7;
+  const melee = t.dmg > 0 && t.atkRange > 0 && t.atkRange <= 45;
+  // only units whose art actually poses off the strike need atk-phase sprite
+  // variants; ranged troopers pose off `firing` alone, so keep their key flat
+  const animAtk = melee || u.type === 'draco';
   const qf = Math.round((u.facing || 0) / (Math.PI / 16)) & 31;
+  // gait: 8 buckets. Finer resolution balloons the sprite cache (32 facings ×
+  // gait × flags per type) and tanks wide-zoom FPS; creatures read fine at 8
+  // once their undulation coefficients are tuned for it.
   const gait = Math.floor((u.travel || 0) / 7) & 7;
-  const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' +
-    ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (airborne ? 16 : 0));
+  const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' + (animAtk ? atkB : 0) + '|' +
+    ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (airborne ? 16 : 0) | (melee ? 32 : 0));
   const qFacing = qf * (Math.PI / 16); // render the bucket's representative pose
   const cw = Math.ceil(rs * 3.4 + 26), chh = Math.ceil(rs * 4 + 30);
   const ax = cw / 2, ay = Math.ceil(rs * 2.8 + 16);
-  // interval 32: idle/ambient animations repaint in place at ~2Hz
-  const spr = cachedSprite(key, cw, chh, ax, ay, 'u', 32, g => {
+  // interval 48: idle/ambient animations repaint in place at ~1.25Hz. Higher
+  // than 32 to cut per-frame vector re-bakes at wide zoom (big armies); the
+  // walk cycle is gait-keyed, not interval-driven, so motion is unaffected.
+  const spr = cachedSprite(key, cw, chh, ax, ay, 'u', 48, g => {
     g.scale(dscale, dscale);
     if (!airborne) Art.shadow(g, t.r * 1.15, t.r * 0.6, 0, 1.5); // contact shadow
     g.save();
@@ -4298,6 +4370,8 @@ function drawUnitIso(u) {
         moving,
         firing,
         dist: gait * 7 + 3,
+        atk: animAtk ? atkB / 2 : 0,
+        melee,
         carrying: u.carrying > 0,
         facing: qFacing,
         hdg: isoAngle(qFacing),
@@ -4313,6 +4387,7 @@ function drawUnitIso(u) {
         moving,
         firing,
         dist: gait * 7 + 3,
+        atk: animAtk ? atkB / 2 : 0,
       });
     }
   });

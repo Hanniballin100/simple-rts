@@ -4885,17 +4885,28 @@
   function isoTrooper(ctx, t, o, cfg) {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
     const step = o.moving ? Math.sin((o.dist || 0) * 0.45) : 0;
+    // melee strike: the whole upper body drives forward on the hit (o.atk peaks
+    // at 1 on contact, eases to 0), planted legs stay put. A tiny anticipation
+    // dip at the top of the swing sells the wind-up. Ranged troopers: no lunge.
+    const a = (o.melee && o.atk) ? o.atk : 0;
+    const lunge = a * 4.2;               // forward drive along the facing
+    const crouch = a * (1 - a) * 6;      // brief coil, strongest mid-swing
+    const tilt = a * 0.34 * m;           // torso pitches into the blow
     ctx.save();
     ctx.scale(m, 1);
-    // legs
+    // legs (planted — braced wider during a lunge)
     ctx.strokeStyle = cfg.pants || '#2c2f36';
     ctx.lineWidth = 1.7;
     ctx.beginPath();
     ctx.moveTo(-0.7, -4);
-    ctx.lineTo(-0.9 - step * 2, 0);
+    ctx.lineTo(-0.9 - step * 2 - a * 1.5, 0);
     ctx.moveTo(0.9, -4);
-    ctx.lineTo(1.1 + step * 2, 0);
+    ctx.lineTo(1.1 + step * 2 + a * 2.5, 0);
     ctx.stroke();
+    // upper body group: lunges forward + pitches on a melee strike
+    ctx.save();
+    ctx.translate(lunge, crouch);
+    ctx.rotate(tilt);
     // torso
     const g = ctx.createLinearGradient(0, -9.4, 0, -3.4);
     g.addColorStop(0, shade(cfg.coat, 0.16));
@@ -4917,6 +4928,7 @@
     ctx.restore();
     if (cfg.weapon) cfg.weapon(ctx, t, o);
     ctx.restore();
+    ctx.restore();
   }
 
   I.militia = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c6a48', head: ihFoil, weapon: iwRifle });
@@ -4925,15 +4937,73 @@
   I.mib = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#171a20', pants: '#14161a', head: ctx2 => ihFedora(ctx2, '#000'), weapon: iwPistol });
   I.moleman = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a45', head: ihHardhat, weapon: iwPick });
   I.greytrooper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#8a93a4', head: ihGrey, weapon: iwLaser });
+  // ---------- Grey network rigs ----------
+  I.greydrone = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#7e8794', pants: '#565e69', head: ihGrey, weapon: iwLaser });
+  I.handler = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6f8aa0', head: ihGrey, weapon: iwLaser,
+    pack: (c2, t2) => { // command antenna + pulsing network beacon
+      c2.strokeStyle = '#8fb6d6'; c2.lineWidth = 0.8;
+      c2.beginPath(); c2.moveTo(-3.4, -8.6); c2.lineTo(-4.4, -14); c2.stroke();
+      c2.fillStyle = `rgba(140,220,255,${0.5 + 0.4 * Math.sin(t2 * 4)})`;
+      c2.beginPath(); c2.arc(-4.4, -14.4, 1.2, 0, TAU); c2.fill();
+    },
+  });
+  I.technician = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#5f7d78', head: ihGrey,
+    weapon: (c2, t2, o2) => { // handheld shield-projector emitter
+      c2.save(); c2.translate(2.5, -7.5);
+      c2.fillStyle = '#3c524e'; rr(c2, 0, -1.4, 4.5, 2.8, 0.8); c2.fill();
+      c2.fillStyle = o2.firing ? 'rgba(150,255,225,0.95)' : `rgba(120,230,210,${0.5 + 0.3 * Math.sin(t2 * 5)})`;
+      c2.beginPath(); c2.arc(4.8, 0, 1.6, 0, TAU); c2.fill();
+      c2.restore();
+    },
+    pack: (c2, t2) => { // faint shield motes
+      for (let i = 0; i < 3; i++) { const a = t2 * 1.4 + i * 2.1;
+        c2.fillStyle = `rgba(120,230,210,${0.3 + 0.25 * Math.sin(a * 2)})`;
+        c2.beginPath(); c2.arc(Math.cos(a) * 5, -7 + Math.sin(a) * 2, 0.7, 0, TAU); c2.fill(); }
+    },
+  });
+  I.overseer = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#c8cdd6', pants: '#9aa1ad', head: ihGrey, weapon: iwStaff,
+    pack: (c2, t2) => { // wide network field radiating outward
+      const p = (t2 * 0.8) % 1;
+      c2.strokeStyle = `rgba(180,220,255,${0.4 * (1 - p)})`; c2.lineWidth = 0.7;
+      c2.beginPath(); c2.ellipse(0, -6, 5 + p * 10, (5 + p * 10) * 0.5, 0, 0, TAU); c2.stroke();
+    },
+  });
+  // Tic Tac: a smooth featureless white capsule — no wings, no dome, no lights
+  I.tictac = (ctx, t, o) => {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    const [ax, ay] = P(-6, 0), [bx, by] = P(6, 0);
+    const cx = (ax + bx) / 2, cy = (ay + by) / 2, ang = Math.atan2(by - ay, bx - ax);
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+    const g = ctx.createLinearGradient(0, -4, 0, 4);
+    g.addColorStop(0, '#f4f7fa'); g.addColorStop(1, '#b9c2cc');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.ellipse(0, 0, 7.5, 3.2, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,140,160,0.6)'; ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.beginPath(); ctx.ellipse(-1.5, -1, 3, 1, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = o.color; ctx.beginPath(); ctx.arc(cx, cy, 1.2, 0, TAU); ctx.fill();
+    if (o.firing) { const [tx, ty] = P(8, 0); ctx.fillStyle = 'rgba(180,230,255,0.9)'; ctx.beginPath(); ctx.arc(tx, ty, 2, 0, TAU); ctx.fill(); }
+  };
   I.raptoid = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#4a7a44', pants: '#3a5c36', head: ihLizard,
-    weapon: (c2, t2, o2) => { // claw swipe
-      c2.strokeStyle = '#cfe3c9';
-      c2.lineWidth = 1;
+    weapon: (c2, t2, o2) => { // raking claw swipe that arcs out on the strike
+      const a = o2.atk || 0;
+      const reach = a * 3.4, drop = a * 2.2; // claws slash forward-and-down
+      c2.strokeStyle = '#e6f2e0';
+      c2.lineWidth = 1.1;
       c2.beginPath();
-      c2.moveTo(2.6, -6.5); c2.lineTo(4.6 + (o2.firing ? 1.5 : 0), -7.2);
-      c2.moveTo(2.6, -5.6); c2.lineTo(4.9 + (o2.firing ? 1.5 : 0), -5.8);
+      c2.moveTo(2.6, -6.5); c2.lineTo(4.6 + reach, -7.2 + drop);
+      c2.moveTo(2.6, -5.6); c2.lineTo(4.9 + reach, -5.8 + drop);
+      c2.moveTo(2.6, -4.8); c2.lineTo(4.7 + reach, -4.4 + drop);
       c2.stroke();
+      if (a > 0.4) { // motion-blur arc at the peak of the swing
+        c2.strokeStyle = `rgba(220,255,210,${(a - 0.4) * 0.8})`;
+        c2.lineWidth = 0.7;
+        c2.beginPath(); c2.arc(2.6, -5.8, 3 + reach, -1.1, 0.5); c2.stroke();
+      }
     },
   });
   I.laserguy = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#556249', head: ihFoil, weapon: iwLaser });
@@ -5067,6 +5137,127 @@
     ctx.moveTo(3.4, -5.2); ctx.lineTo(4.2 + (o.firing ? 0.8 : 0), -5);
     ctx.stroke();
     ctx.restore();
+  };
+  // ---------- Reptilian caste rigs ----------
+  I.nephilim = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#3f5a37', pants: '#2b3d27', head: ctx2 => ihLizard(ctx2, '#4a6a40'),
+    pack: (c2) => { // hunched ridge of shoulder spines
+      c2.fillStyle = '#2b3d27';
+      for (const dx of [-1.6, 0.4, 2.4]) { c2.beginPath(); c2.moveTo(dx - 3.4, -8.6); c2.lineTo(dx - 4.2, -11.8); c2.lineTo(dx - 2.2, -8.9); c2.closePath(); c2.fill(); }
+    },
+    weapon: (c2, t2, o2) => { // heavy talons raking on the strike
+      const a = o2.atk || 0, reach = a * 4, drop = a * 2.4;
+      c2.strokeStyle = '#e6f2e0'; c2.lineWidth = 1.6;
+      c2.beginPath();
+      c2.moveTo(2.4, -7.2); c2.lineTo(5.2 + reach, -7.8 + drop);
+      c2.moveTo(2.4, -6); c2.lineTo(5.6 + reach, -5.8 + drop);
+      c2.moveTo(2.4, -4.8); c2.lineTo(5.2 + reach, -3.8 + drop);
+      c2.stroke();
+      if (a > 0.4) { c2.strokeStyle = `rgba(220,255,210,${(a - 0.4) * 0.8})`; c2.lineWidth = 0.8;
+        c2.beginPath(); c2.arc(2.4, -6, 3.4 + reach, -1.1, 0.5); c2.stroke(); }
+    },
+  });
+  I.priest = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#5a4a63', pants: '#3a2f42', head: ctx2 => ihHood(ctx2, '#463654'),
+    weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, o2.firing ? '#ff6ad6' : '#c86ad0'),
+    pack: (c2, t2) => { // whispering fear-sigils orbiting the priest
+      for (let i = 0; i < 3; i++) {
+        const a = t2 * 1.5 + i * 2.1;
+        c2.fillStyle = `rgba(210,110,220,${0.4 + 0.3 * Math.sin(a * 2)})`;
+        c2.beginPath(); c2.arc(Math.cos(a) * 5, -7 + Math.sin(a) * 2.2, 0.8, 0, TAU); c2.fill();
+      }
+    },
+  });
+  // Sirrush: bulky four-legged devourer. Legs step on a diagonal gait, tail
+  // curls behind, and the horned head thrusts forward to bite on o.atk.
+  I.sirrush = (ctx, t, o) => {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    const a = o.atk || 0, gv = o.moving ? 1 : 0;
+    const step = ph => Math.sin((o.dist || 0) * 0.22 + ph);
+    const skin = '#3f5f47', skinD = '#274031', skinL = '#5a7d5f';
+    // four legs (draw first; body overlaps the hips)
+    for (const [lx, ly, ph] of [[5, 5, 0], [5, -5, Math.PI], [-6, 5.5, Math.PI], [-6, -5.5, 0]]) {
+      const s = step(ph) * gv;
+      const [rx, ry] = P(lx, ly);
+      const [fx, fy] = P(lx + s * 3, ly + (ly > 0 ? 2.5 : -2.5));
+      ctx.strokeStyle = skinD; ctx.lineWidth = 3.2; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(rx, ry - 3); ctx.lineTo(fx, fy + 3); ctx.stroke();
+      ctx.fillStyle = skinD; ctx.beginPath(); ctx.arc(fx, fy + 3, 1.6, 0, TAU); ctx.fill();
+    }
+    ctx.lineCap = 'butt';
+    // tail
+    for (let i = 5; i >= 1; i--) {
+      const [x, y] = P(-9 - i * 2, Math.sin((o.dist || 0) * 0.16 + t * 1.2 - i * 0.6) * (1 + i * 0.4));
+      const r = 3.6 - i * 0.5; ctx.fillStyle = i % 2 ? skin : skinD;
+      ctx.beginPath(); ctx.ellipse(x, y - 2, r, r * 0.8, 0, 0, TAU); ctx.fill();
+    }
+    // bulky body
+    const [bx, by] = P(-2, 0);
+    const bg = ctx.createRadialGradient(bx - 2, by - 6, 1, bx, by, 12);
+    bg.addColorStop(0, skinL); bg.addColorStop(1, skinD);
+    ctx.fillStyle = bg; ctx.beginPath(); ctx.ellipse(bx, by - 4, 11, 8, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = skinD; // dorsal armour plates
+    for (let i = -1; i <= 3; i++) { const [x, y] = P(-5 + i * 3, 0); ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x - 2, y - 13 - (i === 1 ? 2 : 0)); ctx.lineTo(x + 2.4, y - 8.5); ctx.closePath(); ctx.fill(); }
+    // neck + biting head
+    const reach = a * 5;
+    const [nx, ny] = P(7, 0);
+    ctx.strokeStyle = skin; ctx.lineWidth = 8; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(bx + 3, by - 4); ctx.lineTo(nx, ny - 5); ctx.stroke(); ctx.lineCap = 'butt';
+    const [hx, hy] = P(12 + reach, 0);
+    const gape = (a > 0.2 || o.firing) ? 3.4 : 1;
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.ellipse(hx, hy - 6, 5.4, 3.8, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = skinL; ctx.beginPath(); ctx.moveTo(hx + 2, hy - 7); ctx.lineTo(hx + 9, hy - 6); ctx.lineTo(hx + 2, hy - 4.5); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = skinD; ctx.beginPath(); ctx.moveTo(hx + 2, hy - 4.5); ctx.lineTo(hx + 8, hy - 4.5 + gape); ctx.lineTo(hx + 2, hy - 3); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#e8f0e0'; ctx.lineWidth = 0.7; // teeth
+    for (let i = 0; i < 4; i++) { const xx = hx + 3 + i * 1.5; ctx.beginPath(); ctx.moveTo(xx, hy - 4.6); ctx.lineTo(xx, hy - 3.5); ctx.stroke(); }
+    ctx.strokeStyle = '#1c2618'; ctx.lineWidth = 1.8; // horns
+    for (const dy of [-2.4, 2.4]) { ctx.beginPath(); ctx.moveTo(hx - 1, hy - 8 + dy * 0.2); ctx.lineTo(hx - 6, hy - 11 + dy); ctx.stroke(); }
+    ctx.fillStyle = (o.firing || a > 0.3) ? '#ffd23a' : '#ffae3a'; // molten eye, brighter when feeding
+    ctx.beginPath(); ctx.arc(hx + 2.5, hy - 7, 1.1, 0, TAU); ctx.fill();
+  };
+  // Gargoyle Brood: small stone-winged flyer, fast leathery wingbeat
+  I.gargoyle = (ctx, t, o) => {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    const beat = Math.sin(t * 9), skin = '#6b6559', skinD = '#403c33', mem = '#4a4238';
+    for (const s of [-1, 1]) {
+      const [rx, ry] = P(0, s * 1.5), [mx, my] = P(3, s * 5), [tx, ty] = P(-1, s * (6 + beat * 2.5)), [cx, cy] = P(-4, s * 4);
+      ctx.fillStyle = mem; ctx.beginPath(); ctx.moveTo(rx, ry); ctx.quadraticCurveTo(mx, my, tx, ty); ctx.lineTo(cx, cy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = skinD; ctx.lineWidth = 0.6; ctx.stroke();
+    }
+    const [bx, by] = P(0, 0);
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.ellipse(bx, by - 1, 3, 2.4, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.color; ctx.fillRect(bx - 2, by - 1.5, 4, 1);
+    const [hx, hy] = P(3, 0);
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.arc(hx, hy - 1.5, 1.8, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.firing ? '#ffd23a' : '#c94a3a'; ctx.beginPath(); ctx.arc(hx + 0.6, hy - 1.8, 0.7, 0, TAU); ctx.fill();
+    ctx.strokeStyle = skinD; ctx.lineWidth = 0.8; ctx.beginPath(); ctx.moveTo(hx - 0.5, hy - 3); ctx.lineTo(hx - 2, hy - 4.5); ctx.stroke();
+  };
+  // Dread Screecher: winged fear-beast — a wide shrieking maw and pulsing
+  // wail-rings that visualise its debuff aura
+  I.screecher = (ctx, t, o) => {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    const beat = Math.sin(t * 5), skin = '#5a4b5f', skinD = '#33283a', mem = '#4a3550';
+    const pulse = (t * 1.4) % 1; // fear-wail ring
+    ctx.strokeStyle = `rgba(200,110,210,${0.4 * (1 - pulse)})`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(0, 0, 6 + pulse * 14, (6 + pulse * 14) * 0.5, 0, 0, TAU); ctx.stroke();
+    for (const s of [-1, 1]) {
+      const sp = 11 + beat * 3;
+      const [rx, ry] = P(0, s * 2), [ex, ey] = P(5, s * (sp * 0.6)), [tx, ty] = P(-3, s * sp), [cx, cy] = P(-8, s * (sp * 0.45));
+      const g = ctx.createLinearGradient(rx, ry, tx, ty); g.addColorStop(0, mem); g.addColorStop(1, skinD);
+      ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(rx, ry); ctx.quadraticCurveTo(ex, ey, tx, ty); ctx.quadraticCurveTo((tx + cx) / 2, (ty + cy) / 2 + 1, cx, cy); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = skinD; ctx.lineWidth = 0.8; ctx.stroke();
+    }
+    const [bx, by] = P(-1, 0);
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.ellipse(bx, by - 2, 5, 4, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.color; ctx.fillRect(bx - 2.5, by - 2.5, 5, 1.2);
+    const [hx, hy] = P(6, 0);
+    ctx.fillStyle = skin; ctx.beginPath(); ctx.ellipse(hx, hy - 3, 3.4, 2.8, 0, 0, TAU); ctx.fill();
+    const gape = o.firing ? 3 : 1.6;
+    ctx.fillStyle = '#1a1220'; ctx.beginPath(); ctx.ellipse(hx + 2.5, hy - 2.5, 1.8, gape, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = o.firing ? '#ff8ae0' : '#c86ad0'; ctx.beginPath(); ctx.arc(hx + 0.5, hy - 4, 0.9, 0, TAU); ctx.fill();
   };
   I.vrilpriestess = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#7a5c8f', pants: '#4a3a58', head: ctx2 => ihHood(ctx2, '#5c4470'),
@@ -5742,10 +5933,15 @@
   function organicBody(ctx, t, o, cfg) {
     const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
     const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    // the undulation travels DOWN the body as the creature covers ground, and
+    // idles to a slow shallow breathing wave when standing still — so it no
+    // longer writhes in place like a stranded eel
+    const ph = (o.dist || 0) * 0.18 + (o.moving ? 0 : t * cfg.rate * 0.35);
+    const amp = cfg.amp * (o.moving ? 1 : 0.5);
     if (cfg.wings) cfg.wings(ctx, t, o, P);
     for (let i = cfg.segs.length - 1; i >= 0; i--) {
       const s = cfg.segs[i];
-      const wob = Math.sin(t * cfg.rate - i * 0.6) * cfg.amp * (0.3 + 0.7 * i / cfg.segs.length);
+      const wob = Math.sin(ph - i * 0.6) * amp * (0.3 + 0.7 * i / cfg.segs.length);
       const [x, y] = P(s.x, wob);
       const g = ctx.createRadialGradient(x - 1, y - s.r, 0.4, x, y, s.r * 1.5);
       g.addColorStop(0, shade(cfg.body, 0.34)); g.addColorStop(1, shade(cfg.body, -0.22));
@@ -5775,33 +5971,82 @@
       for (const dx of [-1, 0, 1]) { c.beginPath(); c.moveTo(hx + dx, hy - 3.5); c.lineTo(hx + dx - 1.4, hy - 6.5); c.lineTo(hx + dx + 1, hy - 4); c.closePath(); c.fill(); }
     },
   });
-  I.draco = (ctx, t, o) => organicBody(ctx, t, o, {
-    body: '#4a5237', rate: 4, amp: 2.2,
-    segs: [{ x: -16, r: 1.8 }, { x: -13, r: 2.6 }, { x: -10, r: 3.6, spine: 1 }, { x: -6, r: 4.6, spine: 1 }, { x: -2, r: 5, spine: 1 }, { x: 2, r: 4.4, spine: 1 }, { x: 6, r: 3.4 }],
-    wings: (c, t, o, P) => { // big membrane wings sweeping with a slow beat
-      const beat = Math.sin(t * 3.4);
-      for (const s of [-1, 1]) {
-        const [rx, ry] = P(-2, s * 3);
-        const [tx, ty] = P(-6, s * (13 + beat * 3));
-        const [fx, fy] = P(5, s * (11 + beat * 2));
-        const g = c.createLinearGradient(rx, ry, tx, ty);
-        g.addColorStop(0, '#5c6647'); g.addColorStop(1, '#3a4230');
-        c.fillStyle = g;
-        c.beginPath(); c.moveTo(rx, ry); c.lineTo(tx, ty); c.lineTo(fx, fy); c.closePath(); c.fill();
-        c.strokeStyle = '#2c3222'; c.lineWidth = 0.8; c.stroke();
-        // wing ribs
-        c.strokeStyle = 'rgba(30,36,22,0.7)'; c.lineWidth = 0.6;
-        c.beginPath(); c.moveTo(rx, ry); c.lineTo((tx + fx) / 2, (ty + fy) / 2); c.stroke();
-      }
-    },
-    head: (c, t, o, P) => {
-      const [hx, hy] = P(9, 0);
-      c.fillStyle = '#5a6342'; c.beginPath(); c.ellipse(hx, hy - 2, 3.4, 2.8, 0, 0, TAU); c.fill();
-      c.fillStyle = '#3a4230'; c.beginPath(); c.moveTo(hx + 2, hy - 3.5); c.lineTo(hx + 5, hy - 2.5); c.lineTo(hx + 2, hy - 1); c.closePath(); c.fill(); // snout
-      c.fillStyle = o.firing ? '#ffae3a' : '#ff6a3a'; c.beginPath(); c.arc(hx + 1, hy - 2.5, 0.9, 0, TAU); c.fill(); // eye
-      for (const s of [-1, 1]) { c.fillStyle = '#2c3222'; c.beginPath(); c.moveTo(hx - 1, hy - 4); c.lineTo(hx - 2.5, hy - 7); c.lineTo(hx + 0.5, hy - 4.5); c.closePath(); c.fill(); } // horns
-    },
-  });
+  // The Draco Royal: an apex winged overlord, not a wormy caterpillar. Broad
+  // membraned wings, a bulky crested torso, a curling spade-tipped tail, and a
+  // big horned skull that thrusts forward with a molten throat-glow on the
+  // strike (o.atk). Bespoke rig — no shared organicBody.
+  I.draco = (ctx, t, o) => {
+    const cos = Math.cos(o.facing), sin = Math.sin(o.facing);
+    const P = (fx, fy) => { const wx = fx * cos - fy * sin, wy = fx * sin + fy * cos; return [wx - wy, (wx + wy) * 0.5]; };
+    const beat = Math.sin(t * 3.0);                        // slow, heavy wingbeat
+    const a = o.atk || 0;                                  // bite / fire-breath thrust
+    const tail = i => Math.sin((o.dist || 0) * 0.3 + t * 1.2 - i * 0.7); // trailing sway
+    const skin = '#4a5638', skinD = '#2e3824', skinL = '#63704a', mem = '#6f5334', memD = '#402d1c';
+    // ---- wings: heavy membrane fans with finger-ribs, breathing on the beat ----
+    for (const s of [-1, 1]) {
+      const sp = 13 + beat * 3;
+      const [rx, ry] = P(1, s * 3);                        // shoulder root
+      const [ex, ey] = P(7, s * (sp * 0.62));              // leading elbow
+      const [tx, ty] = P(-3, s * sp);                      // wing tip
+      const [cx, cy] = P(-10, s * (sp * 0.5));             // trailing corner
+      const g = ctx.createLinearGradient(rx, ry, tx, ty);
+      g.addColorStop(0, mem); g.addColorStop(1, memD);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(rx, ry);
+      ctx.quadraticCurveTo(ex, ey, tx, ty);
+      ctx.quadraticCurveTo((tx + cx) / 2, (ty + cy) / 2 + 1.5, cx, cy);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = memD; ctx.lineWidth = 1; ctx.stroke();
+      ctx.strokeStyle = 'rgba(28,30,18,0.55)'; ctx.lineWidth = 0.7;
+      for (const [px, py] of [[ex, ey], [tx, ty], [cx, cy]]) { ctx.beginPath(); ctx.moveTo(rx, ry); ctx.lineTo(px, py); ctx.stroke(); }
+    }
+    // ---- tail: tapering chain curling behind, spade tip ----
+    for (let i = 6; i >= 1; i--) {
+      const [x, y] = P(-6 - i * 2.2, tail(i) * (1.2 + i * 0.5));
+      const r = 4.4 - i * 0.55;
+      ctx.fillStyle = i % 2 ? skin : skinD;
+      ctx.beginPath(); ctx.ellipse(x, y - 1, r, r * 0.8, 0, 0, TAU); ctx.fill();
+    }
+    { const [x, y] = P(-6 - 7 * 2.2, tail(7) * 4.5); ctx.fillStyle = skinD;
+      ctx.beginPath(); ctx.moveTo(x - 3, y); ctx.lineTo(x + 2, y - 3); ctx.lineTo(x + 2, y + 3); ctx.closePath(); ctx.fill(); }
+    // ---- torso: bulky chest ----
+    const [bx, by] = P(-1, 0);
+    const bg = ctx.createRadialGradient(bx - 2, by - 5, 1, bx, by, 10);
+    bg.addColorStop(0, skinL); bg.addColorStop(1, skinD);
+    ctx.fillStyle = bg;
+    ctx.beginPath(); ctx.ellipse(bx, by - 2, 8, 6.5, 0, 0, TAU); ctx.fill();
+    // dorsal crest
+    ctx.fillStyle = skinD;
+    for (let i = -1; i <= 3; i++) {
+      const [x, y] = P(-3 + i * 2.4, 0);
+      ctx.beginPath(); ctx.moveTo(x, y - 6); ctx.lineTo(x - 1.4, y - 10 - (i === 1 ? 2 : 0)); ctx.lineTo(x + 1.6, y - 6.5); ctx.closePath(); ctx.fill();
+    }
+    // ---- neck + head, thrusting forward on the strike ----
+    const reach = a * 4;
+    const [nx, ny] = P(6 + reach * 0.5, 0);
+    ctx.strokeStyle = skin; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(bx + 2, by - 3); ctx.lineTo(nx, ny - 4); ctx.stroke();
+    ctx.lineCap = 'butt';
+    const [hx, hy] = P(11 + reach, 0);
+    const gape = (a > 0.2 || o.firing) ? 2.6 : 0.6;
+    ctx.fillStyle = skin;                                  // cranium
+    ctx.beginPath(); ctx.ellipse(hx, hy - 4, 4.6, 3.4, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = skinL;                                 // upper snout
+    ctx.beginPath(); ctx.moveTo(hx + 1, hy - 5.5); ctx.lineTo(hx + 7, hy - 4.5); ctx.lineTo(hx + 1, hy - 3); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = skinD;                                 // lower jaw (drops to breathe)
+    ctx.beginPath(); ctx.moveTo(hx + 1, hy - 3); ctx.lineTo(hx + 6, hy - 3 + gape); ctx.lineTo(hx + 1, hy - 1.5); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#20261a'; ctx.lineWidth = 1.6;      // back-swept horns
+    for (const dy of [-2.2, 0, 2.2]) { ctx.beginPath(); ctx.moveTo(hx - 1, hy - 6 + dy * 0.3); ctx.lineTo(hx - 6, hy - 9 + dy); ctx.stroke(); }
+    ctx.fillStyle = o.firing ? '#ffd23a' : '#ff7a2a';      // molten eye
+    ctx.beginPath(); ctx.arc(hx + 2, hy - 5, 1, 0, TAU); ctx.fill();
+    if (o.firing || a > 0.3) {                             // throat fire-glow
+      const fg = ctx.createRadialGradient(hx + 6, hy - 2.5, 0.5, hx + 6, hy - 2.5, 6);
+      fg.addColorStop(0, 'rgba(255,220,120,0.95)'); fg.addColorStop(1, 'rgba(255,90,30,0)');
+      ctx.fillStyle = fg;
+      ctx.beginPath(); ctx.arc(hx + 6, hy - 2.5, 6, 0, TAU); ctx.fill();
+    }
+  };
 
   // barrel at a screen lift, pointing along the unit's heading in TRUE iso
   // (matches the 3D hulls); pass o.turret via {facing: angle} to aim a turret

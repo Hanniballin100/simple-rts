@@ -177,11 +177,11 @@ const FACTIONS = {
   },
   grey: {
     name: 'The Greys', family: 'ALIENS', emoji: '👽',
-    desc: 'You will be probed. Their craft ride anti-grav cushions, not wheels. The Gravity-Well Projector drags whole formations into a collapsing singularity; the Abductor Saucer tractor-beams your units off the field entirely. Towering Tripod Striders and the Flying Saucer round out a force supreme in the air and cruel to the ground. No miners: Zero-Point Cores conjure minerals from the vacuum itself.',
+    desc: 'You will be probed. Grey Drones are feeble alone — but a Handler\'s network makes the swarm lethal, a Technician shields it, and a Tall White Overseer binds scattered packs into one mind. Probe Drones paint your units for the kill. Overhead, the Mothership drags whole formations into collapsing singularities while its bound Tic Tac escort screens the sky. No miners: Zero-Point Cores conjure minerals from the vacuum.',
     economy: { workers: 0, start: 150 },
-    worker: null, infantry: 'greytrooper', aa: 'beamer', vehicle: 'tripod',
+    worker: null, infantry: 'greydrone', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['gravwell', 'abductor', 'engineer', 'menderorb', 'vivisector', 'mutilator'], advanced: ['saucer', 'mothership'],
+    extras: ['handler', 'technician', 'overseer', 'gravwell', 'engineer', 'vivisector'], advanced: ['saucer', 'mothership'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
@@ -197,11 +197,11 @@ const FACTIONS = {
   },
   reptilian: {
     name: 'The Reptilians', family: 'ALIENS', emoji: '🦎',
-    desc: 'They walk among us — and bite. Melee Reptoid Warriors, the great stone-gazing Basilisk serpent, and fire-breathing Sky Drakes. The Chitauri Broodmother is frail herself, but drags a bound swarm of hatchlings that fights wherever she does. No miners: the nest generates minerals — or steal an enemy worker and put it to work.',
+    desc: 'They walk among us — and bite. Reptoid Warriors hold the line while the Sirrush devours all it kills. The caste runs on LOOSH — blood-currency harvested from death, your own and the enemy\'s — spent on Nephilim shock-troops, fear-wielding Priests, and the winged Draco Royal. Overhead, Gargoyle Brood swarm and Dread Screechers wail. The Broodmother drags her bound hatchling swarm. No miners: the nest generates minerals; the dead generate loosh.',
     economy: { workers: 0, start: 150 },
-    worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'basilisk',
-    air: ['orb'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['mortarcrawler', 'biobomber', 'shapeshifter', 'menderorb', 'broodmother'], advanced: ['drake', 'draco'],
+    worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
+    air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
+    extras: ['nephilim', 'priest', 'shapeshifter', 'broodmother'], advanced: ['draco'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
@@ -284,12 +284,44 @@ const UNIT_TYPES = {
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
   vivisector: { name: 'Zeta Vivisector',  role: 'combat', builtAt: 'barracks', hp: 85,  speed: 74, dmg: 5, atkRange: 120, cooldown: 0.8, sight: 240, cost: 120, r: 9,  buildTime: 8, repair: 6, leech: true },
   mutilator:  { name: 'Cattle Mutilator', role: 'combat', builtAt: 'factory',  hp: 200, speed: 85, dmg: 7, atkRange: 110, cooldown: 0.9, sight: 240, cost: 130, r: 12, buildTime: 9, shape: 'square', scavenge: 12 },
+  // ---------- Grey network (weak drones + buffer units) ----------
+  // A lone drone is pathetic; power comes from the handlers it's tethered to.
+  greydrone:  { name: 'Grey Drone',        role: 'combat', builtAt: 'barracks', hp: 45,  speed: 82, dmg: 5, atkRange: 110, cooldown: 0.8, sight: 210, cost: 35,  r: 8,  buildTime: 4, drawScale: 0.9 },
+  // Handler: the offense hub — emboldens every drone in its field (buffAura,
+  // +25% damage). Kill the handler and the blob goes limp.
+  handler:    { name: 'Grey Handler',      role: 'combat', builtAt: 'barracks', hp: 95,  speed: 72, dmg: 5, atkRange: 120, cooldown: 0.9, sight: 250, cost: 75,  r: 9,  buildTime: 7, buffAura: { r: 165 } },
+  // Technician: the defense hub — shields nearby drones (hardenAura, −28%
+  // damage taken). Offense and defense live in two bodies to protect.
+  technician: { name: 'Grey Technician',   role: 'combat', builtAt: 'barracks', hp: 90,  speed: 70, dmg: 4, atkRange: 110, cooldown: 1,   sight: 230, cost: 85,  r: 9,  buildTime: 7, hardenAura: { r: 155 } },
+  // Tall White Overseer: elite command node — a far larger buff field that ties
+  // scattered drone packs into one network.
+  overseer:   { name: 'Tall White Overseer', role: 'combat', builtAt: 'barracks', hp: 135, speed: 66, dmg: 7, atkRange: 130, cooldown: 0.9, sight: 270, cost: 145, r: 10, buildTime: 9, drawScale: 1.2, buffAura: { r: 220 }, req: 'tech' },
+  // Tic Tac: the Mothership's bound escort — a silent white lozenge with a sting
+  // for air and ground. Brood-spawned only (never trained directly).
+  tictac:     { name: 'Tic Tac', flyH: 34, role: 'combat', builtAt: 'airpad', hp: 130, speed: 132, dmg: 12, atkRange: 145, cooldown: 0.6, sight: 280, cost: 0, r: 9, buildTime: 0, flying: true, targets: 'both', shape: 'tictac' },
   // reptilian brood: the mother herself is fragile with a feeble bite — her
   // weapon is a bound swarm of hatchlings that shadows her, tops itself back
   // up as it dies, and dogpiles whatever she attacks. Kill her, kill the swarm.
   // She still emboldens nearby infantry (+25% damage via buffAura).
   broodmother: { name: 'Chitauri Broodmother', role: 'combat', builtAt: 'barracks', hp: 150, speed: 64, dmg: 4, atkRange: 90, cooldown: 1.2, sight: 230, cost: 175, r: 12, buildTime: 12, req: 'tech', brood: { count: 5, regen: 5 }, buffAura: { r: 160 } },
   hatchling:   { name: 'Chitauri Hatchling',   role: 'combat', hp: 35,  speed: 95, dmg: 6, atkRange: 24,  cooldown: 0.6, sight: 200, cost: 0,   r: 7,  buildTime: 0 },
+  // ---------- Reptilian caste (loosh-funded elite) ----------
+  // Nephilim: expensive giant shock-troops that FEED — every blow heals them
+  // (leech), so a survivor snowballs. You field a few, not a horde.
+  nephilim: { name: 'Nephilim', role: 'combat', builtAt: 'barracks', hp: 210, speed: 70, dmg: 18, atkRange: 32, cooldown: 0.9, sight: 210, cost: 95, loosh: 40, r: 11, buildTime: 9, armor: 0.15, leech: true, drawScale: 1.3, req: 'tech' },
+  // Priest caste: no real bite — a fear aura that saps enemy damage (debuffAura)
+  // and a paralysing gaze that petrifies its target (mind-seize). The Basilisk's
+  // old crowd-control, rehoused where it isn't campy.
+  priest: { name: 'Reptilian Priest', role: 'combat', builtAt: 'barracks', hp: 95, speed: 68, dmg: 4, atkRange: 150, cooldown: 1.7, sight: 250, cost: 80, loosh: 30, r: 9, buildTime: 8, petrify: 2, debuffAura: { r: 165, weaken: 0.4 }, req: 'tech' },
+  // Sirrush: the Ishtar-Gate dragon. A heavy armoured quadruped devourer that
+  // heals off everything it hits (leech) — the Reptilian tank, replaces the
+  // Basilisk. Minerals-funded so the brood can start the fights that earn loosh.
+  sirrush: { name: 'Sirrush', role: 'combat', builtAt: 'factory', hp: 470, speed: 66, dmg: 23, atkRange: 34, cooldown: 1.0, sight: 220, cost: 185, r: 15, buildTime: 13, armor: 0.22, bldgBonus: 1.4, leech: true, shape: 'square' },
+  // Gargoyle Brood: cheap, fast stone-winged swarm that harasses air and ground
+  gargoyle: { name: 'Gargoyle Brood', role: 'combat', builtAt: 'airpad', hp: 60, speed: 120, dmg: 7, atkRange: 60, cooldown: 0.7, sight: 240, cost: 55, r: 8, buildTime: 5, flying: true, targets: 'both', shape: 'tri' },
+  // Dread Screecher: a flying priest-beast — its wail is a mobile fear aura
+  // (debuffAura) over the battlefield, with a shrieking sonic bolt of its own
+  screecher: { name: 'Dread Screecher', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 155, speed: 100, dmg: 11, atkRange: 135, cooldown: 1.1, sight: 270, cost: 140, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', debuffAura: { r: 180, weaken: 0.35 } },
   // hollow-earth court: the priestess channels Vril (repair aura), the
   // guardian and saurian are the heavy line — all of it can go underground
   vrilpriestess: { name: 'Vril Priestess',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 72, dmg: 0,  atkRange: 0,  cooldown: 1,    sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 7, burrow: true },
@@ -347,9 +379,10 @@ const UNIT_TYPES = {
   // in for one big blast, destroying itself (kamikaze)
   shahed:   { name: 'Shahed',           role: 'combat', builtAt: 'airpad', hp: 60,  speed: 135, dmg: 0,  atkRange: 22,  cooldown: 1,    sight: 320, cost: 55,  r: 9,  buildTime: 5,  flying: true, shape: 'tri', kamikaze: { dmg: 95, splash: 48, bldgBonus: 1.5 } },
   orb:      { name: 'Scout Orb',        role: 'scout',  builtAt: 'airpad', hp: 50,  speed: 140, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 380, cost: 40,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', detector: true },
-  // one-shot recon: fly it onto an enemy unit to implant a tracker — the
-  // drone is spent, but the tag grants vision of that unit until it dies
-  probedrone: { name: 'Probe Drone',    role: 'scout',  builtAt: 'airpad', hp: 45,  speed: 145, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 320, cost: 50,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', tracker: true },
+  // reusable designator: fly it onto an enemy to PAINT the target — lasting
+  // vision plus a mark that makes your army hit it 30% harder. The drone lives
+  // and can be re-tasked to the next target (see the 'probe' order).
+  probedrone: { name: 'Probe Drone',    role: 'scout',  builtAt: 'airpad', hp: 75,  speed: 145, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 320, cost: 60,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', tracker: true },
   saucer:   { name: 'Flying Saucer', flyH: 32,   role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   drake:    { name: 'Sky Drake', flyH: 32,        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
   // Resistance Chemtrail Biplane: a rickety crop-duster biplane that lays a
@@ -389,10 +422,14 @@ const UNIT_TYPES = {
   serpent: { name: 'Feathered Serpent', flyH: 28, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 165, speed: 118, dmg: 16, atkRange: 85, cooldown: 1.0, sight: 270, cost: 175, r: 11, buildTime: 11, flying: true, targets: 'ground', shape: 'tri', weapon: 'spray', groundEffect: { kind: 'fire', r: 22, dur: 1.8, dps: 7 } },
   // Hollow advanced air: brass-riveted Vril Disc with a channeled beam
   vrildisc: { name: 'Vril Disc', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
-  // Greys: a heavy capital saucer — hovers and rakes a broadside of plasma
-  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 20, atkRange: 175, cooldown: 0.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'both', shape: 'saucer', weapon: 'gunship', shellEvery: 11, shellDmg: 40, shellSplash: 34, multiTarget: 3, req: 'tech' },
-  // Reptilians: a winged Draconian overlord raining fire
-  draco:    { name: 'Draco', flyH: 34, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 640, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 540, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, req: 'tech' },
+  // Greys: the capital saucer — no broadside. It lobs collapsing singularities
+  // that drag whole ground formations together and crush them (reusing the
+  // Gravity-Well pull), and deploys a bound Tic Tac escort to screen the sky.
+  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 16, atkRange: 210, minRange: 90, cooldown: 3.6, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', weapon: 'lob', projectile: 'plasma', splash: 22, groundEffect: { kind: 'singularity', r: 120, dur: 2.6, pull: 150, dmg: 70, blast: 1.8 }, brood: { type: 'tictac', count: 3, regen: 16 }, req: 'tech' },
+  // Draco Royal: the winged apex of the caste — rains fire, and its presence
+  // emboldens the whole brood (buffAura). Bought with loosh: the blood-throne's
+  // champion. drawScale keeps its bespoke rig imposing.
+  draco:    { name: 'Draco Royal', flyH: 34, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 660, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 380, loosh: 90, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, buffAura: { r: 175 }, req: 'tech' },
   // Resistance: a janky scrap missile truck — cheap-for-its-power siege apex
   cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'cruise', splash: 55, bldgBonus: 2, req: 'tech' },
   // faction-power units (never trainable)
