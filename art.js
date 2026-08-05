@@ -5831,23 +5831,33 @@
   });
   I.f35 = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
-      // clipped delta wings
-      { poly: [[5, 2.2], [-4, 12], [-8, 11], [-3, 2.2]], base: 1.4, h: 1, body: '#4c545e' },
-      { poly: [[5, -2.2], [-4, -12], [-8, -11], [-3, -2.2]], base: 1.4, h: 1, body: '#4c545e' },
-      // canted twin tails
-      { poly: [[-8, -2.5], [-12, -4.5], [-12.6, -3.6], [-8.6, -1.8]], base: 1.4, h: 5, body: '#3e454f' },
-      { poly: [[-8, 2.5], [-12, 4.5], [-12.6, 3.6], [-8.6, 1.8]], base: 1.4, h: 5, body: '#3e454f' },
-      // stubby fuselage, bubble canopy well forward
-      { poly: [[13, 0], [10, -2.4], [-10, -2.6], [-13, -1], [-13, 1], [-10, 2.6], [10, 2.4]], base: 0, h: 3.8, body: '#525a66',
+      // big clipped-delta mid wings, swept leading edges
+      { poly: [[7, -2.5], [-1, -14], [-6, -13], [-6, -2.5]], base: 1.6, h: 1, body: '#4a525c' },
+      { poly: [[7, 2.5], [-1, 14], [-6, 13], [-6, 2.5]], base: 1.6, h: 1, body: '#4a525c' },
+      // stabilators at the tail
+      { poly: [[-8, -2], [-12, -8], [-14.5, -7], [-11, -2]], base: 1.6, h: 0.9, body: '#3f474f' },
+      { poly: [[-8, 2], [-12, 8], [-14.5, 7], [-11, 2]], base: 1.6, h: 0.9, body: '#3f474f' },
+      // canted twin fins
+      { poly: [[-7, -1.6], [-12, -3.4], [-12.8, -2.7], [-7.8, -1]], base: 1.8, h: 4.5, body: '#39414a' },
+      { poly: [[-7, 1.6], [-12, 3.4], [-12.8, 2.7], [-7.8, 1]], base: 1.8, h: 4.5, body: '#39414a' },
+      // fuselage: chined nose, humped spine, single fat engine
+      { poly: [[16, 0], [12, -2.2], [4, -3], [-11, -2.6], [-14, -1.4], [-14, 1.4], [-11, 2.6], [4, 3], [12, 2.2]], base: 0, h: 4.2, body: '#555e6a',
         detail: (c, t2, o2) => {
-          c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -9, -1, 20, 2, 1); c.fill();
-          c.fillStyle = 'rgba(140,220,255,0.6)'; rr(c, 5.5, -1.3, 4, 2.6, 1.3); c.fill();
-          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.9)'; c.beginPath(); c.arc(13.5, 0, 1.8, 0, TAU); c.fill(); }
+          c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -10, -1, 22, 2, 1); c.fill(); // spine highlight
+          // the F-35's gold-tinted bubble canopy, well forward
+          const g2 = c.createLinearGradient(6, 0, 11, 0);
+          g2.addColorStop(0, 'rgba(150,200,255,0.85)'); g2.addColorStop(1, 'rgba(222,235,175,0.75)');
+          c.fillStyle = g2; rr(c, 5.5, -1.5, 5.5, 3, 1.5); c.fill();
+          c.strokeStyle = 'rgba(30,40,50,0.5)'; c.lineWidth = 0.4; rr(c, 5.5, -1.5, 5.5, 3, 1.5); c.stroke();
+          c.fillStyle = '#2b323b'; c.beginPath(); c.arc(-13.2, 0, 1.5, 0, TAU); c.fill(); // engine nozzle
+          c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 0.4; // chine panel seams
+          c.beginPath(); c.moveTo(12, -1.6); c.lineTo(4, -2.6); c.moveTo(12, 1.6); c.lineTo(4, 2.6); c.stroke();
+          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(16.5, 0, 1.9, 0, TAU); c.fill(); }
         } },
     ],
-    rigLift: 1.8,
-    rig: (c, t) => { const b = 0.6 + 0.4 * Math.sin(t * 24); c.fillStyle = `rgba(140,200,255,${0.5 + b * 0.4})`;
-      c.beginPath(); c.moveTo(-13, -1); c.lineTo(-17 - b * 2.5, 0); c.lineTo(-13, 1); c.closePath(); c.fill(); },
+    rigLift: 2,
+    rig: (c, t) => { const b = 0.6 + 0.4 * Math.sin(t * 26); c.fillStyle = `rgba(140,190,255,${0.45 + b * 0.4})`;
+      c.beginPath(); c.moveTo(-14, -1.2); c.lineTo(-18.5 - b * 3, 0); c.lineTo(-14, 1.2); c.closePath(); c.fill(); },
   });
   I.drake = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
