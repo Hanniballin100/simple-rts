@@ -3577,6 +3577,78 @@ function cancelUnit(type) {
   refreshSidebar();
 }
 
+// one-line "what it is, what it does" tooltips for sidebar cameos —
+// generated from the stats, so new units and buildings describe themselves
+function unitBlurb(type) {
+  const t = UNIT_TYPES[type];
+  const b = [];
+  if (t.role === 'worker') b.push('worker — mines minerals and hauls them to a drop-off');
+  else if (t.role === 'scout') b.push('scout — fast, far-sighted, fragile');
+  if (t.captures) b.push('walk it into an enemy building to capture it (consumed)');
+  if (t.tracker) b.push('fly onto an enemy unit to paint it: lasting vision + your army hits it 30% harder');
+  if (t.repair) b.push(t.builtAt === 'factory' || t.flying ? 'repair unit — patches nearby damaged friendlies' : 'medic — heals nearby friendlies');
+  if (t.kamikaze) b.push('one-way munition: dives into its target and detonates');
+  if (t.dmg) {
+    if (t.weapon === 'gunrun') b.push('saturation gun runs — shreds vehicles and infantry along the flight path, friend or foe alike');
+    else if (t.weapon === 'bomb') b.push('bombing runs: releases on overflight');
+    else if (t.weapon === 'lob') b.push('arcing artillery' + (t.minRange ? ' — outranges towers, helpless up close' : ''));
+    else if (t.weapon === 'storm') b.push('calls a lightning storm onto the target zone');
+    else if (t.weapon === 'spray') b.push('strafes with lingering area denial');
+    else if (t.weapon === 'gunship') b.push('circles the target pouring in a broadside of fire');
+    else if (t.weapon === 'abduct') b.push('tractor beam: pins and drains a ground unit, then abducts it outright');
+    b.push(t.targets === 'air' ? 'anti-air ONLY' : t.targets === 'both' ? 'hits ground and air' : 'ground targets only');
+    if (t.dmgVsGround !== undefined && t.dmgVsGround < t.dmg) b.push('weak vs ground');
+    if (t.vehBonus) b.push(`${t.vehBonus}× vs vehicles`);
+    if (t.bldgBonus > 1) b.push(`${t.bldgBonus}× vs buildings`);
+    else if (t.bldgBonus) b.push('feeble vs buildings');
+    if (t.lance) b.push('one narrow annihilating blast at a time');
+  } else if (t.role === 'combat' && !t.repair && !t.tracker && !t.kamikaze && !t.captures) b.push('unarmed');
+  if (t.petrify) b.push('its gaze petrifies the victim to stone');
+  if (t.leech) b.push('heals off the damage it deals');
+  if (t.buffAura) b.push('aura: nearby friendlies deal +25% damage');
+  if (t.hardenAura) b.push('aura: nearby friendlies take less damage');
+  if (t.debuffAura) b.push('fear aura: nearby enemies hit weaker');
+  if (t.brood) b.push('leads a bound escort that regrows over time');
+  if (t.detector) b.push('DETECTOR: reveals stealth, disguise and burrowers');
+  if (t.stealth) b.push('stealth — invisible until it fires');
+  if (t.cloakStill) b.push('cloaks while holding still; the first shot from cloak hits double');
+  if (t.burrow) b.push('can burrow: hidden and safe, but slow and unarmed below');
+  if (t.plantMine) b.push('can bury IEDs');
+  if (t.jams) b.push('its hits scramble aircraft avionics');
+  if (t.pad) b.push(`lives on the airfield: ${t.maxAmmo} shots per sortie, lands to rearm`);
+  if (isCrusher(t)) b.push('crushes light infantry under its hull');
+  if (t.limit) b.push(`max ${t.limit}`);
+  if (t.loosh) b.push(`also costs ${t.loosh} LOOSH`);
+  const s = b.join('; ') || 'combat unit';
+  return s.charAt(0).toUpperCase() + s.slice(1) + '.';
+}
+
+function buildingBlurb(type) {
+  const bt = bstats(PLAYER, type);
+  const b = [];
+  if (type === 'barracks') b.push('trains infantry');
+  if (type === 'factory') b.push('builds vehicles');
+  if (bt.padCap) b.push(`airfield: builds, parks and rearms up to ${bt.padCap} aircraft`);
+  if (type === 'tech') b.push('research site — unlocks the advanced roster');
+  if (bt.dmg) b.push(`defense tower — ${bt.targets === 'air' ? 'ANTI-AIR only' : bt.targets === 'both' ? 'hits ground and air' : 'anti-ground'}, ${bt.dmg} dmg at range ${bt.atkRange}`);
+  if (bt.power > 0) b.push(`+${bt.power} power`);
+  else if (bt.power < 0) b.push(`draws ${-bt.power} power`);
+  if (bt.income) b.push(`prints +${bt.income} minerals / 10s`);
+  if (bt.dropoff) b.push('mineral drop-off — each one also raises your mining-rig cap by one');
+  if (bt.repairRate) b.push('repairs vehicles and aircraft parked on it');
+  if (bt.healAura) b.push('heals nearby friendlies');
+  if (bt.detector) b.push('DETECTOR: reveals stealth, disguise and burrowers');
+  if (bt.superweapon) b.push('superweapon — charges over minutes, then devastates a target zone anywhere on the map');
+  if (bt.trip) b.push('buried charge — detonates under enemy ground forces');
+  if (type === 'wall') b.push('blocks ground movement');
+  if (type === 'gate') b.push('wall segment that lets your own ground forces through');
+  if (type === 'tunnelentrance') b.push('tunnel mouth — your ground units travel underground between entrances');
+  if (bt.revealMap) b.push('reveals the entire map');
+  if (bt.spawns) b.push(`turns out a free ${UNIT_TYPES[bt.spawns.type].name} every ${bt.spawns.every}s`);
+  const s = b.join('; ') || 'structure';
+  return s.charAt(0).toUpperCase() + s.slice(1) + '.';
+}
+
 function buildSidebar() {
   gridStructures.innerHTML = '';
   gridUnits.innerHTML = '';
@@ -3590,20 +3662,22 @@ function buildSidebar() {
   for (const s of structs) {
     makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || s, bstats(PLAYER, s).cost,
       () => sidebarStructureClick(s), () => cancelStructure(s));
+    cameoButtons['s:' + s].btn.title = buildingBlurb(s) +
+      (bstats(PLAYER, s).req ? `\nRequires ${f.buildingNames[bstats(PLAYER, s).req] || bstats(PLAYER, s).req}` : '');
   }
   const unlocks = [...(f.advanced || []).map(u => UNIT_TYPES[u].name),
     ...(structs.includes('hangar') ? [f.buildingNames.hangar || 'Hangar'] : []),
     ...(bstats(PLAYER, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
-  cameoButtons['s:tech'].btn.title = unlocks.length ? 'Unlocks: ' + unlocks.join(', ') : 'Research site';
+  cameoButtons['s:tech'].btn.title = buildingBlurb('tech') +
+    (unlocks.length ? '\nUnlocks: ' + unlocks.join(', ') : '');
   // worker-less factions have no worker cameo — their buildings pay the bills
   const unitList = [f.worker, f.infantry, f.aa, f.extras[0], f.vehicle, f.extras[1],
     ...f.air, ...f.extras.slice(2), ...(f.advanced || [])].filter(Boolean);
   for (const u of unitList) {
     makeCameo(gridUnits, 'u:' + u, UNIT_TYPES[u].name, UNIT_TYPES[u].cost,
       () => sidebarUnitClick(u), () => cancelUnit(u));
-    if (UNIT_TYPES[u].req) {
-      cameoButtons['u:' + u].btn.title = `Requires ${f.buildingNames[UNIT_TYPES[u].req] || UNIT_TYPES[u].req}`;
-    }
+    cameoButtons['u:' + u].btn.title = unitBlurb(u) +
+      (UNIT_TYPES[u].req ? `\nRequires ${f.buildingNames[UNIT_TYPES[u].req] || UNIT_TYPES[u].req}` : '');
   }
 
   const gridPowers = document.getElementById('grid-powers');
