@@ -186,6 +186,25 @@ function nearest(from, list, filter) {
   return best;
 }
 
+// support units (healers, aura buffers) quietly decide fights, so target
+// acquisition treats them as ~170px closer than they are: guns swing onto
+// the medic over the nearer rifleman when both are in reach
+function supportBias(e) {
+  if (e.kind !== 'unit') return 0;
+  const t = UNIT_TYPES[e.type];
+  return (t.repair || t.buffAura || t.hardenAura || t.debuffAura) ? 170 : 0;
+}
+
+function nearestTarget(from, list, filter) {
+  let best = null, bd = Infinity;
+  for (const e of list) {
+    if (filter && !filter(e)) continue;
+    const d = dist(from, e) - supportBias(e);
+    if (d < bd) { bd = d; best = e; }
+  }
+  return best;
+}
+
 // per-frame memo (state.time only advances once per frame): enemiesOf and
 // powerOf are called per unit / per building per frame, and rebuilding those
 // arrays thousands of times a second was churning enough garbage to cause
@@ -222,13 +241,14 @@ function isRevealed(e, owner) {
 }
 
 // is entity e hidden from `owner` right now? (covers the reptilian disguise,
-// stealth flags, and the burrow stance) — the universal targeting filter
+// stealth flags, and the burrow stance) — the universal targeting filter.
+// The skin-suit disguise is cloak-CLASS, not absolute: a detector sees the
+// lizard under the suit, so defenses with detector support fight back.
 function hiddenFrom(e, owner) {
   if (e.owner === owner) return false;
   if (e.trackedBy && e.trackedBy[owner]) return false; // an implanted tracker pierces everything
-  if (e.disguised) return true;
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
-  const cloaked = e.burrowed || e.cloaked || // e.cloaked: deep-state hold-still cloak (set in updateUnit)
+  const cloaked = e.disguised || e.burrowed || e.cloaked || // e.cloaked: deep-state hold-still cloak (set in updateUnit)
     (stats.stealth && !(e.exposedUntil > state.time)) ||
     (e.kind === 'unit' && e.transit); // underground in a tunnel: gone entirely
   if (!cloaked) return false;
@@ -1841,7 +1861,7 @@ function fireAt(u, target, t) {
 // still drop to idle and re-acquire by sight.
 function nextTargetOrIdle(u, t) {
   if (t.flying && !(t.maxAmmo && u.ammo <= 0)) {
-    const foe = nearest(u, enemiesOf(u.owner), e =>
+    const foe = nearestTarget(u, enemiesOf(u.owner), e =>
       !hiddenFrom(e, u.owner) && canTarget(t, e) &&
       dist(u, e) <= Math.max(t.sight * 1.6, 450) && dist(u, e) >= (t.minRange || 0));
     if (foe) { orderAttack(u, foe); return; }
@@ -1857,7 +1877,7 @@ function autoAcquire(u, dt) {
   u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
   if (u.scanT > 0) return;
   u.scanT = 0.3;
-  const foe = nearest(u, enemiesOf(u.owner), e =>
+  const foe = nearestTarget(u, enemiesOf(u.owner), e =>
     !hiddenFrom(e, u.owner) && canTarget(t, e) && dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
   if (foe) orderAttack(u, foe);
 }
@@ -2249,7 +2269,7 @@ function updateUnit(u, dt) {
       u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
       if (!foe && u.scanT <= 0) {
         u.scanT = 0.25;
-        foe = nearest(u, enemiesOf(u.owner), e =>
+        foe = nearestTarget(u, enemiesOf(u.owner), e =>
           !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
       }
       o.foeId = foe ? foe.id : null;
@@ -2732,7 +2752,7 @@ function updateBuilding(b, dt) {
     } else if (wkind === 'missile') {
       // patriot battery: launches a visible homing missile
       if (b.cooldown <= 0) {
-        const foe = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
+        const foe = nearestTarget(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
           !hiddenFrom(un, b.owner) && !un.garrisoned && canTarget(bt, un) &&
           dist(b, un) <= bt.atkRange + entityRadius(un));
         if (foe) {
@@ -2777,7 +2797,7 @@ function updateBuilding(b, dt) {
         b.beamHold = 0;
       }
     } else if (b.cooldown <= 0) {
-      const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+      const foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
       if (foe) {
         dealDamage(b, foe, bt.dmg, bt);
         b.cooldown = bt.cooldown;
@@ -3062,6 +3082,20 @@ function updateAI(owner, dt) {
     if (pick) trainUnit(owner, pick);
   }
 
+  // the enemy runs silent (disguise, cloak, burrow): keep a couple of
+  // detectors alive or the whole base fights blind
+  const foeCloaky = state.units.some(e => e.owner !== owner && e.owner !== NEUTRAL && e.hp > 0 &&
+    (e.disguised || UNIT_TYPES[e.type].cloakStill || UNIT_TYPES[e.type].stealth || UNIT_TYPES[e.type].burrow));
+  if (foeCloaky) {
+    const detType = [f.vehicle, f.aa, ...f.air, ...f.extras].filter(Boolean)
+      .find(tp => UNIT_TYPES[tp].detector);
+    if (detType) {
+      const have = state.units.reduce((n, x) => n + (x.owner === owner && x.hp > 0 && x.type === detType ? 1 : 0), 0) +
+        state.buildings.reduce((n, b) => n + (b.owner === owner && b.hp > 0 ? b.queue.filter(j => j.type === detType).length : 0), 0);
+      if (have < 2 && state.minerals[owner] >= UNIT_TYPES[detType].cost + reserve) trainUnit(owner, detType);
+    }
+  }
+
   // fortify: lay a square wall perimeter around the base once established, with
   // a gap in the middle of each side (and open corners) so the army can still
   // sortie. A couple segments per think, only when flush so production isn't
@@ -3143,6 +3177,7 @@ function updateAI(owner, dt) {
     if (score === Infinity) {                          // else: raiding an outlying building?
       for (const b of myBldgs) { if (dist(b, u) < 300) { score = 400 + dh * 0.01; break; } }
     }
+    if (score !== Infinity) score -= supportBias(u);  // gut the medics and buffers first
     if (score < best) { best = score; threat = u; }
   }
   if (threat) {

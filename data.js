@@ -118,7 +118,7 @@ const FACTIONS = {
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
     air: ['heli', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'engineer', 'mechanic'], advanced: ['gunship'],
+    extras: ['riot', 'haarp', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Quantitative Easing', desc: 'Every Fusion Plant prints minerals passively (+12 every 10s). And when a building falls, 25% of its cost is refunded — too big to fail.' },
@@ -321,12 +321,14 @@ const UNIT_TYPES = {
   gargoyle: { name: 'Gargoyle Brood', role: 'combat', builtAt: 'airpad', hp: 60, speed: 120, dmg: 7, atkRange: 60, cooldown: 0.7, sight: 240, cost: 55, r: 8, buildTime: 5, flying: true, targets: 'both', shape: 'tri' },
   // Dread Screecher: a flying priest-beast — its wail is a mobile fear aura
   // (debuffAura) over the battlefield, with a shrieking sonic bolt of its own
-  screecher: { name: 'Dread Screecher', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 155, speed: 100, dmg: 11, atkRange: 135, cooldown: 1.1, sight: 270, cost: 140, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', debuffAura: { r: 180, weaken: 0.35 } },
+  // echolocation: the wail that terrifies also finds — the brood's detector
+  screecher: { name: 'Dread Screecher', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 155, speed: 100, dmg: 11, atkRange: 135, cooldown: 1.1, sight: 270, cost: 140, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', debuffAura: { r: 180, weaken: 0.35 }, detector: true },
   // hollow-earth court: the priestess channels Vril (repair aura), the
   // guardian and saurian are the heavy line — all of it can go underground
   vrilpriestess: { name: 'Vril Priestess',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 72, dmg: 0,  atkRange: 0,  cooldown: 1,    sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 7, burrow: true },
   guardian:      { name: 'Agarthan Guardian', role: 'combat', builtAt: 'barracks', hp: 190, speed: 62, dmg: 13, atkRange: 30, cooldown: 0.85, sight: 200, cost: 95,  r: 10, buildTime: 8, armor: 0.3, burrow: true },
-  cavesaurian:   { name: 'Cave Saurian',      role: 'combat', builtAt: 'factory',  hp: 380, speed: 78, dmg: 26, atkRange: 32, cooldown: 1,    sight: 210, cost: 170, r: 14, buildTime: 12, armor: 0.2, shape: 'square' },
+  // a keen nose sniffs out spies, cloaks and burrowers — the attack-dog detector
+  cavesaurian:   { name: 'Cave Saurian',      role: 'combat', builtAt: 'factory',  hp: 380, speed: 78, dmg: 26, atkRange: 32, cooldown: 1,    sight: 210, cost: 170, r: 14, buildTime: 12, armor: 0.2, shape: 'square', detector: true },
   // resistance specialists: the RPG tube is their can opener (vehBonus
   // multiplies damage vs ground vehicles), the marksman their long arm
   rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2 },
@@ -339,7 +341,9 @@ const UNIT_TYPES = {
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
   technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both' },
   suv:       { name: 'Black SUV',        role: 'combat', builtAt: 'factory', hp: 200, speed: 95,  dmg: 13, atkRange: 110, cooldown: 0.6,  sight: 220, cost: 110, r: 12, buildTime: 8,  shape: 'square' },
-  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true, cloakStill: true },
+  // Globalist detector: an unmarked van bristling with antennas — no cloak,
+  // the Globalists watch openly. Finds spies, stealth and burrowers.
+  blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
   // Deep State signature armor: a blacked-out ambush tank that vanishes when
   // it stops (cloakStill) and lands a doubled first strike from concealment;
   // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
