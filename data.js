@@ -114,11 +114,11 @@ const FACTIONS = {
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Drones and Helicopters. The Air Force Base fields B-1 Lancers — and once the Black Site Lab opens, AC-130 Gunships and B-2 Spirits. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
+    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Helicopters. The Air Force Base runs a real doctrine: F-35 Interceptors sweep the sky, A-10 Warthogs shred armor on the deck — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
-    air: ['heli'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'reaper', 'a10', 'engineer', 'mechanic'], advanced: ['gunship'],
+    air: ['heli', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'haarp', 'engineer', 'mechanic'], advanced: ['gunship'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Quantitative Easing', desc: 'Every Fusion Plant prints minerals passively (+12 every 10s). And when a building falls, 25% of its cost is refunded — too big to fail.' },
@@ -136,11 +136,11 @@ const FACTIONS = {
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. Disinfo Vans cruise wrapped in a bound escort of phantom contacts; the TR-3B haunts the sky unseen. A detector is the only way to find any of them.',
+    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. Overhead flies the black-projects budget: the TR-3B haunts the map unseen, the hypersonic SR-91 Aurora runs down anything with wings, B-1 Lancers streak in on bombing runs, and the B-2 Spirit erases city blocks. A detector is the only way to find any of them.',
     economy: { workers: 3 },
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'spooktank',
-    air: ['tr3b'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'disinfovan', 'b1', 'engineer', 'mechanic'], advanced: ['gunship', 'b2'],
+    air: ['tr3b', 'aurora', 'b1'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
@@ -149,7 +149,7 @@ const FACTIONS = {
     buildingNames: {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
       factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
-      tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Unmarked Hangar',
+      tower5g: '5G Tower', samsite: 'Patriot Battery',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Motor Pool Annex',
       superweapon: 'Blackout Command Node',
     },
@@ -177,7 +177,7 @@ const FACTIONS = {
   },
   grey: {
     name: 'The Greys', family: 'ALIENS', emoji: '👽',
-    desc: 'You will be probed. Grey Drones are feeble alone — but a Handler\'s network makes the swarm lethal, a Technician shields it, and a Tall White Overseer binds scattered packs into one mind. Probe Drones paint your units for the kill. Overhead, the Mothership drags whole formations into collapsing singularities while its bound Tic Tac escort screens the sky. No miners: Zero-Point Cores conjure minerals from the vacuum.',
+    desc: 'You will be probed. Grey Drones are feeble alone — but a Handler\'s network makes the swarm lethal, a Technician shields it, and a Tall White Overseer binds scattered packs into one mind. Probe Drones paint your units for the kill. Overhead, the Mothership vaporizes one target at a time with a narrow annihilation lance while its bound Tic Tac escort screens the sky. No miners: Zero-Point Cores conjure minerals from the vacuum.',
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greydrone', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
@@ -185,7 +185,7 @@ const FACTIONS = {
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
-      sig: { name: 'Cloning Vats', desc: 'Target one of your units: an exact copy emerges from your barracks.', kind: 'unit', cd: 90 },
+      sig: { name: 'Cloning Vats', desc: 'Target one of your infantry: an exact copy emerges from your barracks. The vats only fit people-shaped things — no vehicles, no aircraft.', kind: 'unit', cd: 90 },
     },
     buildingNames: {
       hq: 'Mothership Anchor', powerplant: 'Zero-Point Core', barracks: 'Cloning Pod',
@@ -390,16 +390,22 @@ const UNIT_TYPES = {
   chembiplane: { name: 'Chemtrail Biplane', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 110, speed: 140, dmg: 8, atkRange: 70, cooldown: 1, sight: 280, cost: 130, r: 10, buildTime: 9, flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
   // the globalist air wing: a fast swing-wing strike jet, and two tech-gated
   // heavies — an orbiting AC-130 and the stealth-black flying wing
-  b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 16, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6 },
+  // fast strike bomber: rakes ground targets on supersonic passes, blind to
+  // the sky — the Aurora flies top cover, the B-1 does the breaking
+  b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 18, atkRange: 160, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'ground', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6, splash: 14, bldgBonus: 1.2 },
   b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, req: 'tech' },
   // Deep State signature air: a TR-3B black triangle that hovers dead silent —
   // invisible (stealth) until it opens fire, then it lights up for a moment
   tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
-  // Globalist strike wing (replaces the B-1/B-2): the A-10 makes low gun runs
-  // that shred ground and armour but can't touch aircraft and spray wide; the
-  // MQ-9 Reaper loiters high, sees far, and picks targets off with Hellfires
+  // Globalist strike wing: the A-10 makes low gun runs that shred ground and
+  // armour but can't touch aircraft
   a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 20, dmgVsGround: 20, atkRange: 150, cooldown: 0.45, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 16, plane: true, turn: 2.2, targets: 'ground', vehBonus: 1.9, splash: 14 },
-  reaper:  { name: 'MQ-9 Reaper', flyH: 36, role: 'combat', builtAt: 'airpad', hp: 130, speed: 150, dmg: 30, atkRange: 185, cooldown: 2.4, sight: 360, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 4, plane: true, turn: 2.0, splash: 20, bldgBonus: 1.3 },
+  // Globalist interceptor: a fast AA-only jet with no ammo clock — it patrols
+  // and dogfights until something kills it. Helpless against the ground.
+  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'air', shape: 'plane', plane: true, turn: 3.2 },
+  // Deep State interceptor: hypersonic, stealthed, and faster than anything
+  // else in the sky — the black-budget answer to the F-35
+  aurora:  { name: 'SR-91 Aurora', flyH: 42, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 200, speed: 275, dmg: 30, atkRange: 180, cooldown: 0.7, sight: 340, cost: 210, r: 12, buildTime: 12, flying: true, targets: 'air', shape: 'plane', plane: true, turn: 2.4, stealth: true },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
@@ -422,10 +428,10 @@ const UNIT_TYPES = {
   serpent: { name: 'Feathered Serpent', flyH: 28, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 165, speed: 118, dmg: 16, atkRange: 85, cooldown: 1.0, sight: 270, cost: 175, r: 11, buildTime: 11, flying: true, targets: 'ground', shape: 'tri', weapon: 'spray', groundEffect: { kind: 'fire', r: 22, dur: 1.8, dps: 7 } },
   // Hollow advanced air: brass-riveted Vril Disc with a channeled beam
   vrildisc: { name: 'Vril Disc', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
-  // Greys: the capital saucer — no broadside. It lobs collapsing singularities
-  // that drag whole ground formations together and crush them (reusing the
-  // Gravity-Well pull), and deploys a bound Tic Tac escort to screen the sky.
-  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 16, atkRange: 210, minRange: 90, cooldown: 3.6, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', weapon: 'lob', projectile: 'plasma', splash: 22, groundEffect: { kind: 'singularity', r: 120, dur: 2.6, pull: 150, dmg: 70, blast: 1.8 }, brood: { type: 'tictac', count: 3, regen: 16 }, req: 'tech' },
+  // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
+  // lance vaporizes ONE ground target at a time; its bound Tic Tac escort
+  // (slow to regrow once shot down) is all that screens the sky above it.
+  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 110, atkRange: 200, cooldown: 3.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', lance: true, brood: { type: 'tictac', count: 3, regen: 45 }, req: 'tech' },
   // Draco Royal: the winged apex of the caste — rains fire, and its presence
   // emboldens the whole brood (buffAura). Bought with loosh: the blood-throne's
   // champion. drawScale keeps its bespoke rig imposing.
@@ -533,7 +539,9 @@ const BUILDING_TYPES = {
   fueldepot:  { name: 'Fuel Depot',       hp: 420,  w: 60, h: 48, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 3, healAura: { r: 210, rate: 7 }, rearm: true, explodes: { r: 85, dmg: 50, fire: { r: 50, dur: 4, dps: 9 } } },
   blacksite:  { name: 'Black Site',       hp: 660,  w: 54, h: 50, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 4, spawns: { type: 'mib', every: 40 } },
   // rural/roadside mystery: hold it and salvaged saucers roll off the wreck
-  ufocrash:   { name: 'UFO Crash Site',   hp: 500,  w: 64, h: 52, cost: 0, buildTime: 0, sight: 250, power: 0, slots: 3, spawns: { type: 'saucer', every: 70 } },
+  // recovered anti-grav, not a free saucer factory: while held, the owner's
+  // aircraft hit 15% harder and slowly knit themselves back together in flight
+  ufocrash:   { name: 'UFO Crash Site',   hp: 500,  w: 64, h: 52, cost: 0, buildTime: 0, sight: 250, power: 0, slots: 3, airTech: { dmg: 1.15, heal: 2.5 } },
 };
 
 // map settings: how built-up the countryside is. Chosen on the start screen

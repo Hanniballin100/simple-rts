@@ -687,6 +687,8 @@ function castWeather(owner, x, y) {
 }
 
 function castClone(owner, unit) {
+  // the vats only fit people-shaped things — no vehicles, no aircraft
+  if (UNIT_TYPES[unit.type].builtAt !== 'barracks') return false;
   const home = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'barracks')
     || state.buildings.find(b => b.owner === owner && b.hp > 0 && b.type === 'hq');
   if (!home) return false;
@@ -812,14 +814,16 @@ function updateAbilities(dt) {
           }
           if (best && bestN >= 2) castWeather(owner, best.x, best.y);
         } else if (fkey === 'grey' && sig.cd <= 0) {
-          // clone the AI's most valuable combat unit — a free copy at the barracks
+          // clone the AI's most valuable INFANTRY — the vats only take
+          // barracks-built bodies, so no free motherships
           let best = null, bestCost = 0;
           for (const u of state.units) {
-            if (u.owner !== owner || u.hp <= 0 || UNIT_TYPES[u.type].role !== 'combat' || u.garrisoned) continue;
+            if (u.owner !== owner || u.hp <= 0 || UNIT_TYPES[u.type].role !== 'combat' || u.garrisoned ||
+                UNIT_TYPES[u.type].builtAt !== 'barracks') continue;
             const c = UNIT_TYPES[u.type].cost || 0;
             if (c > bestCost) { bestCost = c; best = u; }
           }
-          if (best && bestCost >= 120) castClone(owner, best);
+          if (best && bestCost >= 90) castClone(owner, best);
         }
       }
     }
@@ -1457,7 +1461,7 @@ function dealDamage(attacker, target, dmg, stats) {
   // owned they're a normal building and can be destroyed (killing the garrison).
   if (target.kind === 'building' && target.owner === NEUTRAL) {
     const bt = bstatsOf(target);
-    if (bt.slots && (bt.income || bt.healAura || bt.buffAura || bt.debuffAura || bt.detector || bt.power > 0 || bt.spawns || bt.convert)) return;
+    if (bt.slots && (bt.income || bt.healAura || bt.buffAura || bt.debuffAura || bt.detector || bt.power > 0 || bt.spawns || bt.convert || bt.airTech)) return;
   }
   // grey superior metallurgy: buildings ignore anti-building bonuses
   if (target.kind === 'building' && stats.bldgBonus && state.factions[target.owner] !== 'grey') {
@@ -1731,6 +1735,8 @@ function fireAt(u, target, t) {
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing / decloak first-strike bonus
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
     if (u.weakenedUntil > state.time) dmg *= 0.55; // shouted down by a Megaphone Prophet
+    // recovered UFO tech (a held Crash Site): reverse-engineered weapons
+    if (t.flying && state.airTechOwners && state.airTechOwners.has(u.owner)) dmg *= 1.15;
     u.cooldown = t.cooldown;
     if (t.maxAmmo) u.ammo--;
     // turreted vehicles fire along the gun, not the chassis
@@ -1807,16 +1813,23 @@ function fireAt(u, target, t) {
       const turreted = Art.hasIsoTurret(u.type);
       const muzR = (t.r + 2) * (turreted ? 1.4 : 1);
       const muzZ = unitAlt(u) + (turreted ? 8 : 0);
-      Particles.shot(u.x + Math.cos(a) * muzR, u.y + Math.sin(a) * muzR,
-        target.x, target.y, WEAPON_STYLE[state.factions[u.owner]],
-        muzZ, target.kind === 'unit' ? unitAlt(target) : 0);
+      if (t.lance) {
+        // annihilation lance: a fat beam column slamming down, not a tracer
+        Particles.bolt(u.x, u.y, target.x, target.y, [125, 255, 214], unitAlt(u));
+        Particles.bolt(u.x + 1.5, u.y + 1.5, target.x, target.y, [225, 255, 244], unitAlt(u));
+        Particles.pulse(target.x, target.y, 32, [125, 255, 214]);
+      } else {
+        Particles.shot(u.x + Math.cos(a) * muzR, u.y + Math.sin(a) * muzR,
+          target.x, target.y, WEAPON_STYLE[state.factions[u.owner]],
+          muzZ, target.kind === 'unit' ? unitAlt(target) : 0);
+      }
       if (wkind === 'spray' && t.groundEffect && !isAir) {
         state.zones.push({
           x: target.x, y: target.y, r: t.groundEffect.r, until: state.time + t.groundEffect.dur,
           caster: u.owner, kind: t.groundEffect.kind, dps: t.groundEffect.dps,
         });
       }
-      if (visible) sfx(state.factions[u.owner] === 'glob' ? 'laser' : 'shot');
+      if (visible) sfx(t.lance || state.factions[u.owner] === 'glob' ? 'laser' : 'shot');
       if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
     }
   }
@@ -1938,6 +1951,11 @@ function updateUnit(u, dt) {
 
   // stationed aircraft lift off the moment they get a real order
   if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
+
+  // recovered UFO tech (a held Crash Site): anti-grav alloys knit airframes
+  // back together in flight (the weapon boost lives in fireAt)
+  if (stats.flying && u.hp < u.maxHp && state.airTechOwners && state.airTechOwners.has(u.owner))
+    u.hp = Math.min(u.maxHp, u.hp + 2.5 * dt);
 
   // petrified: a statue until the stone wears off
   if (u.petrifiedUntil > state.time) return;
@@ -2873,6 +2891,10 @@ function aiDesiredStructure(owner, counts, power) {
     : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', 'tech', f.tower, f.aaTower];
   // hangar factions add the AC-130's dedicated field once the lab is up
   if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
+  // air-doctrine factions (2+ airfield-built types) double up on airpads so the
+  // 4-plane pad cap doesn't ground half their roster
+  if ([...f.air, ...f.extras, ...(f.advanced || [])].filter(u => UNIT_TYPES[u].builtAt === 'airpad').length >= 2)
+    order.push('airpad');
   // once teched up, everyone wants their doomsday device (needs the extra power)
   if (superweaponsOn && (f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
   // income structures (e.g. Hollow's Crystal Geode) ARE economy for the worker
@@ -2997,7 +3019,7 @@ function updateAI(owner, dt) {
   // right production building (and any tech prereq) actually stands.
   const mix = [];
   const addMix = (type, w) => {
-    if (!type) return;
+    if (!type || !w) return;
     const ut = UNIT_TYPES[type];
     if (ut.role !== 'combat') return;               // scouts don't join the army
     if (!ut.dmg) return;                            // engineers/repair crews stay home
@@ -3007,7 +3029,14 @@ function updateAI(owner, dt) {
   };
   addMix(f.infantry, 4); addMix(f.aa, 1.2); addMix(f.extras[0], 0.8);
   addMix(f.vehicle, 1.6); addMix(f.extras[1], 0.8);
-  for (const a of f.air) addMix(a, 1.2);
+  // interceptors (air-only jets) are trained against the enemy air actually
+  // seen — none fielded means none built, a sky full of saucers means a squadron
+  let foeAir = 0;
+  for (const e of state.units) {
+    if (e.owner !== owner && e.owner !== NEUTRAL && e.hp > 0 && UNIT_TYPES[e.type].role === 'combat' &&
+        UNIT_TYPES[e.type].flying && !hiddenFrom(e, owner)) foeAir++;
+  }
+  for (const a of f.air) addMix(a, UNIT_TYPES[a].targets === 'air' ? Math.min(3, foeAir * 0.5) : 1.2);
   for (const a of f.extras.slice(2)) addMix(a, 0.6);
   for (const a of (f.advanced || [])) addMix(a, 0.5);
   if (mix.length) {
@@ -3074,9 +3103,11 @@ function updateAI(owner, dt) {
     const cloakFoe = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 &&
       (UNIT_TYPES[u.type].cloakStill || UNIT_TYPES[u.type].stealth || UNIT_TYPES[u.type].burrow));
     const lowPow = power.low;
+    const myAir = army.reduce((n, u) => n + (UNIT_TYPES[u.type].flying ? 1 : 0), 0);
     const value = b => { const s = bstatsOf(b); let v = 0;
       if (s.income) v += s.income * (poor ? 2.4 : 0.7);   // banks/derricks matter most when broke
       if (s.spawns) v += 20;                               // free units are always worthwhile
+      if (s.airTech) v += 8 + myAir * 7;                   // crash-site tech pays off with a real air wing
       if (s.healAura) v += hurt ? 42 : 9;                  // hospitals/depots when the army is bleeding
       if (s.buffAura) v += hurt ? 26 : 7;
       if (s.detector) v += cloakFoe ? 38 : 5;              // radar when the enemy runs silent
@@ -3683,7 +3714,7 @@ function refreshPanel() {
   if (abilityTargeting) {
     elSelInfo.textContent = abilityTargeting === 'zone'
       ? 'Weather Modification — click a target area, Esc to cancel'
-      : 'Cloning Vats — click one of your units, Esc to cancel';
+      : 'Cloning Vats — click one of your infantry, Esc to cancel';
     return;
   }
   if (superTargeting) {
@@ -3699,7 +3730,8 @@ function refreshPanel() {
     const bt = bstatsOf(first);
     elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
       (bt.slots ? ` — right-click with infantry to garrison (${bt.slots} slots)` : '') +
-      (bt.income ? ` — pays +${bt.income} minerals / 10s while held` : '');
+      (bt.income ? ` — pays +${bt.income} minerals / 10s while held` : '') +
+      (bt.airTech ? ' — recovered UFO tech: your aircraft hit +15% and self-repair while held' : '');
     return;
   }
   if (selection.length === 1 && first.owner !== PLAYER) {
@@ -3735,7 +3767,8 @@ function refreshPanel() {
     if (bt.slots) {
       elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
         ` — garrison ${first.garrison.length}/${bt.slots}` +
-        (bt.income ? ` — +${bt.income} minerals / 10s` : '');
+        (bt.income ? ` — +${bt.income} minerals / 10s` : '') +
+        (bt.airTech ? ' — aircraft +15% dmg, self-repairing' : '');
       if (first.garrison.length) {
         const btn = document.createElement('button');
         btn.textContent = `Evacuate (${first.garrison.length})`;
@@ -4893,7 +4926,9 @@ function checkGameOver() {
 }
 
 function frame(now) {
-  const dt = Math.min(0.05, (now - lastTime) / 1000);
+  // clamp below at 0: a backwards timestamp (console-driven stepping) must
+  // never run the sim in reverse — negative dt corrupts particle lifetimes
+  const dt = Math.max(0, Math.min(0.05, (now - lastTime) / 1000));
   lastTime = now;
 
   if (started && !state.over) {
@@ -4905,6 +4940,10 @@ function frame(now) {
     clampCam();
 
     state.time += dt;
+    // who holds a UFO Crash Site this frame (air damage + in-flight repair)
+    state.airTechOwners = new Set();
+    for (const b of state.buildings)
+      if (b.hp > 0 && b.owner !== NEUTRAL && bstatsOf(b).airTech) state.airTechOwners.add(b.owner);
     ensurePathGrid();
     pathBudget = 12; // A* computations allowed this frame (rest retry later)
     rebuildSepGrid();
@@ -5282,7 +5321,8 @@ canvas.addEventListener('mousedown', e => {
       if (mode === 'zone') castWeather(PLAYER, p.x, p.y);
       if (mode === 'unit') {
         const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
-        if (target) castClone(PLAYER, target);
+        if (target && UNIT_TYPES[target.type].builtAt !== 'barracks') eva('Cloning Vats accept infantry only');
+        else if (target) castClone(PLAYER, target);
       }
       refreshPanel();
       refreshSidebar();

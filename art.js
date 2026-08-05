@@ -1320,26 +1320,6 @@
     ctx.fillStyle = '#2a2e26'; ctx.fillRect(13, -1, 4, 2);               // GAU-8 cannon
     if (o.firing) { ctx.fillStyle = 'rgba(255,220,120,0.95)'; ctx.beginPath(); ctx.arc(19, 0, 2.4, 0, TAU); ctx.fill(); }
   };
-  D.reaper = (ctx, t, o) => {
-    // MQ-9 Reaper: long slender recon-strike UAV, nose at +x
-    ctx.fillStyle = '#8a8f96';                        // long thin wings
-    rr(ctx, 0, -18, 5, 36, 1.5); ctx.fill();
-    ctx.strokeStyle = '#5a6068'; ctx.lineWidth = 0.6; ctx.stroke();
-    ctx.fillStyle = '#3a3f46';                        // hellfires
-    for (const s of [-1, 1]) for (const wy of [9, 14]) { rr(ctx, 1, s * wy - 0.8, 5, 1.6, 0.6); ctx.fill(); }
-    const g = ctx.createLinearGradient(0, -3, 0, 3);  // fuselage
-    g.addColorStop(0, '#9aa0a8'); g.addColorStop(1, '#5f656d');
-    ctx.fillStyle = g; rr(ctx, -16, -3, 30, 6, 2.6); ctx.fill();
-    ctx.strokeStyle = '#4d525a'; ctx.lineWidth = 0.7; ctx.stroke();
-    ctx.fillStyle = '#c8cdd5'; ctx.beginPath(); ctx.arc(13, 0, 3.4, 0, TAU); ctx.fill(); // sensor nose
-    ctx.fillStyle = '#2a2e34'; ctx.beginPath(); ctx.arc(14.5, 0, 1.4, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#7a8088'; ctx.lineWidth = 1.6; // V-tail
-    ctx.beginPath(); ctx.moveTo(-14, 0); ctx.lineTo(-19, -5); ctx.moveTo(-14, 0); ctx.lineTo(-19, 5); ctx.stroke();
-    ctx.save(); ctx.translate(-16.5, 0); ctx.rotate(t * 28); // pusher prop
-    ctx.strokeStyle = 'rgba(190,195,205,0.6)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(0, -3.5); ctx.lineTo(0, 3.5); ctx.stroke(); ctx.restore();
-    ctx.fillStyle = o.color; ctx.fillRect(-2, -1, 3, 2);
-    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.9)'; ctx.beginPath(); ctx.arc(6, -9, 1.8, 0, TAU); ctx.fill(); }
-  };
   D.biobomber = (ctx, t, o) => {
     const breathe = 1 + Math.sin(t * 2.2) * 0.05;
     ctx.save();
@@ -3622,35 +3602,78 @@
     }
   };
   B.silo = (ctx, t, o) => {
-    const w = o.w, r = w * 0.36, H = w * 0.95;
-    ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.beginPath(); ctx.ellipse(2, 3, r * 1.2, r * 0.6, 0, 0, TAU); ctx.fill();
-    // corrugated metal cylinder, faintly tinted per plot so a farm row varies
+    // an upright iso cylinder: ground-plane shadow + base rim, then the tube
+    // itself as a billboard so it stands vertical instead of shearing flat
+    const w = o.w, r = w * 0.34, H = w * 1.05;
+    // corrugated metal, faintly tinted per plot so a farm row varies
     const v = Math.abs(Math.floor((o.wx || 0) * 3 + (o.wy || 0) * 7)) % 3;
     const mid = ['#a8aa9e', '#a2a6ac', '#aca492'][v];
-    const g = ctx.createLinearGradient(-r, 0, r, 0);
-    g.addColorStop(0, shade(mid, -0.28)); g.addColorStop(0.5, mid); g.addColorStop(1, shade(mid, -0.35));
-    ctx.fillStyle = g; ctx.fillRect(-r, -H, r * 2, H);
-    ctx.strokeStyle = 'rgba(0,0,0,0.16)'; ctx.lineWidth = 0.7;
-    for (let y = -H + 5; y < 0; y += 5) { ctx.beginPath(); ctx.moveTo(-r, y); ctx.lineTo(r, y); ctx.stroke(); }
-    ctx.fillStyle = shade(mid, 0.15); ctx.beginPath(); ctx.ellipse(0, -H, r, r * 0.5, 0, 0, TAU); ctx.fill(); // domed lid
-    ctx.strokeStyle = shade(mid, -0.4); ctx.lineWidth = 0.8; ctx.stroke();
-    ctx.fillStyle = shade(mid, -0.4); ctx.beginPath(); ctx.ellipse(0, 0, r, r * 0.5, 0, 0, Math.PI); ctx.fill(); // base rim
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(r * 0.4, r * 0.45, r * 1.35, r * 0.8, 0, 0, TAU); ctx.fill();
+    // footprint ring sitting flat on the ground
+    ctx.fillStyle = shade(mid, -0.45);
+    ctx.beginPath(); ctx.ellipse(0, 0, r * 1.06, r * 0.6, 0, 0, TAU); ctx.fill();
+    billboard(ctx, 0, 0, () => {
+      // cylinder wall — highlight off-center reads as curvature
+      const g = ctx.createLinearGradient(-r, 0, r, 0);
+      g.addColorStop(0, shade(mid, -0.3)); g.addColorStop(0.42, shade(mid, 0.12)); g.addColorStop(1, shade(mid, -0.38));
+      ctx.fillStyle = g; ctx.fillRect(-r, -H, r * 2, H);
+      // corrugation rings
+      ctx.strokeStyle = 'rgba(0,0,0,0.16)'; ctx.lineWidth = 0.7;
+      for (let y = -H + 4; y < -2; y += 4.5) { ctx.beginPath(); ctx.moveTo(-r, y); ctx.lineTo(r, y); ctx.stroke(); }
+      // side ladder
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(r * 0.72, 0); ctx.lineTo(r * 0.72, -H + 2); ctx.moveTo(r * 0.9, 0); ctx.lineTo(r * 0.9, -H + 2); ctx.stroke();
+      for (let y = -3; y > -H + 2; y -= 3.2) { ctx.beginPath(); ctx.moveTo(r * 0.72, y); ctx.lineTo(r * 0.9, y); ctx.stroke(); }
+      // domed lid + hatch cap
+      ctx.fillStyle = shade(mid, 0.2);
+      ctx.beginPath(); ctx.ellipse(0, -H, r, r * 0.36, 0, 0, TAU); ctx.fill();
+      ctx.strokeStyle = shade(mid, -0.35); ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.fillStyle = shade(mid, 0.32);
+      ctx.beginPath(); ctx.ellipse(0, -H - r * 0.14, r * 0.32, r * 0.14, 0, 0, TAU); ctx.fill();
+    });
   };
   B.windmill = (ctx, t, o) => {
-    const w = o.w, rB = w * 0.26, rT = w * 0.15, H = w * 0.9;
-    ctx.fillStyle = 'rgba(0,0,0,0.26)'; ctx.beginPath(); ctx.ellipse(2, 3, rB * 1.5, rB * 0.8, 0, 0, TAU); ctx.fill();
-    // tapered stone mill tower
-    const g = ctx.createLinearGradient(-rB, 0, rB, 0); g.addColorStop(0, '#a8a290'); g.addColorStop(0.5, '#c8c2b0'); g.addColorStop(1, '#948e7c');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.moveTo(-rB, 0); ctx.lineTo(-rT, -H); ctx.lineTo(rT, -H); ctx.lineTo(rB, 0); ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#7a7464'; ctx.lineWidth = 0.8; ctx.stroke();
-    ctx.fillStyle = '#7a4a3a'; ctx.beginPath(); ctx.moveTo(-rT - 3, -H); ctx.lineTo(0, -H - 9); ctx.lineTo(rT + 3, -H); ctx.closePath(); ctx.fill(); // cap
-    ctx.fillStyle = '#5a4a3a'; rr(ctx, -3, -8, 6, 8, 1); ctx.fill(); // door
-    // spinning sails
-    ctx.save(); ctx.translate(0, -H + 5); ctx.rotate(t * 0.7);
-    for (let i = 0; i < 4; i++) { ctx.rotate(Math.PI / 2); ctx.fillStyle = 'rgba(232,226,204,0.75)'; ctx.fillRect(-1.4, -3, 2.8, -11); ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 1; ctx.strokeRect(-1.4, -3, 2.8, -11); }
-    ctx.fillStyle = '#4a3a2a'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, TAU); ctx.fill();
-    ctx.restore();
+    // tapered stone tower raised as a billboard (the old one sheared flat into
+    // the ground plane); the sails spin in the same upright plane
+    const w = o.w, rB = w * 0.24, rT = w * 0.13, H = w * 0.95;
+    ctx.fillStyle = 'rgba(0,0,0,0.26)';
+    ctx.beginPath(); ctx.ellipse(rB * 0.45, rB * 0.5, rB * 1.7, rB * 0.95, 0, 0, TAU); ctx.fill();
+    // footprint pad
+    ctx.fillStyle = '#8f8976';
+    ctx.beginPath(); ctx.ellipse(0, 0, rB * 1.15, rB * 0.65, 0, 0, TAU); ctx.fill();
+    billboard(ctx, 0, 0, () => {
+      // tapered stone mill tower
+      const g = ctx.createLinearGradient(-rB, 0, rB, 0);
+      g.addColorStop(0, shade('#b8b2a0', -0.22)); g.addColorStop(0.45, shade('#b8b2a0', 0.14)); g.addColorStop(1, shade('#b8b2a0', -0.32));
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.moveTo(-rB, 0); ctx.lineTo(-rT, -H); ctx.lineTo(rT, -H); ctx.lineTo(rB, 0); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#7a7464'; ctx.lineWidth = 0.8; ctx.stroke();
+      // stone courses
+      ctx.strokeStyle = 'rgba(0,0,0,0.12)'; ctx.lineWidth = 0.6;
+      for (let y = -6; y > -H + 4; y -= 6) {
+        const k = -y / H, rw = rB + (rT - rB) * k;
+        ctx.beginPath(); ctx.moveTo(-rw, y); ctx.lineTo(rw, y); ctx.stroke();
+      }
+      // cap roof, door, window
+      ctx.fillStyle = '#7a4a3a';
+      ctx.beginPath(); ctx.moveTo(-rT - 3, -H); ctx.lineTo(0, -H - 9); ctx.lineTo(rT + 3, -H); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = shade('#7a4a3a', -0.35); ctx.lineWidth = 0.7; ctx.stroke();
+      ctx.fillStyle = '#5a4a3a'; rr(ctx, -3, -8.5, 6, 8.5, 1); ctx.fill();
+      ctx.fillStyle = '#3a3a44'; rr(ctx, -2, -H * 0.58, 4, 5, 1); ctx.fill();
+      // spinning sails on the cap hub
+      ctx.save(); ctx.translate(0, -H + 4); ctx.rotate(t * 0.7);
+      for (let i = 0; i < 4; i++) {
+        ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = 'rgba(232,226,204,0.8)'; ctx.fillRect(-1.4, -3, 2.8, -12);
+        ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 0.8; ctx.strokeRect(-1.4, -3, 2.8, -12);
+        // lattice lines along each sail
+        ctx.strokeStyle = 'rgba(138,122,90,0.6)'; ctx.lineWidth = 0.5;
+        for (let y = -5; y > -14; y -= 2.6) { ctx.beginPath(); ctx.moveTo(-1.4, y); ctx.lineTo(1.4, y); ctx.stroke(); }
+      }
+      ctx.fillStyle = '#4a3a2a'; ctx.beginPath(); ctx.arc(0, 0, 2, 0, TAU); ctx.fill();
+      ctx.restore();
+    });
   };
   B.derrick = (ctx, t, o) => {
     // oil-stained pad
@@ -5806,16 +5829,46 @@
       for (const y of [-2, 2]) { c.fillStyle = `rgba(255,${150 + Math.floor(b * 70)},60,${0.5 + b * 0.4})`;
         c.beginPath(); c.moveTo(-15, y - 1.1); c.lineTo(-19 - b * 3, y); c.lineTo(-15, y + 1.1); c.closePath(); c.fill(); } },
   });
-  I.reaper = (ctx, t, o) => isoAircraft(ctx, t, o, {
+  I.f35 = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
-      { poly: [[2, -20], [2, 20], [-2, 20], [-2, -20]], base: 1.8, h: 0.8, body: '#b0b5be' }, // long thin wing
-      { poly: [[-10, -0.8], [-14, -5], [-14.6, -4], [-10.6, -0.8]], base: 1.4, h: 4.2, body: '#9aa0aa' }, // V-tail L
-      { poly: [[-10, 0.8], [-14, 5], [-14.6, 4], [-10.6, 0.8]], base: 1.4, h: 4.2, body: '#9aa0aa' },      // V-tail R
-      { poly: [[14, 0], [12, -1.9], [-13, -2], [-15, 0], [-13, 2], [12, 1.9]], base: 0, h: 3, body: '#c2c7ce',
-        detail: (c) => { c.fillStyle = '#5a6068'; c.beginPath(); c.arc(11.5, 0, 2.4, 0, TAU); c.fill();      // sensor nose
-          c.fillStyle = 'rgba(0,0,0,0.15)'; rr(c, -11, -1.4, 20, 2.8, 1); c.fill(); } },
+      // clipped delta wings
+      { poly: [[5, 2.2], [-4, 12], [-8, 11], [-3, 2.2]], base: 1.4, h: 1, body: '#4c545e' },
+      { poly: [[5, -2.2], [-4, -12], [-8, -11], [-3, -2.2]], base: 1.4, h: 1, body: '#4c545e' },
+      // canted twin tails
+      { poly: [[-8, -2.5], [-12, -4.5], [-12.6, -3.6], [-8.6, -1.8]], base: 1.4, h: 5, body: '#3e454f' },
+      { poly: [[-8, 2.5], [-12, 4.5], [-12.6, 3.6], [-8.6, 1.8]], base: 1.4, h: 5, body: '#3e454f' },
+      // stubby fuselage, bubble canopy well forward
+      { poly: [[13, 0], [10, -2.4], [-10, -2.6], [-13, -1], [-13, 1], [-10, 2.6], [10, 2.4]], base: 0, h: 3.8, body: '#525a66',
+        detail: (c, t2, o2) => {
+          c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -9, -1, 20, 2, 1); c.fill();
+          c.fillStyle = 'rgba(140,220,255,0.6)'; rr(c, 5.5, -1.3, 4, 2.6, 1.3); c.fill();
+          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.9)'; c.beginPath(); c.arc(13.5, 0, 1.8, 0, TAU); c.fill(); }
+        } },
     ],
-    props: [{ x: -15.5, y: 0, z: 1.5, r: 2.6, speed: 34 }],
+    rigLift: 1.8,
+    rig: (c, t) => { const b = 0.6 + 0.4 * Math.sin(t * 24); c.fillStyle = `rgba(140,200,255,${0.5 + b * 0.4})`;
+      c.beginPath(); c.moveTo(-13, -1); c.lineTo(-17 - b * 2.5, 0); c.lineTo(-13, 1); c.closePath(); c.fill(); },
+  });
+  I.aurora = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      // one long chined dart — a hypersonic lifting body, no separate wings
+      { poly: [[17, 0], [8, -3], [-12, -4.5], [-15, -2], [-15, 2], [-12, 4.5], [8, 3]], base: 0, h: 2.6, body: '#1b1e24',
+        detail: (c, t2, o2) => {
+          c.strokeStyle = 'rgba(120,130,145,0.35)'; c.lineWidth = 0.6;
+          c.beginPath(); c.moveTo(15, 0); c.lineTo(-13, 0); c.stroke();
+          c.fillStyle = 'rgba(140,220,255,0.4)'; rr(c, 8, -1, 3.5, 2, 1); c.fill();
+          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(16.5, 0, 2, 0, TAU); c.fill(); }
+        } },
+      // small canted fins at the tail
+      { poly: [[-11, -2.2], [-15, -3.8], [-15.5, -3], [-11.5, -1.6]], base: 1.2, h: 4, body: '#14161b' },
+      { poly: [[-11, 2.2], [-15, 3.8], [-15.5, 3], [-11.5, 1.6]], base: 1.2, h: 4, body: '#14161b' },
+    ],
+    rigLift: 1.5,
+    rig: (c, t) => { // pulse-detonation exhaust: glowing donuts marching aft
+      for (let i = 0; i < 3; i++) { const p = (t * 3 + i / 3) % 1;
+        c.strokeStyle = `rgba(150,210,255,${0.7 * (1 - p)})`; c.lineWidth = 1.2 - p * 0.7;
+        c.beginPath(); c.arc(-15 - p * 9, 0, 1 + p * 1.6, 0, TAU); c.stroke(); }
+    },
   });
   I.drake = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
