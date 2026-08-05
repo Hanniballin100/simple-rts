@@ -404,12 +404,13 @@ const UNIT_TYPES = {
   // Globalist strike wing: the A-10 makes low gun runs that shred ground and
   // armour but can't touch aircraft
   a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 20, dmgVsGround: 20, atkRange: 150, cooldown: 0.45, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 16, plane: true, turn: 2.2, targets: 'ground', vehBonus: 1.9, splash: 14 },
-  // Globalist interceptor: a fast AA-only jet with no ammo clock — it patrols
-  // and dogfights until something kills it. Helpless against the ground.
-  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'air', shape: 'plane', plane: true, turn: 3.2 },
-  // Deep State interceptor: hypersonic, stealthed, and faster than anything
-  // else in the sky — the black-budget answer to the F-35
-  aurora:  { name: 'SR-91 Aurora', flyH: 42, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 200, speed: 275, dmg: 30, atkRange: 180, cooldown: 0.7, sight: 340, cost: 210, r: 12, buildTime: 12, flying: true, targets: 'air', shape: 'plane', plane: true, turn: 2.4, stealth: true },
+  // Globalist interceptor: an AA-only jet that lives on the airfield — it
+  // scrambles off its pad slot, empties eight missile rails into whatever
+  // flies, and returns to base to rearm. Helpless against the ground.
+  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'air', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2 },
+  // Deep State interceptor: hypersonic, stealthed, faster than anything else
+  // in the sky — six heavier rails, then back to the black hangar to reload
+  aurora:  { name: 'SR-91 Aurora', flyH: 42, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 200, speed: 275, dmg: 30, atkRange: 180, cooldown: 0.7, sight: 340, cost: 210, r: 12, buildTime: 12, flying: true, targets: 'air', shape: 'plane', pad: true, maxAmmo: 6, plane: true, turn: 2.4, stealth: true },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },

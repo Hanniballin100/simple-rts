@@ -2201,6 +2201,11 @@ function updateUnit(u, dt) {
         // parked on the pad: top off ammo, patch the airframe, hold position
         if (u.ammo < stats.maxAmmo) u.ammo = Math.min(stats.maxAmmo, u.ammo + stats.maxAmmo * dt / 4);
         if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
+        // interceptor scramble: AA-capable craft launch themselves the moment
+        // hostile air crosses their radar (canTarget keeps bombers parked —
+        // ground-attack craft only sortie when ordered). Never with a partial
+        // magazine: reload fully, then fly the next sortie.
+        if (hitsAir(stats) && (!stats.maxAmmo || u.ammo >= stats.maxAmmo)) autoAcquire(u, dt);
         break;
       }
       if (stats.pad && findPadFor(u)) { u.order = { type: 'rearm' }; break; }
