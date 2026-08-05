@@ -403,9 +403,10 @@ const UNIT_TYPES = {
   // Deep State signature air: a TR-3B black triangle that hovers dead silent —
   // invisible (stealth) until it opens fire, then it lights up for a moment
   tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
-  // Globalist strike wing: the A-10 makes low gun runs that shred ground and
-  // armour but can't touch aircraft
-  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 20, dmgVsGround: 20, atkRange: 150, cooldown: 0.45, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 16, plane: true, turn: 2.2, targets: 'ground', vehBonus: 1.9, splash: 14 },
+  // the GAU-8 does the talking: wide lazy turns into long saturation runs
+  // (weapon 'gunrun') that annihilate vehicles and infantry along the flight
+  // path — friend or foe, no IFF. Nearly useless against buildings.
+  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 1.3, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 3, beatenLen: 55, beatenWidth: 14 },
   // Globalist stealth fighter: lives on the airfield, scrambles at hostile
   // air with eight rails, and can strafe ground targets in a pinch — weakly.
   // Invisible until it opens fire, briefly lit, then gone again.

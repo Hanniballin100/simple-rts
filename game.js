@@ -1489,8 +1489,11 @@ function dealDamage(attacker, target, dmg, stats) {
     const bt = bstatsOf(target);
     if (bt.slots && (bt.income || bt.healAura || bt.buffAura || bt.debuffAura || bt.detector || bt.power > 0 || bt.spawns || bt.convert || bt.airTech)) return;
   }
-  // grey superior metallurgy: buildings ignore anti-building bonuses
-  if (target.kind === 'building' && stats.bldgBonus && state.factions[target.owner] !== 'grey') {
+  // grey superior metallurgy: buildings ignore anti-building BONUSES —
+  // a weapon that's simply bad against structures (bldgBonus < 1) is still
+  // bad against theirs
+  if (target.kind === 'building' && stats.bldgBonus &&
+      (stats.bldgBonus <= 1 || state.factions[target.owner] !== 'grey')) {
     dmg *= stats.bldgBonus;
   }
   // shaped charges (RPGs) multiply against ground vehicles
@@ -1739,15 +1742,28 @@ function planeAttack(u, target, t, dt) {
     flyOrbit(u, target.x, target.y, dt, t.orbitR || 140);
     if (d <= range) fireAt(u, target, t);
   } else {
-    // bombing run / strafing pass: line up, release/shoot, overshoot, bank
-    // around, repeat. Steering straight at a target that sits INSIDE the
-    // plane's turning circle just orbits it forever without ever aligning —
-    // so when close and badly aimed, hold course straight past the target
-    // and come back around from distance instead.
+    // bombing run / strafing pass: line up, release/shoot, overshoot, come
+    // around, repeat. A target inside the plane's turning circle can never
+    // be lined up by steering straight at it — so when close and badly
+    // aimed, peel off to an initial point well outside the turn radius
+    // (heading jittered, so successive runs come in on different axes),
+    // then run back in straight and hot.
     const aim = Math.abs(((Math.atan2(target.y - u.y, target.x - u.x) - u.facing + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
     const turnR = t.speed / (t.turn || 2);
-    if (d < turnR * 1.6 && aim > 0.45) flyToward(u, u.x + Math.cos(u.facing) * 400, u.y + Math.sin(u.facing) * 400, dt, 0);
-    else flyToward(u, target.x, target.y, dt, 0);
+    if (u.runIP && u.runIP.tid !== target.id) u.runIP = null; // new target, new run
+    if (u.runIP) {
+      if (flyToward(u, u.runIP.x, u.runIP.y, dt, 40)) u.runIP = null;
+    } else if (d < turnR * 1.4 && aim > 0.45) {
+      const back = Math.atan2(u.y - target.y, u.x - target.x) + (Math.random() - 0.5) * 1.3;
+      const R = turnR * 2.2 + 60;
+      u.runIP = {
+        x: clamp(target.x + Math.cos(back) * R, 40, WORLD_W - 40),
+        y: clamp(target.y + Math.sin(back) * R, 40, WORLD_H - 40),
+        tid: target.id,
+      };
+    } else {
+      flyToward(u, target.x, target.y, dt, 0);
+    }
     if (t.weapon === 'bomb') { if (d <= range) fireAt(u, target, t); }
     else if (d <= range && aim < 0.5) fireAt(u, target, t);
   }
@@ -1810,6 +1826,25 @@ function fireAt(u, target, t) {
         }
         if (visible && u.burst % 3 === 0) sfx('shot');
       }
+      if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
+    } else if (wkind === 'gunrun') {
+      // GAU-8 saturation run: walk a burst of shells with honest scatter
+      // along the flight path through the aim point. Monstrous against
+      // vehicles and infantry in the beaten zone — and NO IFF: friendly
+      // ground forces in the corridor eat it too, just like the real one.
+      // (Buildings barely notice: bldgBonus < 1.)
+      const dirX = Math.cos(u.facing), dirY = Math.sin(u.facing);
+      for (let i = 0; i < (t.burstShells || 3); i++) {
+        // the first shell of each burst flies true; the rest walk the
+        // beaten zone ahead of the aim point
+        const along = i === 0 ? (Math.random() - 0.5) * 10 : (Math.random() - 0.35) * (t.beatenLen || 55);
+        const off = (Math.random() - 0.5) * (i === 0 ? 6 : (t.beatenWidth || 14));
+        const ix = target.x + dirX * along - dirY * off;
+        const iy = target.y + dirY * along + dirX * off;
+        splashDamage(ix, iy, t.splash || 13, dmg, -99, t); // -99: no IFF, ground only
+        Particles.boom(ix, iy, 0.45);
+      }
+      if (visible) sfx('shot');
       if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
     } else if (wkind === 'abduct') {
       // tractor beam: pin a ground unit, drain it, and after enough continuous
