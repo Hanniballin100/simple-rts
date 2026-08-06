@@ -2287,6 +2287,15 @@ function updateUnit(u, dt) {
         u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
       }
       if (u.burrowed) break; // lying in wait — no auto-anything underground
+      // slaves are never idle: the whip finds them a crystal field on its own
+      if (stats.lifespan && stats.role === 'worker') {
+        u.mineScanT = (u.mineScanT === undefined ? (u.id % 10) * 0.05 : u.mineScanT) - dt;
+        if (u.mineScanT <= 0) {
+          u.mineScanT = 0.5;
+          const patch = nearest(u, state.patches, p => p.amount > 0);
+          if (patch) { orderHarvest(u, patch); break; }
+        }
+      }
       if (stats.repair) { repairAcquire(u, dt); break; }
       if (stats.role === 'combat') autoAcquire(u, dt);
       break;
