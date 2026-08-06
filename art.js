@@ -4967,6 +4967,15 @@
   });
   I.mib = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#171a20', pants: '#14161a', head: ctx2 => ihFedora(ctx2, '#000'), weapon: iwPistol });
   I.moleman = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a45', head: ihHardhat, weapon: iwPick });
+  // the Reptilian workforce: a stooped figure in rags with a pick, worked
+  // until the clock runs out
+  I.slave = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#5d5343', pants: '#3f3a30', head: ihSkin, weapon: iwPick,
+    pack: (c2) => { // bent back, a crystal basket lashed on
+      c2.fillStyle = '#4a4437'; rr(c2, -3.4, -8.2, 3, 4.4, 1); c2.fill();
+      c2.strokeStyle = '#2f2b22'; c2.lineWidth = 0.4; c2.strokeRect(-3.4, -8.2, 3, 4.4);
+    },
+  });
   I.greytrooper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#8a93a4', head: ihGrey, weapon: iwLaser });
   // ---------- Grey network rigs ----------
   I.greydrone = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#7e8794', pants: '#565e69', head: ihGrey, weapon: iwLaser });
@@ -6561,20 +6570,32 @@
     if (o.firing) { ctx.fillStyle = 'rgba(200,225,255,0.95)'; ctx.beginPath(); ctx.arc(19, 0, 2.3, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
-  // M1 Abrams: wide, flat, and certain — sand-green hull, side skirts, and a
-  // turret that fills half the footprint
+  // M1 Abrams: LONG, LOW, and rectangular — the hull is a slab with a sharply
+  // raked glacis wedge at the bow and flat skirted flanks, not an oval
   I.abrams = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 30,
-    under: (c, t, o) => treads(c, t, o, 28, 5, 9.2),
+    len: 32,
+    under: (c, t, o) => treads(c, t, o, 30, 5, 9.4),
     tiers: [
-      { poly: [[15, -3.2], [15, 3.2], [10, 6.6], [-14, 6], [-15, 0], [-14, -6], [10, -6.6]],
-        h: 4.8, body: '#5c6248',
+      { // slab hull: dead-straight sides, clipped bow
+        poly: [[16, -4.2], [16, 4.2], [13, 6.8], [-15, 6.8], [-15, -6.8], [13, -6.8]],
+        h: 4.2, body: '#5e6047',
         detail: (c) => {
-          c.fillStyle = shade('#5c6248', 0.14); // sloped glacis
-          c.beginPath(); c.moveTo(7, -5); c.lineTo(13.5, -2.4); c.lineTo(13.5, 2.4); c.lineTo(7, 5); c.closePath(); c.fill();
-          c.strokeStyle = shade('#5c6248', -0.45); c.lineWidth = 0.5; // skirt seams
-          for (const s of [-1, 1]) { c.beginPath(); c.moveTo(-12, s * 5); c.lineTo(8, s * 5); c.stroke(); }
-          c.fillStyle = shade('#5c6248', -0.3); rr(c, -13.6, -3, 2.4, 6, 0.6); c.fill(); // rear grille
+          // the long raked glacis — the M1's signature wedge nose
+          const g = c.createLinearGradient(8, 0, 16, 0);
+          g.addColorStop(0, shade('#5e6047', 0.02)); g.addColorStop(1, shade('#5e6047', 0.28));
+          c.fillStyle = g;
+          c.beginPath(); c.moveTo(6, -6.6); c.lineTo(15.6, -4); c.lineTo(15.6, 4); c.lineTo(6, 6.6); c.closePath(); c.fill();
+          c.strokeStyle = shade('#5e6047', -0.4); c.lineWidth = 0.5;
+          c.beginPath(); c.moveTo(6, -6.6); c.lineTo(15.6, -4); c.moveTo(6, 6.6); c.lineTo(15.6, 4); c.stroke();
+          // flat armored side skirts with panel seams
+          c.fillStyle = shade('#5e6047', -0.14);
+          for (const s of [-1, 1]) rr(c, -14, s * 4.6 - (s > 0 ? 0 : 2.2), 20, 2.2, 0.4), c.fill();
+          c.strokeStyle = shade('#5e6047', -0.45); c.lineWidth = 0.45;
+          for (const s of [-1, 1]) for (let x = -12; x <= 4; x += 4) { c.beginPath(); c.moveTo(x, s * 4.6); c.lineTo(x, s * 6.6); c.stroke(); }
+          // rear engine deck grilles
+          c.fillStyle = shade('#5e6047', -0.3); rr(c, -14.4, -4.2, 3.4, 8.4, 0.6); c.fill();
+          c.strokeStyle = shade('#5e6047', -0.5); c.lineWidth = 0.4;
+          for (const x of [-13.6, -12.6, -11.6]) { c.beginPath(); c.moveTo(x, -3.8); c.lineTo(x, 3.8); c.stroke(); }
         },
       },
     ],
@@ -6587,24 +6608,31 @@
     ctx.rotate(a);
     // shadow under the turret ring so it reads as sitting ON the hull
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
-    ctx.beginPath(); ctx.ellipse(0.5, 0.5, 8, 5.6, 0, 0, TAU); ctx.fill();
-    // broad flat turret with a stowage bustle — lighter than the hull, dark edged
-    const g3 = ctx.createLinearGradient(0, -4.5, 0, 4.5);
+    ctx.beginPath(); ctx.ellipse(0.5, 0.5, 8.5, 5.8, 0, 0, TAU); ctx.fill();
+    // the M1's signature turret: a long angular wedge — flat narrow face,
+    // cheeks flaring straight back to a wide squared bustle
+    const g3 = ctx.createLinearGradient(0, -5, 0, 5);
     g3.addColorStop(0, shade('#767c5c', 0.14)); g3.addColorStop(1, shade('#767c5c', -0.18));
     ctx.fillStyle = g3;
-    ctx.beginPath(); ctx.moveTo(6.4, -4); ctx.lineTo(-5, -4.6); ctx.lineTo(-7, -2); ctx.lineTo(-7, 2); ctx.lineTo(-5, 4.6); ctx.lineTo(6.4, 4); ctx.lineTo(7.6, 0); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(8.5, -1.4); ctx.lineTo(4, -5); ctx.lineTo(-7.5, -5); ctx.lineTo(-7.5, 5); ctx.lineTo(4, 5); ctx.lineTo(8.5, 1.4); ctx.closePath(); ctx.fill();
     ctx.strokeStyle = shade('#767c5c', -0.55); ctx.lineWidth = 0.7; ctx.stroke();
-    ctx.fillStyle = shade('#767c5c', -0.32); rr(ctx, -6.6, -3.4, 2.2, 6.8, 0.6); ctx.fill(); // bustle rack
-    ctx.fillStyle = '#464b36'; ctx.beginPath(); ctx.arc(-2, -2.2, 1.3, 0, TAU); ctx.fill(); // commander's hatch
+    // cheek facet lines so the wedge reads as armor, not a flat plate
+    ctx.strokeStyle = shade('#767c5c', -0.35); ctx.lineWidth = 0.45;
+    ctx.beginPath(); ctx.moveTo(8.2, -1.3); ctx.lineTo(2.5, -1.8); ctx.lineTo(2.5, 1.8); ctx.lineTo(8.2, 1.3); ctx.moveTo(2.5, -1.8); ctx.lineTo(4, -5); ctx.moveTo(2.5, 1.8); ctx.lineTo(4, 5); ctx.stroke();
+    // full-width stowage bustle rack across the tail
+    ctx.fillStyle = shade('#767c5c', -0.32); rr(ctx, -9.6, -4.6, 2.4, 9.2, 0.6); ctx.fill();
+    ctx.strokeStyle = shade('#767c5c', -0.55); ctx.lineWidth = 0.4; ctx.strokeRect(-9.6, -4.6, 2.4, 9.2);
+    ctx.fillStyle = '#464b36'; ctx.beginPath(); ctx.arc(-2.5, -2.6, 1.4, 0, TAU); ctx.fill(); // commander's hatch + CROWS
     ctx.strokeStyle = shade('#767c5c', -0.5); ctx.lineWidth = 0.4; ctx.stroke();
-    ctx.fillStyle = '#8fb6d6'; ctx.fillRect(1.5, 1.8, 2, 1.3); // gunner's optic
+    ctx.fillStyle = '#2c3024'; ctx.fillRect(-2.5, -3.1, 3.2, 0.9); // hatch MG
+    ctx.fillStyle = '#8fb6d6'; ctx.fillRect(0.5, 2.2, 2.2, 1.4); // gunner's optic box
     // long smoothbore: thick, dark-edged, lit along the top so it READS
-    ctx.fillStyle = '#20241a'; ctx.fillRect(7, -1, 12, 2);
+    ctx.fillStyle = '#20241a'; ctx.fillRect(8.5, -1, 12.5, 2);
     ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 0.45;
-    ctx.beginPath(); ctx.moveTo(7, -0.9); ctx.lineTo(19, -0.9); ctx.stroke();
-    ctx.fillStyle = '#4d5340'; ctx.fillRect(11.5, -1.35, 2.8, 2.7); // bore evacuator
-    ctx.fillStyle = '#3a3f2e'; ctx.fillRect(18, -1.2, 1.6, 2.4);   // muzzle ref
-    if (o.firing) { ctx.fillStyle = 'rgba(255,225,150,0.95)'; ctx.beginPath(); ctx.arc(21, 0, 2.8, 0, TAU); ctx.fill(); }
+    ctx.beginPath(); ctx.moveTo(8.5, -0.9); ctx.lineTo(21, -0.9); ctx.stroke();
+    ctx.fillStyle = '#4d5340'; ctx.fillRect(13, -1.35, 2.8, 2.7); // bore evacuator
+    ctx.fillStyle = '#3a3f2e'; ctx.fillRect(19.6, -1.2, 1.6, 2.4);   // muzzle ref
+    if (o.firing) { ctx.fillStyle = 'rgba(255,225,150,0.95)'; ctx.beginPath(); ctx.arc(22.6, 0, 2.8, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
   // M2 Bradley: a tall angular IFV — autocannon turret up top, firing ports

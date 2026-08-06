@@ -366,6 +366,9 @@ function makeUnit(owner, type, x, y) {
   if (state.factions[owner] === 'reptilian' && t.builtAt === 'barracks' && t.role === 'combat') {
     u.disguised = true;
   }
+  // slaves are worked to death on a staggered clock — the whole workforce
+  // must never expire in one synchronized wave
+  if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + Math.random() * 0.5);
   state.units.push(u);
   return u;
 }
@@ -1862,6 +1865,8 @@ function fireAt(u, target, t) {
         target.slowUntil = state.time + 0.55;
         u.abductHold = (u.abductId === target.id) ? (u.abductHold || 0) + t.cooldown : 0;
         u.abductId = target.id;
+        target.beamHoldFrac = u.abductHold / (t.abductTime || 3); // capture countdown bar
+        target.beamHoldT = state.time;
         if (target.hp > 0 && UNIT_TYPES[target.type].hp <= (t.abductMax || 320) && u.abductHold >= (t.abductTime || 3)) {
           target.hp = 0; target.abducted = true;
           state.minerals[u.owner] = (state.minerals[u.owner] || 0) + (t.abductBounty || 20);
@@ -2511,7 +2516,9 @@ function updateUnit(u, dt) {
         u.order = { type: 'idle' };
         break;
       }
-      if (moveToward(u, tr.x, tr.y, dt, UNIT_TYPES[tr.type].r + 4)) {
+      // arrival ring must clear the separation push (both radii + slack), or
+      // the passenger walks forever at arm's length from the door
+      if (moveToward(u, tr.x, tr.y, dt, UNIT_TYPES[tr.type].r + stats.r + 8)) {
         tr.cargo = tr.cargo || [];
         if (tr.cargo.length < cap) {
           tr.cargo.push(u.id);
@@ -2874,6 +2881,10 @@ function updateBuilding(b, dt) {
         // up into the tower — removed from play, rendered into minerals
         b.beamHold = (b.beamId === tgt.id) ? (b.beamHold || 0) + dt : 0;
         b.beamId = tgt.id;
+        // telegraph the abduction: the victim shows a filling capture bar so
+        // the sudden disappearance at 5s reads as a countdown, not a bug
+        tgt.beamHoldFrac = b.beamHold / 5;
+        tgt.beamHoldT = state.time;
         b.turret = Math.atan2(tgt.y - b.y, tgt.x - b.x);
         if (b.cooldown <= 0) {
           b.cooldown = bt.cooldown;
@@ -2920,26 +2931,29 @@ function updateBuilding(b, dt) {
     // RA2-style emerge: ground units are born at the building's front door,
     // facing out, and drive/walk clear of it (with a puff of exhaust); aircraft
     // just appear on the pad. bornT drives the materialize pop in drawUnitIso.
-    const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 12, b.y + b.h / 2 + 8);
-    u.bornT = state.time;
-    if (bstatsOf(b).padCap) u.homeId = b.id; // aircraft remember their airfield/hangar
-    if (ut.pad) u.slot = freeSlot(b);         // claim a parking slot on it
-    if (!ut.flying) {
-      u.facing = Math.PI / 2; // nose out of the doorway
-      if (tileState(b.x, b.y) === 2) { Particles.smoke(b.x - 9, b.y + b.h / 2, 3); Particles.smoke(b.x + 9, b.y + b.h / 2, 3); }
+    // Batch-cloned units (ut.batch — Grey Drones) tumble out several at once.
+    for (let bi = 0; bi < (ut.batch || 1); bi++) {
+      const u = makeUnit(b.owner, job.type, b.x + Math.sin(nextId) * 12 + bi * 7, b.y + b.h / 2 + 8 + bi * 4);
+      u.bornT = state.time;
+      if (bstatsOf(b).padCap) u.homeId = b.id; // aircraft remember their airfield/hangar
+      if (ut.pad) u.slot = freeSlot(b);         // claim a parking slot on it
+      if (!ut.flying) {
+        u.facing = Math.PI / 2; // nose out of the doorway
+        if (bi === 0 && tileState(b.x, b.y) === 2) { Particles.smoke(b.x - 9, b.y + b.h / 2, 3); Particles.smoke(b.x + 9, b.y + b.h / 2, 3); }
+      }
+      if (b.rally) {
+        const rp = state.patches.find(p => p.amount > 0 && dist(p, b.rally) < 40);
+        if (ut.role === 'worker' && rp) orderHarvest(u, rp);
+        else if (ut.role === 'combat') orderAttackMove(u, b.rally.x, b.rally.y);
+        else orderMove(u, b.rally.x, b.rally.y);
+      } else if (ut.role === 'worker') {
+        const patch = nearest(u, state.patches, p => p.amount > 0 && dist(u, p) < 600);
+        if (patch) orderHarvest(u, patch);
+      } else if (!ut.flying) {
+        orderMove(u, b.x + Math.sin(nextId) * 24 + bi * 9, b.y + b.h / 2 + 48 + bi * 6); // clear the doorway
+      }
     }
     if (b.owner === PLAYER) eva('Unit ready');
-    if (b.rally) {
-      const rp = state.patches.find(p => p.amount > 0 && dist(p, b.rally) < 40);
-      if (ut.role === 'worker' && rp) orderHarvest(u, rp);
-      else if (ut.role === 'combat') orderAttackMove(u, b.rally.x, b.rally.y);
-      else orderMove(u, b.rally.x, b.rally.y);
-    } else if (ut.role === 'worker') {
-      const patch = nearest(u, state.patches, p => p.amount > 0 && dist(u, p) < 600);
-      if (patch) orderHarvest(u, patch);
-    } else if (!ut.flying) {
-      orderMove(u, b.x + Math.sin(nextId) * 24, b.y + b.h / 2 + 48); // clear the doorway
-    }
   }
 }
 
@@ -3383,8 +3397,10 @@ function issueCommand(x, y) {
   }
 
   // right-click a friendly transport: selected light infantry climb aboard
+  // (works with the transport itself in the selection — a boxed squad of
+  // Bradley + PMCs right-clicking the Bradley is the normal case)
   const trn = state.units.find(v => v.owner === PLAYER && v.hp > 0 && UNIT_TYPES[v.type].cargoCap &&
-    clickHitsUnit(v, x, y, 6) && !units.includes(v));
+    clickHitsUnit(v, x, y, 6));
   if (trn) {
     let boarding = (trn.cargo || []).length;
     const cap = UNIT_TYPES[trn.type].cargoCap;
@@ -3692,6 +3708,8 @@ function unitBlurb(type) {
   if (isCrusher(t)) b.push('crushes light infantry under its hull');
   if (t.limit) b.push(`max ${t.limit}`);
   if (t.loosh) b.push(`also costs ${t.loosh} LOOSH`);
+  if (t.lifespan) b.push(`worked to death in ~${t.lifespan}s — every death pays ${t.looshOnDeath || 0} loosh and the Hatchery auto-buys a replacement`);
+  if (t.batch) b.push(`cloned ${t.batch} at a time`);
   const s = b.join('; ') || 'combat unit';
   return s.charAt(0).toUpperCase() + s.slice(1) + '.';
 }
@@ -4081,6 +4099,20 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = `Evacuate (${total})`;
       btn.onclick = () => { gbs.forEach(evacuate); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
+      addAction(btn);
+    }
+    // reptilian slaves: cull the selected ones on demand for burst loosh
+    const slaves = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.hp > 0 && UNIT_TYPES[s.type].looshOnDeath);
+    if (slaves.length) {
+      const btn = document.createElement('button');
+      btn.textContent = `Harvest Loosh (${slaves.length})`;
+      btn.onclick = () => {
+        for (const s of slaves) s.hp = 0; // the death sweep books the loosh + auto-replaces
+        eva('The pit feeds');
+        sfx('click');
+        selection = selection.filter(s => s.hp > 0);
+        refreshPanel();
+      };
       addAction(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
@@ -4732,6 +4764,15 @@ function drawUnitIso(u) {
     ctx.stroke();
   }
   if (u.hp < u.maxHp) drawBar(ix, sy - rs - 12, rs * 2.4, u.hp / u.maxHp);
+  // tractor-beam capture countdown: a violet bar filling toward abduction —
+  // when it fills, the unit is hauled away (that's the "instant" death)
+  if (u.beamHoldT && state.time - u.beamHoldT < 0.3 && u.beamHoldFrac > 0.02) {
+    const w = rs * 2.4;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)';
+    ctx.fillRect(ix - w / 2, sy - rs - 17, w, 3.5);
+    ctx.fillStyle = '#c08bff';
+    ctx.fillRect(ix - w / 2, sy - rs - 17, w * clamp(u.beamHoldFrac, 0, 1), 3.5);
+  }
   if (t.maxAmmo && (u.ammo < t.maxAmmo || selection.includes(u))) {
     const w = rs * 2.2;
     ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -5286,6 +5327,13 @@ function frame(now) {
       if (u.hp <= 0 && u.type !== 'phantom') {
         // a dying transport takes its riders with it
         if (u.cargo) for (const id of u.cargo) { const p = findEntity(id); if (p && p.hp > 0) p.hp = 0; }
+        // a slave's death — overwork, enemy fire, or the knife — feeds the
+        // loosh, and the Hatchery automatically buys a replacement
+        if (UNIT_TYPES[u.type].looshOnDeath) {
+          if (!u.looshBooked) { u.looshBooked = true; grantLoosh(u.owner, UNIT_TYPES[u.type].looshOnDeath); }
+          Particles.pulse(u.x, u.y, 16, [220, 60, 90]);
+          trainUnit(u.owner, u.type);
+        }
         if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
         Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
         // a cattle mutilator near the wreck renders it down for minerals

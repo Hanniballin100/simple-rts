@@ -199,9 +199,9 @@ const FACTIONS = {
   },
   reptilian: {
     name: 'The Reptilians', family: 'ALIENS', emoji: '🦎',
-    desc: 'They walk among us — and bite. Reptoid Warriors hold the line while the Sirrush devours all it kills. The caste runs on LOOSH — blood-currency harvested from death, your own and the enemy\'s — spent on Nephilim shock-troops, fear-wielding Priests, and the winged Draco Royal. Overhead, Gargoyle Brood swarm and Dread Screechers wail. The Broodmother drags her bound hatchling swarm. No miners: the nest generates minerals; the dead generate loosh.',
-    economy: { workers: 0, start: 150 },
-    worker: null, infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
+    desc: 'They walk among us — and bite. The nest runs on SLAVES: cheap, bought with minerals, worked in the crystal fields until they drop — and every death, theirs or the enemy\'s, feeds the LOOSH that buys the caste: Nephilim shock-troops, fear-wielding Priests, the winged Draco Royal. Reptoid Warriors hold the line while the Sirrush devours all it kills; overhead, Gargoyle Brood swarm and Dread Screechers wail. The pit restocks itself. The pit always restocks itself.',
+    economy: { workers: 5, start: 200 },
+    worker: 'slave', infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
     air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
     extras: ['nephilim', 'priest', 'shapeshifter', 'broodmother'], advanced: ['draco'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
@@ -257,6 +257,11 @@ const UNIT_TYPES = {
   // basic infantry
   militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5, plantMine: true },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4, plantMine: true },
+  // the Reptilian workforce: cheap, unarmed, worked in the crystal fields
+  // until they drop (~lifespan seconds, staggered). Every death — overwork,
+  // enemy fire, or the Harvest button — pays looshOnDeath, and the Hatchery
+  // automatically buys a replacement. The pit restocks itself.
+  slave:       { name: 'Slave',           role: 'worker', builtAt: 'barracks', hp: 35,  speed: 82, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 160, cost: 25, r: 7,  buildTime: 3, limit: 8, lifespan: 110, looshOnDeath: 3 },
   // Deep State line infantry now: an agent is nobody until the wire comes in
   agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6, cloakStill: true, cloakDelay: 1.8 },
   // Globalist line infantry: contractors with MiB-grade training and a
@@ -292,7 +297,9 @@ const UNIT_TYPES = {
   mutilator:  { name: 'Cattle Mutilator', role: 'combat', builtAt: 'factory',  hp: 200, speed: 85, dmg: 7, atkRange: 110, cooldown: 0.9, sight: 240, cost: 130, r: 12, buildTime: 9, shape: 'square', scavenge: 12 },
   // ---------- Grey network (weak drones + buffer units) ----------
   // A lone drone is pathetic; power comes from the handlers it's tethered to.
-  greydrone:  { name: 'Grey Drone',        role: 'combat', builtAt: 'barracks', hp: 45,  speed: 82, dmg: 5, atkRange: 110, cooldown: 0.8, sight: 210, cost: 35,  r: 8,  buildTime: 4, drawScale: 0.9 },
+  // true chaff now: weaker per body, cloned three at a time — the swarm is
+  // the unit, the Handlers are the weapon
+  greydrone:  { name: 'Grey Drone',        role: 'combat', builtAt: 'barracks', hp: 38,  speed: 82, dmg: 4, atkRange: 110, cooldown: 0.8, sight: 210, cost: 65,  r: 8,  buildTime: 6, drawScale: 0.9, batch: 3 },
   // Handler: the offense hub — emboldens every drone in its field (buffAura,
   // +25% damage). Kill the handler and the blob goes limp.
   handler:    { name: 'Grey Handler',      role: 'combat', builtAt: 'barracks', hp: 95,  speed: 72, dmg: 5, atkRange: 120, cooldown: 0.9, sight: 250, cost: 75,  r: 9,  buildTime: 7, buffAura: { r: 165 } },
@@ -627,9 +634,9 @@ const BUILDING_MODS = {
     factory:    { cost: 180, hp: 520 },
     airpad:     { cost: 165, hp: 440 },
   },
-  reptilian: { // the nest provides: same structure income, slightly cheaper
-    hq:         { hp: 1050, power: 75, income: 16 },
-    powerplant: { cost: 120, hp: 340, power: 125, buildTime: 12, income: 11 },
+  reptilian: { // no free income here: the slaves mine, the slaves die, the pit pays
+    hq:         { hp: 1050, power: 75 },
+    powerplant: { cost: 120, hp: 340, power: 125, buildTime: 12 },
     barracks:   { cost: 110, hp: 470 },
     factory:    { cost: 170, hp: 530 },
     airpad:     { cost: 150, hp: 450 },
