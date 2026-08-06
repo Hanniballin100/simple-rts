@@ -2963,12 +2963,21 @@ function aiDesiredStructure(owner, counts, power) {
   const order = f.economy.workers === 0
     ? ['barracks', 'powerplant', f.tower, 'powerplant', 'factory', f.aaTower, 'powerplant', 'airpad', 'powerplant', 'tech', 'barracks', f.tower, 'powerplant', f.aaTower]
     : ['barracks', f.tower, 'factory', f.aaTower, 'airpad', 'barracks', 'tech', f.tower, f.aaTower];
+  // an air power stands up its first airfield right after the factory instead
+  // of waiting out the aaTower(-and-its-tech-prereq) detour
+  if (f.airFocus > 1) {
+    order.splice(order.indexOf('airpad'), 1);
+    order.splice(order.indexOf('factory') + 1, 0, 'airpad');
+  }
   // hangar factions add the AC-130's dedicated field once the lab is up
   if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
   // air-doctrine factions (2+ airfield-built types) double up on airpads so the
-  // 4-plane pad cap doesn't ground half their roster
-  if ([...f.air, ...f.extras, ...(f.advanced || [])].filter(u => UNIT_TYPES[u].builtAt === 'airpad').length >= 2)
+  // 4-plane pad cap doesn't ground half their roster; a true air power
+  // (airFocus) fields a third
+  if ([...f.air, ...f.extras, ...(f.advanced || [])].filter(u => UNIT_TYPES[u].builtAt === 'airpad').length >= 2) {
     order.push('airpad');
+    if (f.airFocus > 1) order.push('airpad');
+  }
   // once teched up, everyone wants their doomsday device (needs the extra power)
   if (superweaponsOn && (f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
   // income structures (e.g. Hollow's Crystal Geode) ARE economy for the worker
@@ -3110,9 +3119,12 @@ function updateAI(owner, dt) {
     if (e.owner !== owner && e.owner !== NEUTRAL && e.hp > 0 && UNIT_TYPES[e.type].role === 'combat' &&
         UNIT_TYPES[e.type].flying && !hiddenFrom(e, owner)) foeAir++;
   }
-  for (const a of f.air) addMix(a, UNIT_TYPES[a].targets === 'air' ? Math.min(3, foeAir * 0.5) : 1.2);
+  // airFocus factions (Deep State's black budget, the Globalist USAF) weight
+  // their whole air wing up — the sky IS their doctrine
+  const af = f.airFocus || 1;
+  for (const a of f.air) addMix(a, (UNIT_TYPES[a].targets === 'air' ? Math.min(3, foeAir * 0.5) : 1.2) * af);
   for (const a of f.extras.slice(2)) addMix(a, 0.6);
-  for (const a of (f.advanced || [])) addMix(a, 0.5);
+  for (const a of (f.advanced || [])) addMix(a, 0.5 * (UNIT_TYPES[a].flying ? af : 1));
   if (mix.length) {
     const byType = {};
     for (const u of army) byType[u.type] = (byType[u.type] || 0) + 1;

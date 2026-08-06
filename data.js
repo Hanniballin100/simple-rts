@@ -117,6 +117,7 @@ const FACTIONS = {
     desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Helicopters. The Air Force Base runs a real doctrine: stealth F-35s sweep the sky unseen (and strafe in a pinch), A-10 Warthogs shred armor on the deck — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
+    airFocus: 1.4, // the Air Force Base is a doctrine, not a decoration
     air: ['heli', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'haarp', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
@@ -139,6 +140,7 @@ const FACTIONS = {
     desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. The whole air wing flies stealth: the TR-3B haunts the map unseen, B-1 Lancers rule the sky (and strafe the ground in a pinch), and the B-2 Spirit erases city blocks — none of them visible until the ordnance is already falling. A detector is the only way to find any of them.',
     economy: { workers: 3 },
     worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'spooktank',
+    airFocus: 2, // the black-projects budget: the AI leans hard into its air wing
     air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
@@ -456,7 +458,7 @@ const BUILDING_TYPES = {
   powerplant: { hp: 320, w: 58, h: 58, cost: 80,  buildTime: 10, sight: 160, power: +100, cap: 6 },
   barracks:   { hp: 450, w: 54, h: 54, cost: 100, buildTime: 12, sight: 200, power: -30,  cap: 3 },
   factory:    { hp: 500, w: 88, h: 68, cost: 150, buildTime: 16, sight: 200, power: -40,  cap: 2 },
-  airpad:     { hp: 420, w: 96, h: 72, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 2, padCap: 4 },
+  airpad:     { hp: 420, w: 96, h: 72, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 3, padCap: 4 },
   // dedicated heavy hangar: holds a single AC-130, gated behind the tech lab
   hangar:     { hp: 520, w: 124, h: 92, cost: 220, buildTime: 18, sight: 220, power: -50, cap: 2, padCap: 1, req: 'tech' },
   // research site: pricey and power-hungry, unlocks each faction's advanced

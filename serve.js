@@ -30,7 +30,12 @@ http.createServer((req, res) => {
   if (!file.startsWith(root)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('Not found'); return; }
-    res.writeHead(200, { 'Content-Type': mime[path.extname(file).toLowerCase()] || 'application/octet-stream' });
+    // no-store: browsers were heuristically caching game.js and serving
+    // week-old builds after balance patches
+    res.writeHead(200, {
+      'Content-Type': mime[path.extname(file).toLowerCase()] || 'application/octet-stream',
+      'Cache-Control': 'no-store',
+    });
     res.end(data);
   });
 }).listen(port, () => console.log(`Serving ${root} at http://localhost:${port}`));
