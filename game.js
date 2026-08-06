@@ -1754,13 +1754,19 @@ function planeAttack(u, target, t, dt) {
     if (u.runIP) {
       if (flyToward(u, u.runIP.x, u.runIP.y, dt, 40)) u.runIP = null;
     } else if (d < turnR * 1.4 && aim > 0.45) {
-      const back = Math.atan2(u.y - target.y, u.x - target.x) + (Math.random() - 0.5) * 1.3;
-      const R = turnR * 2.2 + 60;
-      u.runIP = {
-        x: clamp(target.x + Math.cos(back) * R, 40, WORLD_W - 40),
-        y: clamp(target.y + Math.sin(back) * R, 40, WORLD_H - 40),
-        tid: target.id,
-      };
+      // runOut stretches the whole racetrack — gun-run craft carry the pass
+      // long past the target before hauling around for another go
+      const R = turnR * 2.2 + 60 + (t.runOut || 0);
+      let ix, iy;
+      if (aim > Math.PI * 0.55) {
+        // just blew past: carry the run straight out the FAR side, don't
+        // wrench into a bank on top of the target
+        ix = u.x + Math.cos(u.facing) * R; iy = u.y + Math.sin(u.facing) * R;
+      } else {
+        const back = Math.atan2(u.y - target.y, u.x - target.x) + (Math.random() - 0.5) * 1.3;
+        ix = target.x + Math.cos(back) * R; iy = target.y + Math.sin(back) * R;
+      }
+      u.runIP = { x: clamp(ix, 40, WORLD_W - 40), y: clamp(iy, 40, WORLD_H - 40), tid: target.id };
     } else {
       flyToward(u, target.x, target.y, dt, 0);
     }
@@ -2239,6 +2245,22 @@ function updateUnit(u, dt) {
     }
   }
 
+  // transport riders: pinned to the vehicle, firing their own weapons out of
+  // the ports/bed at whatever the ride drives past
+  if (u.cargo && u.cargo.length) {
+    u.cargo = u.cargo.filter(id => { const p = findEntity(id); return p && p.hp > 0; });
+    for (const id of u.cargo) {
+      const p = findEntity(id);
+      p.x = u.x; p.y = u.y;
+      p.cooldown = Math.max(0, p.cooldown - dt);
+      const pt = UNIT_TYPES[p.type];
+      if (!pt.dmg || p.cooldown > 0) continue;
+      const foe = nearestTarget(u, enemiesOf(u.owner), e =>
+        !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + entityRadius(e));
+      if (foe) { p.facing = Math.atan2(foe.y - u.y, foe.x - u.x); fireAt(p, foe, pt); }
+    }
+  }
+
   switch (o.type) {
     case 'idle':
       if (stats.pad && u.landed) {
@@ -2475,6 +2497,27 @@ function updateUnit(u, dt) {
           u.garrisoned = b.id;
           u.x = b.x;
           u.y = b.y;
+        }
+        u.order = { type: 'idle' };
+      }
+      break;
+    }
+
+    case 'board': {
+      // climb into a friendly transport (Bradley ports, technical bed)
+      const tr = findEntity(o.destId);
+      const cap = (tr && tr.kind === 'unit' && tr.hp > 0) ? UNIT_TYPES[tr.type].cargoCap : 0;
+      if (!cap || tr.owner !== u.owner || (tr.cargo || []).length >= cap) {
+        u.order = { type: 'idle' };
+        break;
+      }
+      if (moveToward(u, tr.x, tr.y, dt, UNIT_TYPES[tr.type].r + 4)) {
+        tr.cargo = tr.cargo || [];
+        if (tr.cargo.length < cap) {
+          tr.cargo.push(u.id);
+          u.garrisoned = true;
+          u.transportId = tr.id;
+          u.x = tr.x; u.y = tr.y;
         }
         u.order = { type: 'idle' };
       }
@@ -3339,6 +3382,23 @@ function issueCommand(x, y) {
     }
   }
 
+  // right-click a friendly transport: selected light infantry climb aboard
+  const trn = state.units.find(v => v.owner === PLAYER && v.hp > 0 && UNIT_TYPES[v.type].cargoCap &&
+    clickHitsUnit(v, x, y, 6) && !units.includes(v));
+  if (trn) {
+    let boarding = (trn.cargo || []).length;
+    const cap = UNIT_TYPES[trn.type].cargoCap;
+    let any = false;
+    for (const u of units) {
+      if (boarding >= cap) break;
+      const ut = UNIT_TYPES[u.type];
+      if (ut.flying || ut.builtAt !== 'barracks' || ut.r > 10 || u.garrisoned) continue;
+      u.order = { type: 'board', destId: trn.id };
+      boarding++; any = true;
+    }
+    if (any) { sfx('click'); return; }
+  }
+
   // right-click a neutral (or own-held) civilian structure: infantry garrison it
   const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots &&
     (b.owner === NEUTRAL || b.owner === PLAYER) && visibleToPlayer(b) &&
@@ -3628,6 +3688,7 @@ function unitBlurb(type) {
   if (t.plantMine) b.push('can bury IEDs');
   if (t.jams) b.push('its hits scramble aircraft avionics');
   if (t.pad) b.push(`lives on the airfield: ${t.maxAmmo} shots per sortie, lands to rearm`);
+  if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)`);
   if (isCrusher(t)) b.push('crushes light infantry under its hull');
   if (t.limit) b.push(`max ${t.limit}`);
   if (t.loosh) b.push(`also costs ${t.loosh} LOOSH`);
@@ -3986,8 +4047,33 @@ function refreshPanel() {
       if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
       if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
       if (ut.plantMine) info += uu.planted ? ' — IED spent' : ' — can plant one IED [E]';
+      if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
     }
     elSelInfo.textContent = info;
+    // transports in the selection: one button dumps every rider out
+    const trs = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.cargo && s.cargo.length);
+    if (trs.length) {
+      const total = trs.reduce((n, v) => n + v.cargo.length, 0);
+      const btn = document.createElement('button');
+      btn.textContent = `Unload (${total})`;
+      btn.onclick = () => {
+        for (const v of trs) {
+          v.cargo.forEach((id, i) => {
+            const p = findEntity(id);
+            if (!p || p.hp <= 0) return;
+            p.garrisoned = false; p.transportId = null;
+            const a = i / v.cargo.length * Math.PI * 2;
+            p.x = v.x + Math.cos(a) * (UNIT_TYPES[v.type].r + 10);
+            p.y = v.y + Math.sin(a) * (UNIT_TYPES[v.type].r + 10);
+            p.order = { type: 'idle' };
+          });
+          v.cargo = [];
+        }
+        sfx('click');
+        refreshPanel();
+      };
+      addAction(btn);
+    }
     // evacuate any garrisoned civilian structures caught in the selection
     const gbs = selection.filter(s => s.kind === 'building' && s.garrison && s.garrison.length);
     if (gbs.length) {
@@ -5198,6 +5284,8 @@ function frame(now) {
     }
     for (const u of state.units) {
       if (u.hp <= 0 && u.type !== 'phantom') {
+        // a dying transport takes its riders with it
+        if (u.cargo) for (const id of u.cargo) { const p = findEntity(id); if (p && p.hp > 0) p.hp = 0; }
         if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
         Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
         // a cattle mutilator near the wreck renders it down for minerals

@@ -114,12 +114,12 @@ const FACTIONS = {
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit. Elite Agents, Black SUVs, and a Motor Pool that turns out Black Helicopters. The Air Force Base runs a real doctrine: stealth F-35s sweep the sky unseen (and strafe in a pinch), A-10 Warthogs shred armor on the deck — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Premium infrastructure, and armed autonomous Mining Rigs instead of field hands.',
+    desc: 'Order through orbit — and paid for in full. PMC Contractors hold the line, M1 Abrams columns roll over it, and Bradleys deliver fire teams that shoot from the ports. Overhead is the real budget: AH-64 gunships, stealth F-35s, A-10s on the gun run — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Everything is expensive. Everything works.',
     economy: { workers: 3 },
-    worker: 'harvester', infantry: 'agent', aa: 'jammer', vehicle: 'suv',
-    airFocus: 1.4, // the Air Force Base is a doctrine, not a decoration
-    air: ['heli', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'haarp', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship'],
+    worker: 'harvester', infantry: 'pmc', aa: 'jammer', vehicle: 'abrams',
+    airFocus: 2, // THE air power: the AI leans hard into the Air Force Base
+    air: ['apache', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'bradley', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Quantitative Easing', desc: 'Every Fusion Plant prints minerals passively (+12 every 10s). And when a building falls, 25% of its cost is refunded — too big to fail.' },
@@ -137,10 +137,10 @@ const FACTIONS = {
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Its assets run silent — Men in Black, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. The whole air wing flies stealth: the TR-3B haunts the map unseen, B-1 Lancers rule the sky (and strafe the ground in a pinch), and the B-2 Spirit erases city blocks — none of them visible until the ordnance is already falling. A detector is the only way to find any of them.',
+    desc: 'It was never elected and never leaves. Its assets run silent — Agents, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. The air wing flies stealth: the TR-3B haunts the map unseen, B-1 Lancers rule the sky, and the B-2 Spirit erases city blocks — none of them visible until the ordnance is already falling. A detector is the only way to find any of them.',
     economy: { workers: 3 },
-    worker: 'blackrig', infantry: 'mib', aa: 'jammer', vehicle: 'spooktank',
-    airFocus: 2, // the black-projects budget: the AI leans hard into its air wing
+    worker: 'blackrig', infantry: 'agent', aa: 'jammer', vehicle: 'spooktank',
+    airFocus: 1.4, // still a black-budget air wing, second only to the USAF
     air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
@@ -257,7 +257,11 @@ const UNIT_TYPES = {
   // basic infantry
   militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5, plantMine: true },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4, plantMine: true },
-  agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6 },
+  // Deep State line infantry now: an agent is nobody until the wire comes in
+  agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6, cloakStill: true, cloakDelay: 1.8 },
+  // Globalist line infantry: contractors with MiB-grade training and a
+  // MiB-grade invoice — no cloak, just kit
+  pmc:         { name: 'PMC Contractor',  role: 'combat', builtAt: 'barracks', hp: 105, speed: 72, dmg: 12, atkRange: 140, cooldown: 0.85, sight: 240, cost: 120, r: 10, buildTime: 7 },
   mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7, cloakStill: true, cloakDelay: 1.8 },
   moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true, plantMine: true },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
@@ -341,8 +345,12 @@ const UNIT_TYPES = {
   killdozer: { name: 'Killdozer',        role: 'combat', builtAt: 'factory', hp: 520, speed: 36,  dmg: 26, atkRange: 30,  cooldown: 1.2,  sight: 180, cost: 185, r: 14, buildTime: 12, bldgBonus: 3, armor: 0.5, shape: 'square' },
   // the all-purpose Toyota: cheap, fast, shoots at everything — and dents
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
-  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both' },
-  suv:       { name: 'Black SUV',        role: 'combat', builtAt: 'factory', hp: 200, speed: 95,  dmg: 13, atkRange: 110, cooldown: 0.6,  sight: 220, cost: 110, r: 12, buildTime: 8,  shape: 'square' },
+  // rides four in the bed: loaded partisans fire their own weapons from the truck
+  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both', cargoCap: 4 },
+  // Globalist armor: one tank, the correct tank. Pricey, thick, final.
+  abrams:    { name: 'M1 Abrams',        role: 'combat', builtAt: 'factory', hp: 560, speed: 62,  dmg: 38, atkRange: 170, cooldown: 1.7,  sight: 240, cost: 400, r: 14, buildTime: 14, shape: 'square', armor: 0.25, bldgBonus: 1.3 },
+  // IFV: an autocannon up top and four PMC fire teams shooting from the ports
+  bradley:   { name: 'M2 Bradley',       role: 'combat', builtAt: 'factory', hp: 340, speed: 88,  dmg: 12, atkRange: 130, cooldown: 0.45, sight: 240, cost: 280, r: 13, buildTime: 10, shape: 'square', armor: 0.15, cargoCap: 4 },
   // Globalist detector: an unmarked van bristling with antennas — no cloak,
   // the Globalists watch openly. Finds spies, stealth and burrowers.
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
@@ -361,7 +369,6 @@ const UNIT_TYPES = {
   // Firework Battery: a flatbed of bottle-rocket tubes that lobs a fast, wildly
   // inaccurate saturation volley (scatter spreads each shot around the aim)
   fireworks:     { name: 'Firework Battery', role: 'combat', builtAt: 'factory', hp: 130, speed: 46, dmg: 15, atkRange: 275, minRange: 90, cooldown: 0.9, sight: 300, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.4, shape: 'square', weapon: 'lob', projectile: 'firework', splash: 26, scatter: 46 },
-  haarp:         { name: 'HAARP Truck',      role: 'combat', builtAt: 'factory', hp: 150, speed: 50, dmg: 15, atkRange: 300, minRange: 120, cooldown: 3.5, sight: 320, cost: 180, r: 13, buildTime: 12, shape: 'square', weapon: 'storm' },
   magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 28, atkRange: 270, minRange: 100, cooldown: 3,   sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square', weapon: 'lob', projectile: 'magma', splash: 34, groundEffect: { kind: 'fire', r: 26, dur: 2.2, dps: 8 } },
   mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 32, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square', weapon: 'lob', projectile: 'plasma', splash: 40 },
   // Grey anti-grav siege: a hovering projector that lobs a micro-singularity —
@@ -378,7 +385,8 @@ const UNIT_TYPES = {
   barrageballoon: { name: 'Barrage Balloon', role: 'combat', builtAt: 'airpad', hp: 220, speed: 30, dmg: 0, atkRange: 0, cooldown: 1, sight: 220, cost: 95, r: 12, buildTime: 8, flying: true, shape: 'blimp', aaAura: { r: 135, dps: 15 } },
   // globalist rotorcraft roll out of the Motor Pool alongside the SUVs
   drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'factory', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
-  heli:     { name: 'Black Helicopter', role: 'combat', builtAt: 'factory', hp: 150, speed: 110, dmg: 13, atkRange: 135, cooldown: 0.65, sight: 260, cost: 160, r: 11, buildTime: 11, flying: true, targets: 'both', shape: 'tri' },
+  // glass-cannon gunship: cheap, vicious, and it does not take a punch
+  apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 21, atkRange: 150, cooldown: 0.5,  sight: 270, cost: 130, r: 11, buildTime: 9,  flying: true, targets: 'both', shape: 'tri' },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
   fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri' },
   // Shahed: a purchasable loitering munition — flies at its target and dives
@@ -408,7 +416,7 @@ const UNIT_TYPES = {
   // the GAU-8 does the talking: wide lazy turns into long saturation runs
   // (weapon 'gunrun') that annihilate vehicles and infantry along the flight
   // path — friend or foe, no IFF. Nearly useless against buildings.
-  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 1.3, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 3, beatenLen: 55, beatenWidth: 14 },
+  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 1.3, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 3, beatenLen: 55, beatenWidth: 14, runOut: 200 },
   // Globalist stealth fighter: lives on the airfield, scrambles at hostile
   // air with eight rails, and can strafe ground targets in a pinch — weakly.
   // Invisible until it opens fire, briefly lit, then gone again.

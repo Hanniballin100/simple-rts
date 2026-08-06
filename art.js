@@ -4957,6 +4957,14 @@
   I.militia = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c6a48', head: ihFoil, weapon: iwRifle });
   I.partisan = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a3f', head: ihFoil, weapon: iwRifle });
   I.agent = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#2e3742', head: ihFedora, weapon: iwPistol });
+  I.pmc = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6b6248', pants: '#4a442f', head: ihHelmet, weapon: iwRifle,
+    pack: (c2) => { // plate carrier + comms whip
+      c2.fillStyle = '#3f3a2a'; rr(c2, -2.2, -8.6, 4.4, 4.2, 0.8); c2.fill();
+      c2.strokeStyle = '#8a8272'; c2.lineWidth = 0.5;
+      c2.beginPath(); c2.moveTo(-2.6, -8.4); c2.lineTo(-3.6, -13); c2.stroke();
+    },
+  });
   I.mib = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#171a20', pants: '#14161a', head: ctx2 => ihFedora(ctx2, '#000'), weapon: iwPistol });
   I.moleman = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a45', head: ihHardhat, weapon: iwPick });
   I.greytrooper = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#8a93a4', head: ihGrey, weapon: iwLaser });
@@ -5831,33 +5839,39 @@
   });
   I.f35 = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
-      // big clipped-delta mid wings, swept leading edges
-      { poly: [[7, -2.5], [-1, -14], [-6, -13], [-6, -2.5]], base: 1.6, h: 1, body: '#4a525c' },
-      { poly: [[7, 2.5], [-1, 14], [-6, 13], [-6, 2.5]], base: 1.6, h: 1, body: '#4a525c' },
-      // stabilators at the tail
-      { poly: [[-8, -2], [-12, -8], [-14.5, -7], [-11, -2]], base: 1.6, h: 0.9, body: '#3f474f' },
-      { poly: [[-8, 2], [-12, 8], [-14.5, 7], [-11, 2]], base: 1.6, h: 0.9, body: '#3f474f' },
-      // canted twin fins
-      { poly: [[-7, -1.6], [-12, -3.4], [-12.8, -2.7], [-7.8, -1]], base: 1.8, h: 4.5, body: '#39414a' },
-      { poly: [[-7, 1.6], [-12, 3.4], [-12.8, 2.7], [-7.8, 1]], base: 1.8, h: 4.5, body: '#39414a' },
-      // fuselage: chined nose, humped spine, single fat engine
-      { poly: [[16, 0], [12, -2.2], [4, -3], [-11, -2.6], [-14, -1.4], [-14, 1.4], [-11, 2.6], [4, 3], [12, 2.2]], base: 0, h: 4.2, body: '#555e6a',
+      // one clean wing plane straight through the body — trapezoids with the
+      // F-35's swept leading edge and forward-raked tips
+      { poly: [[6, -2.8], [-2, -13.5], [-6.5, -12.8], [-4.5, -2.8], [-4.5, 2.8], [-6.5, 12.8], [-2, 13.5], [6, 2.8]],
+        base: 1.8, h: 1.1, body: '#5a6470',
+        detail: (c) => { c.strokeStyle = 'rgba(0,0,0,0.2)'; c.lineWidth = 0.4;
+          for (const s of [-1, 1]) { c.beginPath(); c.moveTo(2, s * 3.6); c.lineTo(-3.5, s * 11.5); c.stroke(); } } },
+      // stabilators tucked close behind the wing
+      { poly: [[-7.5, -2.4], [-11.5, -7.8], [-14, -6.8], [-11.5, -2.4]], base: 1.6, h: 0.9, body: '#454e59' },
+      { poly: [[-7.5, 2.4], [-11.5, 7.8], [-14, 6.8], [-11.5, 2.4]], base: 1.6, h: 0.9, body: '#454e59' },
+      // thin canted fins
+      { poly: [[-8, -1.5], [-12.5, -2.9], [-13.1, -2.3], [-8.6, -0.9]], base: 2, h: 4, body: '#3d454f' },
+      { poly: [[-8, 1.5], [-12.5, 2.9], [-13.1, 2.3], [-8.6, 0.9]], base: 2, h: 4, body: '#3d454f' },
+      // slender chined fuselage riding on the wing
+      { poly: [[17, 0], [12, -1.9], [3, -2.5], [-12, -2.2], [-14.5, -1.2], [-14.5, 1.2], [-12, 2.2], [3, 2.5], [12, 1.9]],
+        base: 1, h: 3.6, body: '#4d5560',
         detail: (c, t2, o2) => {
-          c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -10, -1, 22, 2, 1); c.fill(); // spine highlight
-          // the F-35's gold-tinted bubble canopy, well forward
-          const g2 = c.createLinearGradient(6, 0, 11, 0);
-          g2.addColorStop(0, 'rgba(150,200,255,0.85)'); g2.addColorStop(1, 'rgba(222,235,175,0.75)');
-          c.fillStyle = g2; rr(c, 5.5, -1.5, 5.5, 3, 1.5); c.fill();
-          c.strokeStyle = 'rgba(30,40,50,0.5)'; c.lineWidth = 0.4; rr(c, 5.5, -1.5, 5.5, 3, 1.5); c.stroke();
-          c.fillStyle = '#2b323b'; c.beginPath(); c.arc(-13.2, 0, 1.5, 0, TAU); c.fill(); // engine nozzle
-          c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 0.4; // chine panel seams
-          c.beginPath(); c.moveTo(12, -1.6); c.lineTo(4, -2.6); c.moveTo(12, 1.6); c.lineTo(4, 2.6); c.stroke();
-          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(16.5, 0, 1.9, 0, TAU); c.fill(); }
+          c.fillStyle = 'rgba(255,255,255,0.09)'; rr(c, -11, -0.9, 24, 1.8, 0.9); c.fill();
+          // low-profile gold-tint canopy, snug to the spine
+          const g2 = c.createLinearGradient(6, 0, 10.5, 0);
+          g2.addColorStop(0, 'rgba(130,175,220,0.8)'); g2.addColorStop(1, 'rgba(200,205,150,0.65)');
+          c.fillStyle = g2; rr(c, 6, -1.2, 4.5, 2.4, 1.2); c.fill();
+          c.strokeStyle = 'rgba(20,28,36,0.6)'; c.lineWidth = 0.35; rr(c, 6, -1.2, 4.5, 2.4, 1.2); c.stroke();
+          // chine seams down the nose, engine nozzle at the tail
+          c.strokeStyle = 'rgba(0,0,0,0.28)'; c.lineWidth = 0.4;
+          c.beginPath(); c.moveTo(15.5, -0.6); c.lineTo(10.5, -1.7); c.moveTo(15.5, 0.6); c.lineTo(10.5, 1.7); c.stroke();
+          c.fillStyle = '#272d35'; c.beginPath(); c.arc(-13.6, 0, 1.4, 0, TAU); c.fill();
+          c.strokeStyle = '#5c6672'; c.lineWidth = 0.4; c.stroke();
+          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(17.5, 0, 1.9, 0, TAU); c.fill(); }
         } },
     ],
     rigLift: 2,
     rig: (c, t) => { const b = 0.6 + 0.4 * Math.sin(t * 26); c.fillStyle = `rgba(140,190,255,${0.45 + b * 0.4})`;
-      c.beginPath(); c.moveTo(-14, -1.2); c.lineTo(-18.5 - b * 3, 0); c.lineTo(-14, 1.2); c.closePath(); c.fill(); },
+      c.beginPath(); c.moveTo(-14.5, -1.1); c.lineTo(-19 - b * 3, 0); c.lineTo(-14.5, 1.1); c.closePath(); c.fill(); },
   });
   I.drake = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
@@ -5906,21 +5920,36 @@
   });
 
   // ---- rotorcraft & multirotor drones: iso bodies with spinning discs ----
-  I.heli = (ctx, t, o) => isoAircraft(ctx, t, o, {
+  // AH-64 Apache: slim tandem-cockpit gunship — stepped canopy, chin gun,
+  // stub wings racked with Hellfires, four-blade main rotor
+  I.apache = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
-      { poly: [[-5, -1.4], [-18, -1.1], [-18, 1.1], [-5, 1.4]], base: 2.5, h: 2, body: '#20242b' }, // tail boom
-      { poly: [[-16, -0.7], [-19, -0.7], [-19, 0.7], [-16, 0.7]], base: 2.5, h: 4, body: '#262b33' }, // tail fin
-      { poly: [[-1, -10], [3, -10], [3, 10], [-1, 10]], base: 2.8, h: 1.2, body: '#2a2f37',
-        detail: (c) => { for (const y of [-9, 9]) { c.fillStyle = '#3a3f48'; rr(c, -1, y - 1.6, 3.5, 3.2, 1); c.fill(); c.fillStyle = '#14171c'; c.fillRect(2, y - 0.7, 1.2, 1.4); } } }, // stub wings + pods
-      { poly: [[13, 0], [10, -3.4], [-7, -3.6], [-9, -1.6], [-9, 1.6], [-7, 3.6], [10, 3.4]], base: 0, h: 5.5, body: '#2c313a',
-        detail: (c) => { c.fillStyle = 'rgba(255,255,255,0.12)'; rr(c, -6, -1.6, 15, 2.4, 1); c.fill();
-          c.fillStyle = '#101f2a'; rr(c, 6.5, -2.8, 5, 5.6, 2.2); c.fill();
-          c.fillStyle = 'rgba(150,225,255,0.4)'; rr(c, 8, -2, 2.4, 2, 1); c.fill();
-          c.fillStyle = '#3a3f48'; c.beginPath(); c.arc(12, 0, 1.6, 0, TAU); c.fill(); } },
+      { poly: [[-4, -1.2], [-17, -1], [-17, 1], [-4, 1.2]], base: 3, h: 1.8, body: '#333a2e' },  // tail boom
+      { poly: [[-15, -0.6], [-18, -0.6], [-18, 0.6], [-15, 0.6]], base: 3, h: 4.5, body: '#2c3227' }, // tail fin
+      { poly: [[3, -8.5], [6, -8.5], [6, 8.5], [3, 8.5]], base: 3.4, h: 1, body: '#3a4133',
+        detail: (c) => { for (const y of [-7.5, 7.5]) { // Hellfire racks under each stub wing
+          c.fillStyle = '#22261d'; rr(c, 2.6, y - 1.3, 4.4, 2.6, 0.6); c.fill();
+          c.fillStyle = '#565f48'; for (const x of [3.2, 5]) c.fillRect(x, y - 0.9, 1.1, 1.8);
+        } } },
+      { poly: [[12, 0], [9.5, -2.4], [-5, -2.7], [-7, -1.2], [-7, 1.2], [-5, 2.7], [9.5, 2.4]], base: 1, h: 5, body: '#3d4536',
+        detail: (c) => {
+          c.fillStyle = 'rgba(255,255,255,0.10)'; rr(c, -5, -1.2, 14, 1.8, 0.8); c.fill();
+          // stepped tandem canopy: gunner low forward, pilot raised behind
+          c.fillStyle = '#15222b'; rr(c, 6.2, -2, 3.6, 4, 1.2); c.fill();
+          c.fillStyle = '#1b2a35'; rr(c, 2.2, -2.2, 3.6, 4.4, 1.2); c.fill();
+          c.strokeStyle = 'rgba(160,210,240,0.35)'; c.lineWidth = 0.4;
+          rr(c, 6.2, -2, 3.6, 4, 1.2); c.stroke(); rr(c, 2.2, -2.2, 3.6, 4.4, 1.2); c.stroke();
+          // nose sensor ball + chin gun
+          c.fillStyle = '#20241d'; c.beginPath(); c.arc(11, 0, 1.7, 0, TAU); c.fill();
+          c.fillStyle = '#141710'; c.fillRect(10.5, -0.5, 4.5, 1);
+        } },
     ],
-    props: [{ x: 1.5, y: 0, z: 9, r: 15, speed: 34 }, { x: -18.5, y: 0, z: 2.5, r: 3, speed: 42 }],
-    rigLift: 5.5,
-    rig: (c, t) => { if (Math.sin(t * 6) > 0.3) { c.fillStyle = 'rgba(255,70,70,0.95)'; c.beginPath(); c.arc(-6, 0, 1.1, 0, TAU); c.fill(); } },
+    props: [{ x: 1, y: 0, z: 8.5, r: 14, speed: 36 }, { x: -17.5, y: 0, z: 3.5, r: 2.8, speed: 44 }],
+    rigLift: 5,
+    rig: (c, t, o) => {
+      if (o.firing) { c.fillStyle = 'rgba(255,225,150,0.95)'; c.beginPath(); c.arc(15.5, 0, 2, 0, TAU); c.fill(); }
+      if (Math.sin(t * 6) > 0.3) { c.fillStyle = 'rgba(255,70,70,0.95)'; c.beginPath(); c.arc(-6, 0, 1.1, 0, TAU); c.fill(); }
+    },
   });
   function quadDrone(body, s, eye) {
     const arm = 6 * s;
@@ -6530,6 +6559,96 @@
     ctx.fillStyle = '#12151a'; ctx.fillRect(6, -0.75, 10, 1.5);
     ctx.fillStyle = '#3a4049'; ctx.fillRect(15, -1, 2, 2);
     if (o.firing) { ctx.fillStyle = 'rgba(200,225,255,0.95)'; ctx.beginPath(); ctx.arc(19, 0, 2.3, 0, TAU); ctx.fill(); }
+    ctx.restore();
+  };
+  // M1 Abrams: wide, flat, and certain — sand-green hull, side skirts, and a
+  // turret that fills half the footprint
+  I.abrams = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 30,
+    under: (c, t, o) => treads(c, t, o, 28, 5, 9.2),
+    tiers: [
+      { poly: [[15, -3.2], [15, 3.2], [10, 6.6], [-14, 6], [-15, 0], [-14, -6], [10, -6.6]],
+        h: 4.8, body: '#5c6248',
+        detail: (c) => {
+          c.fillStyle = shade('#5c6248', 0.14); // sloped glacis
+          c.beginPath(); c.moveTo(7, -5); c.lineTo(13.5, -2.4); c.lineTo(13.5, 2.4); c.lineTo(7, 5); c.closePath(); c.fill();
+          c.strokeStyle = shade('#5c6248', -0.45); c.lineWidth = 0.5; // skirt seams
+          for (const s of [-1, 1]) { c.beginPath(); c.moveTo(-12, s * 5); c.lineTo(8, s * 5); c.stroke(); }
+          c.fillStyle = shade('#5c6248', -0.3); rr(c, -13.6, -3, 2.4, 6, 0.6); c.fill(); // rear grille
+        },
+      },
+    ],
+  });
+  T.abrams = (ctx, t, o) => {
+    const a = o.turret !== undefined ? o.turret : (o.facing || 0);
+    ctx.save();
+    ctx.translate(0, -6.6);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    ctx.rotate(a);
+    // shadow under the turret ring so it reads as sitting ON the hull
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(0.5, 0.5, 8, 5.6, 0, 0, TAU); ctx.fill();
+    // broad flat turret with a stowage bustle — lighter than the hull, dark edged
+    const g3 = ctx.createLinearGradient(0, -4.5, 0, 4.5);
+    g3.addColorStop(0, shade('#767c5c', 0.14)); g3.addColorStop(1, shade('#767c5c', -0.18));
+    ctx.fillStyle = g3;
+    ctx.beginPath(); ctx.moveTo(6.4, -4); ctx.lineTo(-5, -4.6); ctx.lineTo(-7, -2); ctx.lineTo(-7, 2); ctx.lineTo(-5, 4.6); ctx.lineTo(6.4, 4); ctx.lineTo(7.6, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = shade('#767c5c', -0.55); ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.fillStyle = shade('#767c5c', -0.32); rr(ctx, -6.6, -3.4, 2.2, 6.8, 0.6); ctx.fill(); // bustle rack
+    ctx.fillStyle = '#464b36'; ctx.beginPath(); ctx.arc(-2, -2.2, 1.3, 0, TAU); ctx.fill(); // commander's hatch
+    ctx.strokeStyle = shade('#767c5c', -0.5); ctx.lineWidth = 0.4; ctx.stroke();
+    ctx.fillStyle = '#8fb6d6'; ctx.fillRect(1.5, 1.8, 2, 1.3); // gunner's optic
+    // long smoothbore: thick, dark-edged, lit along the top so it READS
+    ctx.fillStyle = '#20241a'; ctx.fillRect(7, -1, 12, 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.28)'; ctx.lineWidth = 0.45;
+    ctx.beginPath(); ctx.moveTo(7, -0.9); ctx.lineTo(19, -0.9); ctx.stroke();
+    ctx.fillStyle = '#4d5340'; ctx.fillRect(11.5, -1.35, 2.8, 2.7); // bore evacuator
+    ctx.fillStyle = '#3a3f2e'; ctx.fillRect(18, -1.2, 1.6, 2.4);   // muzzle ref
+    if (o.firing) { ctx.fillStyle = 'rgba(255,225,150,0.95)'; ctx.beginPath(); ctx.arc(21, 0, 2.8, 0, TAU); ctx.fill(); }
+    ctx.restore();
+  };
+  // M2 Bradley: a tall angular IFV — autocannon turret up top, firing ports
+  // for the PMC team riding inside
+  I.bradley = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 26,
+    under: (c, t, o) => treads(c, t, o, 24, 4.5, 8.4),
+    tiers: [
+      { poly: [[13, -2.8], [13, 2.8], [9, 6], [-12, 5.6], [-13, 0], [-12, -5.6], [9, -6]],
+        h: 6.4, body: '#4f5a44',
+        detail: (c) => {
+          c.fillStyle = shade('#4f5a44', 0.16); // steep glacis wedge
+          c.beginPath(); c.moveTo(6, -4.6); c.lineTo(12, -2), c.lineTo(12, 2); c.lineTo(6, 4.6); c.closePath(); c.fill();
+          c.strokeStyle = shade('#4f5a44', -0.45); c.lineWidth = 0.5;
+          c.beginPath(); c.moveTo(8, 0); c.lineTo(-11, 0); c.stroke(); // spine seam
+          // firing ports along the flanks
+          c.fillStyle = '#20241a';
+          for (const s of [-1, 1]) for (const x of [-8, -4, 0]) { rr(c, x, s * 4.6 - 0.7, 1.6, 1.4, 0.4); c.fill(); }
+          c.fillStyle = shade('#4f5a44', -0.28); rr(c, -12.4, -3.4, 2, 6.8, 0.6); c.fill(); // rear ramp
+        },
+      },
+    ],
+  });
+  T.bradley = (ctx, t, o) => {
+    const a = o.turret !== undefined ? o.turret : (o.facing || 0);
+    ctx.save();
+    ctx.translate(0, -8.2);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    ctx.translate(1, -1.5); // turret sits offset on the roof
+    ctx.rotate(a);
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(0.3, 0.3, 5.4, 4, 0, 0, TAU); ctx.fill();
+    const g4 = ctx.createLinearGradient(0, -3, 0, 3);
+    g4.addColorStop(0, shade('#6b755a', 0.16)); g4.addColorStop(1, shade('#6b755a', -0.16));
+    ctx.fillStyle = g4;
+    ctx.beginPath(); ctx.moveTo(3.6, -2.6); ctx.lineTo(-3.4, -2.9); ctx.lineTo(-4.2, 0); ctx.lineTo(-3.4, 2.9); ctx.lineTo(3.6, 2.6); ctx.lineTo(4.6, 0); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = shade('#6b755a', -0.55); ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.fillStyle = '#2c3226'; rr(ctx, -3.2, -4.2, 4.6, 1.9, 0.5); ctx.fill(); // TOW box on the side
+    ctx.strokeStyle = shade('#6b755a', -0.5); ctx.lineWidth = 0.4; ctx.strokeRect(-3.2, -4.2, 4.6, 1.9);
+    ctx.fillStyle = '#171b12'; ctx.fillRect(4.2, -0.7, 9, 1.4);               // 25mm Bushmaster
+    ctx.strokeStyle = 'rgba(255,255,255,0.26)'; ctx.lineWidth = 0.4;
+    ctx.beginPath(); ctx.moveTo(4.2, -0.6); ctx.lineTo(13.2, -0.6); ctx.stroke();
+    ctx.fillStyle = '#4d5540'; ctx.fillRect(4.2, -1.3, 2, 2.6);               // gun cradle
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.95)'; ctx.beginPath(); ctx.arc(14.2, 0, 1.9, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
   // Disinfo Van: a windowless black van bristling with antennas and a spoofing
