@@ -6426,6 +6426,19 @@
     ctx.save();
     ctx.translate(0, -5.2);
     ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    // riders visible in the open bed: helmets and rifles over the rails,
+    // one silhouette per loaded passenger (drawn under the pintle gunner)
+    for (let i = 0; i < Math.min(o.cargo || 0, 4); i++) {
+      const rx = -7.6 + (i % 2) * 3.8, ry = i < 2 ? -2.1 : 2.1, s = ry < 0 ? -1 : 1;
+      ctx.fillStyle = '#4d5238';                            // shoulders
+      ctx.beginPath(); ctx.arc(rx, ry, 1.6, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#caa06e';                            // bare head
+      ctx.beginPath(); ctx.arc(rx + 0.2, ry - s * 0.4, 0.95, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#20241a';                            // rifle over the side rail
+      ctx.save(); ctx.translate(rx, ry); ctx.rotate(s * 1.25 + Math.sin(t * 1.3 + i) * 0.12);
+      ctx.fillRect(0.8, -0.4, 3.6, 0.8);
+      ctx.restore();
+    }
     ctx.translate(-3.2, 0);                                  // mount seated over the bed
     ctx.fillStyle = '#2e2a22'; ctx.beginPath(); ctx.arc(0, 0, 2.5, 0, TAU); ctx.fill(); // pintle ring
     ctx.rotate(a);

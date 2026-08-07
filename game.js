@@ -3757,7 +3757,7 @@ function unitBlurb(type) {
   if (t.plantMine) b.push('can bury IEDs');
   if (t.jams) b.push('its hits scramble aircraft avionics');
   if (t.pad) b.push(`lives on the airfield: ${t.maxAmmo} shots per sortie, lands to rearm`);
-  if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)`);
+  if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)${t.openBed ? ' — riders are thrown clear, hurt but alive, if it dies' : ' — riders die with the vehicle'}`);
   if (isCrusher(t)) b.push('crushes light infantry under its hull');
   if (t.limit) b.push(`max ${t.limit}`);
   if (t.loosh) b.push(`also costs ${t.loosh} LOOSH`);
@@ -4802,7 +4802,7 @@ function drawUnitIso(u) {
     ctx.save();
     ctx.translate(ix, sy + bob);
     ctx.scale(dscale, dscale);
-    Art.drawIsoTurret(u.type, ctx, state.time, { facing: u.facing || 0, turret: u.turret, firing });
+    Art.drawIsoTurret(u.type, ctx, state.time, { facing: u.facing || 0, turret: u.turret, firing, cargo: (u.cargo || []).length });
     ctx.restore();
   }
   if (u.carrying > 0) {
@@ -5391,8 +5391,23 @@ function frame(now) {
     }
     for (const u of state.units) {
       if (u.hp <= 0 && u.type !== 'phantom') {
-        // a dying transport takes its riders with it
-        if (u.cargo) for (const id of u.cargo) { const p = findEntity(id); if (p && p.hp > 0) p.hp = 0; }
+        // a dying transport: an open bed throws its riders clear — hurt,
+        // dazed, but alive; an enclosed hull takes everyone with it
+        if (u.cargo) {
+          const spill = UNIT_TYPES[u.type].openBed;
+          u.cargo.forEach((id, i) => {
+            const p = findEntity(id);
+            if (!p || p.hp <= 0) return;
+            if (spill) {
+              p.garrisoned = false; p.transportId = null;
+              const a = i / u.cargo.length * Math.PI * 2;
+              p.x = u.x + Math.cos(a) * 18; p.y = u.y + Math.sin(a) * 18;
+              p.hp = Math.max(1, p.hp - p.maxHp * 0.3); // thrown from the wreck
+              p.order = { type: 'idle' };
+            } else p.hp = 0;
+          });
+          u.cargo = [];
+        }
         // a slave's death — overwork, enemy fire, or the knife — feeds the
         // loosh, and the Hatchery automatically buys a replacement
         if (UNIT_TYPES[u.type].looshOnDeath) {

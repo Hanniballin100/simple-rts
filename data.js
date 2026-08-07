@@ -352,8 +352,9 @@ const UNIT_TYPES = {
   killdozer: { name: 'Killdozer',        role: 'combat', builtAt: 'factory', hp: 520, speed: 36,  dmg: 26, atkRange: 30,  cooldown: 1.2,  sight: 180, cost: 185, r: 14, buildTime: 12, bldgBonus: 3, armor: 0.5, shape: 'square' },
   // the all-purpose Toyota: cheap, fast, shoots at everything — and dents
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
-  // rides four in the bed: loaded partisans fire their own weapons from the truck
-  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both', cargoCap: 4 },
+  // rides four in the OPEN bed: loaded partisans are visible, fire their own
+  // weapons from the truck, and get thrown clear (hurt, alive) if it dies
+  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both', cargoCap: 4, openBed: true },
   // Globalist armor: one tank, the correct tank. Pricey, thick, final.
   abrams:    { name: 'M1 Abrams',        role: 'combat', builtAt: 'factory', hp: 560, speed: 62,  dmg: 38, atkRange: 170, cooldown: 1.7,  sight: 240, cost: 400, r: 14, buildTime: 14, shape: 'square', armor: 0.25, bldgBonus: 1.3 },
   // IFV: an autocannon up top and four PMC fire teams shooting from the ports
