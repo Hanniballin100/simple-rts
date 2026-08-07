@@ -4958,11 +4958,13 @@
   I.partisan = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a3f', head: ihFoil, weapon: iwRifle });
   I.agent = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#2e3742', head: ihFedora, weapon: iwPistol });
   I.pmc = (ctx, t, o) => isoTrooper(ctx, t, o, {
-    coat: '#6b6248', pants: '#4a442f', head: ihHelmet, weapon: iwRifle,
-    pack: (c2) => { // plate carrier + comms whip
-      c2.fillStyle = '#3f3a2a'; rr(c2, -2.2, -8.6, 4.4, 4.2, 0.8); c2.fill();
-      c2.strokeStyle = '#8a8272'; c2.lineWidth = 0.5;
-      c2.beginPath(); c2.moveTo(-2.6, -8.4); c2.lineTo(-3.6, -13); c2.stroke();
+    // light contractor khaki — deliberately brighter than the terrain so the
+    // silhouette pops instead of ghosting into the grass
+    coat: '#9a8d68', pants: '#6b6149', head: ihHelmet, weapon: iwRifle,
+    pack: (c2) => { // dark plate carrier + comms whip for contrast
+      c2.fillStyle = '#33382a'; rr(c2, -2.2, -8.6, 4.4, 4.4, 0.8); c2.fill();
+      c2.strokeStyle = '#c9bfa0'; c2.lineWidth = 0.55;
+      c2.beginPath(); c2.moveTo(-2.6, -8.4); c2.lineTo(-3.6, -13.2); c2.stroke();
     },
   });
   I.mib = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#171a20', pants: '#14161a', head: ctx2 => ihFedora(ctx2, '#000'), weapon: iwPistol });
