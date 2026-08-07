@@ -818,11 +818,10 @@ function updateAbilities(dt) {
     const fkey = state.factions[owner];
     sig.timer += dt;
     if (fkey === 'glob' && sig.timer >= 10) {
-      // Quantitative Easing: each Fusion Plant prints minerals on the income tick
+      // Quantitative Easing: the printer follows the ECONOMY — income scales
+      // with power actually drawn, so there's no incentive to spam idle plants
       sig.timer -= 10;
-      let plants = 0;
-      for (const b of state.buildings) if (b.owner === owner && b.hp > 0 && b.done && b.type === 'powerplant') plants++;
-      state.minerals[owner] += plants * 12;
+      state.minerals[owner] += Math.round(powerOf(owner).used * 0.12);
     } else if (fkey === 'flat' && sig.timer >= 180) {
       sig.timer -= 180;
       documentaryDrop(owner);
@@ -1763,11 +1762,7 @@ function tryAttack(u, target, dt) {
 function planeAttack(u, target, t, dt) {
   const d = dist(u, target);
   const range = t.atkRange + entityRadius(target);
-  if (t.weapon === 'gunship') {
-    // pylon turn: circle the target and pour sideways fire into it
-    flyOrbit(u, target.x, target.y, dt, t.orbitR || 140);
-    if (d <= range) fireAt(u, target, t);
-  } else {
+  {
     // bombing run / strafing pass: line up, release/shoot, overshoot, come
     // around, repeat. A target inside the plane's turning circle can never
     // be lined up by steering straight at it — so when close and badly
@@ -1796,7 +1791,12 @@ function planeAttack(u, target, t, dt) {
     } else {
       flyToward(u, target.x, target.y, dt, 0);
     }
-    if (t.weapon === 'bomb') { if (d <= range) fireAt(u, target, t); }
+    // fire gates by weapon fit: bombs release on overflight; the Spectre's
+    // broadside rakes whenever the target is in reach of the pass (it flies
+    // A-10-style racetracks now, not a tight pylon circle); the GAU-8 hoses
+    // its wide beaten zone through most of the run-in; guns need the nose on
+    if (t.weapon === 'bomb' || t.weapon === 'gunship') { if (d <= range) fireAt(u, target, t); }
+    else if (t.weapon === 'gunrun') { if (d <= range && aim < 0.85) fireAt(u, target, t); }
     else if (d <= range && aim < 0.5) fireAt(u, target, t);
   }
 }
@@ -3256,12 +3256,17 @@ function updateAI(owner, dt) {
     // structure reserve). Only considering affordable units means a poor faction
     // still diversifies with what it can pay for, instead of endlessly waiting on
     // one pricey pick and defaulting to cheap infantry forever.
-    let pick = null, worst = -Infinity;
+    let pick = null, worst = -Infinity, dream = null, dreamDef = -Infinity;
     for (const [t, w] of mix) {
-      if (state.minerals[owner] < UNIT_TYPES[t].cost + reserve) continue;
       const deficit = w / totalW - (byType[t] || 0) / (totalArmy || 1);
+      if (deficit > dreamDef) { dreamDef = deficit; dream = t; }
+      if (state.minerals[owner] < UNIT_TYPES[t].cost + reserve) continue;
       if (deficit > worst) { worst = deficit; pick = t; }
     }
+    // if the army's REAL hole is something expensive (an Abrams column, a
+    // B-2 wing), save toward it instead of dribbling out another cheap jet —
+    // this is what stops the F-35/B-1 monoculture
+    if (pick && dream && dream !== pick && dreamDef > worst + 0.12) pick = null;
     if (pick) trainUnit(owner, pick);
   }
 

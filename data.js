@@ -78,7 +78,7 @@ const FACTIONS = {
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
     air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['prophet', 'fireworks', 'engineer'], advanced: ['leveler'],
-    structs: ['wall', 'gate', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'mine', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
@@ -98,7 +98,7 @@ const FACTIONS = {
     worker: 'salvagerig', infantry: 'partisan', aa: 'manpad', vehicle: 'technical',
     air: ['wballoon', 'fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'chembiplane', 'engineer'], advanced: ['cruisetruck'],
-    structs: ['wall', 'gate', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'mine', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
       sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
@@ -117,12 +117,12 @@ const FACTIONS = {
     desc: 'Order through orbit — and paid for in full. PMC Contractors hold the line, M1 Abrams columns roll over it, and Bradleys deliver fire teams that shoot from the ports. Overhead is the real budget: AH-64 gunships, stealth F-35s, A-10s on the gun run — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Everything is expensive. Everything works.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'pmc', aa: 'jammer', vehicle: 'abrams',
-    airFocus: 2, // THE air power: the AI leans hard into the Air Force Base
+    airFocus: 1.5, // still THE air power, but the AI fields an army under it too
     air: ['apache', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'bradley', 'blackvan', 'engineer', 'mechanic'], advanced: ['gunship'],
-    structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
+    extras: ['riot', 'bradley', 'blackvan', 'himars', 'engineer', 'mechanic'], advanced: ['gunship'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
-      passive: { name: 'Quantitative Easing', desc: 'Every Fusion Plant prints minerals passively (+12 every 10s). And when a building falls, 25% of its cost is refunded — too big to fail.' },
+      passive: { name: 'Quantitative Easing', desc: 'The printer follows the economy: every 10s you gain minerals equal to 12% of the power your base actually DRAWS. And when a building falls, 25% of its cost is refunded — too big to fail.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
     },
     buildingNames: {
@@ -143,7 +143,7 @@ const FACTIONS = {
     airFocus: 1.4, // still a black-budget air wing, second only to the USAF
     air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
-    structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
@@ -163,7 +163,7 @@ const FACTIONS = {
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['haunebu', 'serpent'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'engineer'], advanced: ['ironmole', 'vrildisc'],
-    structs: ['wall', 'gate', 'tunnelentrance', 'geode', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'geode', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
       sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
@@ -184,7 +184,7 @@ const FACTIONS = {
     worker: null, infantry: 'greydrone', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
     extras: ['handler', 'technician', 'overseer', 'gravwell', 'engineer', 'vivisector'], advanced: ['saucer', 'mothership'],
-    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
       sig: { name: 'Cloning Vats', desc: 'Target one of your infantry: an exact copy emerges from your barracks. The vats only fit people-shaped things — no vehicles, no aircraft.', kind: 'unit', cd: 90 },
@@ -204,7 +204,7 @@ const FACTIONS = {
     worker: 'slave', infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
     air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
     extras: ['nephilim', 'priest', 'shapeshifter', 'broodmother'], advanced: ['draco'],
-    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
       sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
@@ -360,6 +360,9 @@ const UNIT_TYPES = {
   // IFV: an autocannon up top, four PMC fire teams shooting from the ports —
   // and a rear ramp: the squad bails out (hurt, alive) if the hull dies
   bradley:   { name: 'M2 Bradley',       role: 'combat', builtAt: 'factory', hp: 340, speed: 88,  dmg: 12, atkRange: 130, cooldown: 0.45, sight: 240, cost: 280, r: 13, buildTime: 10, shape: 'square', armor: 0.15, cargoCap: 4, bailOut: true },
+  // Globalist siege: six guided rockets on a truck. Outranges every tower,
+  // wrecks structures, helpless up close and lightly built. Pricey. Works.
+  himars:    { name: 'HIMARS',           role: 'combat', builtAt: 'factory', hp: 170, speed: 70,  dmg: 24, atkRange: 320, minRange: 130, cooldown: 3.2, sight: 330, cost: 320, r: 13, buildTime: 13, shape: 'square', weapon: 'lob', projectile: 'shell', scatter: 26, splash: 30, bldgBonus: 1.6, req: 'tech' },
   // Globalist detector: an unmarked van bristling with antennas — no cloak,
   // the Globalists watch openly. Finds spies, stealth and burrowers.
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
@@ -425,14 +428,14 @@ const UNIT_TYPES = {
   // the GAU-8 does the talking: wide lazy turns into long saturation runs
   // (weapon 'gunrun') that annihilate vehicles and infantry along the flight
   // path — friend or foe, no IFF. Nearly useless against buildings.
-  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 1.3, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 3, beatenLen: 55, beatenWidth: 14, runOut: 200 },
+  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 1.3, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 4, beatenLen: 95, beatenWidth: 28, runOut: 260 },
   // Globalist stealth fighter: lives on the airfield, scrambles at hostile
   // air with eight rails, and can strafe ground targets in a pinch — weakly.
   // Invisible until it opens fire, briefly lit, then gone again.
   f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, dmgVsGround: 9, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2, stealth: true },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
-  gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.3, weapon: 'gunship', orbitR: 195, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
+  gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.2, weapon: 'gunship', runOut: 240, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
   // Grey Abductor Saucer: hovers over a ground unit and locks a tractor beam —
   // hold it long enough and the victim is hauled up and away (removed, +minerals).
@@ -519,7 +522,7 @@ const BUILDING_TYPES = {
   // stealthed proximity trap: trip = trigger radius (enemy ground units);
   // detonation reuses the neutral explodes blast. noBlock: doesn't obstruct
   // pathing or placement — it's buried, things roll right over it.
-  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 25, buildTime: 0, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true, instant: true },
+  mine: { name: 'Landmine', hp: 50, w: 16, h: 16, cost: 25, buildTime: 0, sight: 60, power: 0, stealth: true, noBlock: true, trip: 50, explodes: { r: 70, dmg: 65 }, anywhere: true, instant: true, cap: 10 },
   // service structure: mends the owner's vehicles and aircraft sitting on it
   repairpad: { name: 'Repair Pad', hp: 380, w: 64, h: 64, cost: 120, buildTime: 12, sight: 180, power: -20, cap: 2, repairRate: 8 },
   // globalist orbital surveillance: while a finished one stands, the whole map

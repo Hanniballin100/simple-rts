@@ -6522,6 +6522,30 @@
     }
     ctx.restore();
   };
+  // HIMARS: an armored six-wheel truck with a boxy six-cell rocket pod
+  // riding raised over the rear bed
+  I.himars = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 27,
+    under: (c, t2, o2) => wheels(c, t2, o2, [[-9, -7.4], [-9, 7.4], [2, -7.4], [2, 7.4], [8, -7.4], [8, 7.4]], 5.6, 3.2),
+    tiers: [
+      { poly: [[13, -3.2], [13, 3.2], [10, 6.2], [-13, 6], [-13, -6], [10, -6.2]], h: 4.4, body: '#565c48',
+        detail: (c) => {
+          c.fillStyle = shade('#565c48', 0.14); rr(c, 5, -5.4, 7.4, 10.8, 1.2); c.fill(); // armored cab
+          c.fillStyle = '#1c2026'; c.fillRect(11.2, -4, 1.6, 8);                          // windshield strip
+          c.fillStyle = 'rgba(240,244,230,0.9)'; c.fillRect(12.6, -3.4, 0.8, 1.2); c.fillRect(12.6, 2.2, 0.8, 1.2);
+        } },
+      { // raised launcher box on the bed: two rows of three rocket cells
+        poly: [[3, -4.4], [3, 4.4], [-12, 4.4], [-12, -4.4]], h: 4.2, body: '#4a5140',
+        detail: (c, t2, o2) => {
+          c.fillStyle = '#3a4034'; rr(c, -11.2, -3.9, 13.4, 7.8, 1); c.fill();
+          for (let ix = 0; ix < 3; ix++) for (let iy = 0; iy < 2; iy++) {
+            c.fillStyle = '#23271e'; rr(c, -9.8 + ix * 4.1, -3.4 + iy * 3.9, 3.3, 3, 0.5); c.fill();
+            c.fillStyle = '#5d664c'; c.beginPath(); c.arc(-8.1 + ix * 4.1, -1.9 + iy * 3.9, 0.8, 0, TAU); c.fill();
+          }
+          if (o2.firing) { c.fillStyle = 'rgba(255,220,140,0.95)'; c.beginPath(); c.arc(-4.5, 0, 3.2, 0, TAU); c.fill(); }
+        } },
+    ],
+  });
   I.blackvan = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 24,
     under: (c, t, o) => wheels(c, t, o, [[-7.5, -7.1], [-7.5, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
@@ -6587,28 +6611,29 @@
   // raked glacis wedge at the bow and flat skirted flanks, not an oval
   I.abrams = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 32,
-    under: (c, t, o) => treads(c, t, o, 30, 5, 9.4),
+    under: (c, t, o) => treads(c, t, o, 30, 4.6, 8.6),
     tiers: [
-      { // slab hull: dead-straight sides, clipped bow
-        poly: [[16, -4.2], [16, 4.2], [13, 6.8], [-15, 6.8], [-15, -6.8], [13, -6.8]],
-        h: 4.2, body: '#5e6047',
+      { // LOW slim hull riding between exposed tracks — long, not bulky
+        poly: [[16, -3.4], [16, 3.4], [12.5, 5.3], [-15, 5.3], [-15, -5.3], [12.5, -5.3]],
+        h: 3.4, body: '#5e6047',
         detail: (c) => {
           // the long raked glacis — the M1's signature wedge nose
           const g = c.createLinearGradient(8, 0, 16, 0);
           g.addColorStop(0, shade('#5e6047', 0.02)); g.addColorStop(1, shade('#5e6047', 0.28));
           c.fillStyle = g;
-          c.beginPath(); c.moveTo(6, -6.6); c.lineTo(15.6, -4); c.lineTo(15.6, 4); c.lineTo(6, 6.6); c.closePath(); c.fill();
+          c.beginPath(); c.moveTo(7, -5.1); c.lineTo(15.6, -3.2); c.lineTo(15.6, 3.2); c.lineTo(7, 5.1); c.closePath(); c.fill();
           c.strokeStyle = shade('#5e6047', -0.4); c.lineWidth = 0.5;
-          c.beginPath(); c.moveTo(6, -6.6); c.lineTo(15.6, -4); c.moveTo(6, 6.6); c.lineTo(15.6, 4); c.stroke();
-          // flat armored side skirts with panel seams
-          c.fillStyle = shade('#5e6047', -0.14);
-          for (const s of [-1, 1]) rr(c, -14, s * 4.6 - (s > 0 ? 0 : 2.2), 20, 2.2, 0.4), c.fill();
+          c.beginPath(); c.moveTo(7, -5.1); c.lineTo(15.6, -3.2); c.moveTo(7, 5.1); c.lineTo(15.6, -3.2 + 6.4); c.stroke();
+          // thin side-skirt strip with panel seams
           c.strokeStyle = shade('#5e6047', -0.45); c.lineWidth = 0.45;
-          for (const s of [-1, 1]) for (let x = -12; x <= 4; x += 4) { c.beginPath(); c.moveTo(x, s * 4.6); c.lineTo(x, s * 6.6); c.stroke(); }
+          for (const s of [-1, 1]) {
+            c.beginPath(); c.moveTo(-13, s * 3.9); c.lineTo(6, s * 3.9); c.stroke();
+            for (let x = -12; x <= 5; x += 4.2) { c.beginPath(); c.moveTo(x, s * 3.9); c.lineTo(x, s * 5.1); c.stroke(); }
+          }
           // rear engine deck grilles
-          c.fillStyle = shade('#5e6047', -0.3); rr(c, -14.4, -4.2, 3.4, 8.4, 0.6); c.fill();
+          c.fillStyle = shade('#5e6047', -0.3); rr(c, -14.4, -3.4, 3, 6.8, 0.6); c.fill();
           c.strokeStyle = shade('#5e6047', -0.5); c.lineWidth = 0.4;
-          for (const x of [-13.6, -12.6, -11.6]) { c.beginPath(); c.moveTo(x, -3.8); c.lineTo(x, 3.8); c.stroke(); }
+          for (const x of [-13.7, -12.8, -11.9]) { c.beginPath(); c.moveTo(x, -3); c.lineTo(x, 3); c.stroke(); }
         },
       },
     ],
