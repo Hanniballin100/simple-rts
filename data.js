@@ -229,7 +229,7 @@ const SUPER_DEFS = {
   deep:       { charge: 150, kind: 'emp',     desc: 'Total Blackout — enemy structures in the zone go dark for 20s' },
   hollow:     { charge: 180, kind: 'quake',   desc: 'The Big One — a quake dismantles every structure in the zone' },
   grey:       { charge: 180, kind: 'ray',     desc: 'Pyramid Death Ray — a sustained beam annihilates the zone' },
-  reptilian:  { charge: 190, kind: 'coup',    desc: 'Bloodline Coup — enemies in the zone fight for YOU for 45s' },
+  reptilian:  { charge: 190, kind: 'coup',    desc: 'Bloodline Coup — costs 60 loosh to fire and drinks up to 200: the more blood banked, the WIDER the zone. Enemies inside fight for YOU for 45s' },
 };
 
 // ---------- units ----------
@@ -354,11 +354,12 @@ const UNIT_TYPES = {
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
   // rides four in the OPEN bed: loaded partisans are visible, fire their own
   // weapons from the truck, and get thrown clear (hurt, alive) if it dies
-  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both', cargoCap: 4, openBed: true },
+  technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both', cargoCap: 4, bailOut: true },
   // Globalist armor: one tank, the correct tank. Pricey, thick, final.
   abrams:    { name: 'M1 Abrams',        role: 'combat', builtAt: 'factory', hp: 560, speed: 62,  dmg: 38, atkRange: 170, cooldown: 1.7,  sight: 240, cost: 400, r: 14, buildTime: 14, shape: 'square', armor: 0.25, bldgBonus: 1.3 },
-  // IFV: an autocannon up top and four PMC fire teams shooting from the ports
-  bradley:   { name: 'M2 Bradley',       role: 'combat', builtAt: 'factory', hp: 340, speed: 88,  dmg: 12, atkRange: 130, cooldown: 0.45, sight: 240, cost: 280, r: 13, buildTime: 10, shape: 'square', armor: 0.15, cargoCap: 4 },
+  // IFV: an autocannon up top, four PMC fire teams shooting from the ports —
+  // and a rear ramp: the squad bails out (hurt, alive) if the hull dies
+  bradley:   { name: 'M2 Bradley',       role: 'combat', builtAt: 'factory', hp: 340, speed: 88,  dmg: 12, atkRange: 130, cooldown: 0.45, sight: 240, cost: 280, r: 13, buildTime: 10, shape: 'square', armor: 0.15, cargoCap: 4, bailOut: true },
   // Globalist detector: an unmarked van bristling with antennas — no cloak,
   // the Globalists watch openly. Finds spies, stealth and burrowers.
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },

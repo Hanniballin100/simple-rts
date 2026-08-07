@@ -6678,6 +6678,13 @@
     ctx.rotate(a);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath(); ctx.ellipse(0.3, 0.3, 5.4, 4, 0, 0, TAU); ctx.fill();
+    // riders visible: helmets poking from the roof hatches behind the turret
+    for (let i = 0; i < Math.min(o.cargo || 0, 4); i++) {
+      const hx = -5 - (i % 2) * 3.2, hy = i < 2 ? -2.2 : 2.2;
+      ctx.fillStyle = '#39412e'; ctx.beginPath(); ctx.arc(hx, hy, 1.35, 0, TAU); ctx.fill(); // helmet
+      ctx.strokeStyle = '#242a1e'; ctx.lineWidth = 0.4; ctx.stroke();
+      ctx.fillStyle = '#c9a06c'; ctx.beginPath(); ctx.arc(hx + 0.35, hy, 0.6, 0, TAU); ctx.fill(); // face sliver
+    }
     const g4 = ctx.createLinearGradient(0, -3, 0, 3);
     g4.addColorStop(0, shade('#6b755a', 0.16)); g4.addColorStop(1, shade('#6b755a', -0.16));
     ctx.fillStyle = g4;

@@ -367,8 +367,9 @@ function makeUnit(owner, type, x, y) {
     u.disguised = true;
   }
   // slaves are worked to death on a staggered clock — the whole workforce
-  // must never expire in one synchronized wave
-  if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + Math.random() * 0.5);
+  // must never expire in one synchronized wave. The work regime (Drive
+  // button) stretches or slashes the lifespans of NEW slaves.
+  if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + Math.random() * 0.5) * driveLifeMul(owner);
   state.units.push(u);
   return u;
 }
@@ -618,7 +619,10 @@ function tickConstruction(owner, dt) {
 // fires one of the SUPER_DEFS effects at a targeted point and resets.
 
 function superReady(b) {
-  return bstatsOf(b).superweapon && b.done && (b.charge || 0) >= superChargeOf(b);
+  if (!(bstatsOf(b).superweapon && b.done && (b.charge || 0) >= superChargeOf(b))) return false;
+  // the Bloodline Throne fires on blood, not time alone: 60 loosh minimum
+  if (superKindOf(b) === 'coup' && (state.loosh[b.owner] || 0) < 60) return false;
+  return true;
 }
 function superChargeOf(b) {
   return (SUPER_DEFS[state.factions[b.owner]] || { charge: 180 }).charge;
@@ -683,11 +687,16 @@ function fireSuperweapon(b, x, y) {
       tick: 0.25, dmg: 70, srcId: b.id });
     if (owner === PLAYER) eva('Death ray firing');
   } else if (kind === 'coup') {
-    // Bloodline Coup: enemy units in the zone defect for 45s, then revert
+    // Bloodline Coup: fired on BLOOD — consumes 60 loosh minimum and drinks
+    // up to 200; every point past the minimum widens the zone. Enemy units
+    // inside defect for 45s, then revert.
+    const spend = clamp(state.loosh[owner] || 0, 60, 200);
+    state.loosh[owner] = (state.loosh[owner] || 0) - spend;
+    const r = 120 + (spend - 60); // 120px at the minimum, 260px fully fed
     for (const u of state.units) {
       if (u.owner === owner || u.hp <= 0 || u.garrisoned || u.type === 'phantom') continue;
       if (UNIT_TYPES[u.type].role === 'worker') continue; // only fighters turn
-      if (dist(u, { x, y }) <= 200) {
+      if (dist(u, { x, y }) <= r) {
         u.coupOrig = u.coupOrig !== undefined ? u.coupOrig : u.owner;
         u.coupRevert = state.time + 45;
         u.owner = owner;
@@ -696,7 +705,7 @@ function fireSuperweapon(b, x, y) {
         Particles.pulse(u.x, u.y, 20, [201, 167, 255]);
       }
     }
-    state.zones.push({ x, y, r: 200, until: state.time + 1.5, caster: owner, kind: 'coup' });
+    state.zones.push({ x, y, r, until: state.time + 1.5, caster: owner, kind: 'coup' });
     if (owner === PLAYER) eva('The bloodline commands them');
   }
   if (owner === PLAYER && kind !== 'emp' && kind !== 'barrage' && kind !== 'ray' && kind !== 'coup') {
@@ -2406,7 +2415,8 @@ function updateUnit(u, dt) {
       const ring = 6 + UNIT_TYPES[u.type].r;
       moveToward(u, patch.x + Math.cos(ang) * ring, patch.y + Math.sin(ang) * ring, dt, 4);
       if (dist(u, patch) <= ring + 22) {
-        u.mineTimer += dt;
+        // the Brutal regime swings the picks faster (slaves only)
+        u.mineTimer += dt * (UNIT_TYPES[u.type].lifespan ? driveMineMul(u.owner) : 1);
         if (u.mineTimer >= HARVEST_TIME) {
           u.mineTimer = 0;
           const take = Math.min(Math.round(carry * (patch.yield || 1)), patch.amount); // urban ore hauls richer (whole units, no fractional pennies)
@@ -2671,10 +2681,21 @@ function unitCount(owner, type) {
 function minerCap(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
   if (!ut.limit) return Infinity;
-  const bonus = ut.role === 'worker'
+  let bonus = ut.role === 'worker'
     ? state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).dropoff).length : 0;
+  // the Gene Vault breeds a deeper slave pool: +4 to the pit while it stands
+  if (ut.lifespan && hasStruct(owner, 'tech')) bonus += 4;
   return ut.limit + bonus;
 }
+
+// how hard the lash falls: the per-owner slave work regime. Brutal drives the
+// fields 35% faster and works slaves to death in half the time (loosh gushes,
+// replacements drain the bank); Merciful lets them live 60% longer (cheap,
+// but the loosh slows to a drip).
+const SLAVE_DRIVES = ['Merciful', 'Normal', 'Brutal'];
+function slaveDriveOf(owner) { return (state.slaveDrive && state.slaveDrive[owner]) || 'Normal'; }
+function driveMineMul(owner) { return slaveDriveOf(owner) === 'Brutal' ? 1.35 : 1; }
+function driveLifeMul(owner) { const d = slaveDriveOf(owner); return d === 'Brutal' ? 0.55 : d === 'Merciful' ? 1.6 : 1; }
 
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
@@ -2788,14 +2809,9 @@ function updateBuilding(b, dt) {
   // superweapon: charge while powered, halt when blacked out
   if (bt.superweapon && b.done) {
     if (!power.low && !isOffline(b)) {
-      let gain = dt;
-      // Bloodline Throne is loosh-powered: banked suffering pours into the coup,
-      // charging it far faster than the passive timer (up to +6s of charge/sec)
-      if (isReptilian(b.owner)) {
-        const fuel = Math.min(state.loosh[b.owner] || 0, dt * 12);
-        if (fuel > 0) { state.loosh[b.owner] -= fuel; gain += fuel * 0.5; }
-      }
-      b.charge = Math.min(superChargeOf(b), (b.charge || 0) + gain);
+      // (the Bloodline Throne no longer siphons the bank to charge faster —
+      // loosh is spent at FIRING time: 60 minimum, up to 200 for a wider coup)
+      b.charge = Math.min(superChargeOf(b), (b.charge || 0) + dt);
     }
     if (b.owner === PLAYER && !b.announcedReady && superReady(b)) {
       b.announcedReady = true; eva('Superweapon ready');
@@ -3757,11 +3773,11 @@ function unitBlurb(type) {
   if (t.plantMine) b.push('can bury IEDs');
   if (t.jams) b.push('its hits scramble aircraft avionics');
   if (t.pad) b.push(`lives on the airfield: ${t.maxAmmo} shots per sortie, lands to rearm`);
-  if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)${t.openBed ? ' — riders are thrown clear, hurt but alive, if it dies' : ' — riders die with the vehicle'}`);
+  if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)${t.bailOut ? ' — riders bail out, hurt but alive, if it dies' : ' — riders die with the vehicle'}`);
   if (isCrusher(t)) b.push('crushes light infantry under its hull');
   if (t.limit) b.push(`max ${t.limit}`);
   if (t.loosh) b.push(`also costs ${t.loosh} LOOSH`);
-  if (t.lifespan) b.push(`worked to death in ~${t.lifespan}s — every death pays ${t.looshOnDeath || 0} loosh and the Hatchery auto-buys a replacement`);
+  if (t.lifespan) b.push(`worked to death in ~${t.lifespan}s — every death pays ${t.looshOnDeath || 0} loosh and the Hatchery auto-buys a replacement; the Drive button sets the regime, and the Gene Vault deepens the pit by 4`);
   if (t.batch) b.push(`cloned ${t.batch} at a time`);
   const s = b.join('; ') || 'combat unit';
   return s.charAt(0).toUpperCase() + s.slice(1) + '.';
@@ -3946,6 +3962,7 @@ function startGame(faction) {
   // the AIs play random factions from families other than yours
   const others = Object.keys(FACTIONS).filter(k => FACTIONS[k].family !== FACTIONS[faction].family);
   state.factions[PLAYER] = faction;
+  state.slaveDrive = {}; // per-owner slave work regime (defaults to Normal)
   for (const owner of OWNERS) {
     state.construction[owner] = null;
     state.sig[owner] = { cd: 0, timer: 0, used: false };
@@ -4086,9 +4103,17 @@ function refreshPanel() {
     }
     if (bt.superweapon) {
       const need = superChargeOf(first), have = Math.min(need, first.charge || 0);
-      const ready = have >= need;
-      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP — ` +
-        (isOffline(first) ? 'BLACKED OUT' : ready ? 'READY TO FIRE' : `charging ${Math.floor(have)}/${need}s`);
+      const charged = have >= need;
+      const isCoup = superKindOf(first) === 'coup';
+      const bank = Math.floor(state.loosh[first.owner] || 0);
+      let status;
+      if (isOffline(first)) status = 'BLACKED OUT';
+      else if (!charged) status = `charging ${Math.floor(have)}/${need}s`;
+      else if (isCoup && bank < 60) status = `charged — the throne thirsts: needs 60 loosh (have ${bank})`;
+      else if (isCoup) { const spend = clamp(bank, 60, 200); status = `READY — will drink ${spend} loosh (coup radius ${120 + (spend - 60)})`; }
+      else status = 'READY TO FIRE';
+      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP — ` + status;
+      const ready = superReady(first);
       if (first.owner === PLAYER && ready && !isOffline(first)) {
         const btn = document.createElement('button');
         btn.textContent = 'Launch [click target]';
@@ -4167,6 +4192,18 @@ function refreshPanel() {
         refreshPanel();
       };
       addAction(btn);
+      // the work regime: cycle Merciful -> Normal -> Brutal for the whole pit
+      const drv = document.createElement('button');
+      drv.textContent = `Drive: ${slaveDriveOf(PLAYER)}`;
+      drv.title = 'Brutal: mine 35% faster, die twice as fast (loosh gushes). ' +
+        'Merciful: live 60% longer (cheap, little loosh). Applies to newly bought slaves.';
+      drv.onclick = () => {
+        const i = SLAVE_DRIVES.indexOf(slaveDriveOf(PLAYER));
+        state.slaveDrive[PLAYER] = SLAVE_DRIVES[(i + 1) % SLAVE_DRIVES.length];
+        sfx('click');
+        refreshPanel();
+      };
+      addAction(drv);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
       const btn = document.createElement('button');
@@ -5391,10 +5428,10 @@ function frame(now) {
     }
     for (const u of state.units) {
       if (u.hp <= 0 && u.type !== 'phantom') {
-        // a dying transport: an open bed throws its riders clear — hurt,
-        // dazed, but alive; an enclosed hull takes everyone with it
+        // a dying transport: a bail-out ride (open bed, rear ramp) throws its
+        // riders clear — hurt, dazed, but alive; a sealed hull takes everyone
         if (u.cargo) {
-          const spill = UNIT_TYPES[u.type].openBed;
+          const spill = UNIT_TYPES[u.type].bailOut;
           u.cargo.forEach((id, i) => {
             const p = findEntity(id);
             if (!p || p.hp <= 0) return;
