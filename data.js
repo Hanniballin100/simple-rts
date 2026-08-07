@@ -78,7 +78,7 @@ const FACTIONS = {
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
     air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'watchtower', aaTower: 'laserpointer',
     extras: ['prophet', 'fireworks', 'engineer'], advanced: ['leveler'],
-    structs: ['wall', 'gate', 'mine', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
@@ -98,7 +98,7 @@ const FACTIONS = {
     worker: 'salvagerig', infantry: 'partisan', aa: 'manpad', vehicle: 'technical',
     air: ['wballoon', 'fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'chembiplane', 'engineer'], advanced: ['cruisetruck'],
-    structs: ['wall', 'gate', 'mine', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Sleeper Cells', desc: '3 hidden observation camps watch the map from the start.' },
       sig: { name: 'Smuggling Routes', desc: 'Every 2 minutes a truck hauls 150 minerals to your HQ — unless it gets intercepted.', kind: 'auto', period: 120 },
@@ -120,7 +120,7 @@ const FACTIONS = {
     airFocus: 1.5, // still THE air power, but the AI fields an army under it too
     air: ['apache', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'bradley', 'blackvan', 'himars', 'engineer', 'mechanic'], advanced: ['gunship'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
       passive: { name: 'Quantitative Easing', desc: 'The printer follows the economy: every 10s you gain minerals equal to 12% of the power your base actually DRAWS. And when a building falls, 25% of its cost is refunded — too big to fail.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
@@ -143,7 +143,7 @@ const FACTIONS = {
     airFocus: 1.4, // still a black-budget air wing, second only to the USAF
     air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
     extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
@@ -163,7 +163,7 @@ const FACTIONS = {
     worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
     air: ['haunebu', 'serpent'], tower: 'stalagmite', aaTower: 'geyser',
     extras: ['magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'engineer'], advanced: ['ironmole', 'vrildisc'],
-    structs: ['wall', 'gate', 'mine', 'tunnelentrance', 'geode', 'refinery', 'superweapon'],
+    structs: ['wall', 'gate', 'tunnelentrance', 'geode', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
       sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
@@ -184,7 +184,7 @@ const FACTIONS = {
     worker: null, infantry: 'greydrone', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
     extras: ['handler', 'technician', 'overseer', 'gravwell', 'engineer', 'vivisector'], advanced: ['saucer', 'mothership'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Superior Metallurgy', desc: 'Your buildings ignore bonus anti-building damage (sappers, rams, artillery).' },
       sig: { name: 'Cloning Vats', desc: 'Target one of your infantry: an exact copy emerges from your barracks. The vats only fit people-shaped things — no vehicles, no aircraft.', kind: 'unit', cd: 90 },
@@ -204,7 +204,7 @@ const FACTIONS = {
     worker: 'slave', infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
     air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
     extras: ['nephilim', 'priest', 'shapeshifter', 'broodmother'], advanced: ['draco'],
-    structs: ['wall', 'gate', 'mine', 'repairpad', 'superweapon'],
+    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
       sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
@@ -268,7 +268,7 @@ const UNIT_TYPES = {
   // MiB-grade invoice — no cloak, just kit
   pmc:         { name: 'PMC Contractor',  role: 'combat', builtAt: 'barracks', hp: 105, speed: 72, dmg: 12, atkRange: 140, cooldown: 0.85, sight: 240, cost: 120, r: 10, buildTime: 7 },
   mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7, cloakStill: true, cloakDelay: 1.8 },
-  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true, plantMine: true },
+  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
   // anti-air infantry: full damage vs air, dmgVsGround when shooting ground

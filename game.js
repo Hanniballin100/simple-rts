@@ -2320,6 +2320,22 @@ function updateUnit(u, dt) {
           if (patch) { delete u.resumeHarvest; orderHarvest(u, patch); break; }
         }
       }
+      // guerrilla sappers seed IEDs passively: an idle militiaman quietly
+      // buries a free charge where he stands — staggered timers, spaced away
+      // from existing mines, capped per side. No clicks involved.
+      if (stats.plantMine) {
+        u.plantT = (u.plantT === undefined ? 6 + (u.id % 10) * 1.4 : u.plantT) - dt;
+        if (u.plantT <= 0) {
+          u.plantT = 15;
+          const mines = state.buildings.reduce((n, b) => n + (b.owner === u.owner && b.hp > 0 && bstatsOf(b).trip ? 1 : 0), 0);
+          if (mines < 8 &&
+              !state.buildings.some(b => b.owner === u.owner && b.hp > 0 && bstatsOf(b).trip && dist(b, u) < 90) &&
+              !placementBlocked(u.owner, 'mine', u.x, u.y)) {
+            makeBuilding(u.owner, 'mine', u.x, u.y);
+            if (tileState(u.x, u.y) === 2 && u.owner === PLAYER) Particles.smoke(u.x, u.y, 2.5);
+          }
+        }
+      }
       if (stats.repair) { repairAcquire(u, dt); break; }
       if (stats.role === 'combat') autoAcquire(u, dt);
       break;
@@ -2329,24 +2345,6 @@ function updateUnit(u, dt) {
         // fly there, then hold on station — a plane never just stops
         if (flyToward(u, o.x, o.y, dt, 40)) u.order = { type: 'loiter', x: o.x, y: o.y };
       } else if (moveToward(u, o.x, o.y, dt, 6)) u.order = { type: 'idle' };
-      break;
-
-    case 'plant':
-      // walk to the spot, then bury one IED. Each infantryman can only ever
-      // plant a single IED in their life (costs the faction's mine price)
-      if (moveToward(u, o.x, o.y, dt, 6)) {
-        const st = bstats(u.owner, 'mine');
-        if (!u.planted && state.minerals[u.owner] >= st.cost &&
-            !placementBlocked(u.owner, 'mine', o.x, o.y)) {
-          state.minerals[u.owner] -= st.cost;
-          makeBuilding(u.owner, 'mine', o.x, o.y);
-          u.planted = true; // spent — this soldier can never plant again
-          if (u.owner === PLAYER) sfx('click');
-        } else if (u.owner === PLAYER && state.minerals[u.owner] < st.cost) {
-          eva('Insufficient funds');
-        }
-        u.order = { type: 'idle' };
-      }
       break;
 
     case 'loiter': // circling a point (scouting overwatch / stranded plane)
@@ -3775,7 +3773,7 @@ function unitBlurb(type) {
   if (t.stealth) b.push('stealth — invisible until it fires');
   if (t.cloakStill) b.push('cloaks while holding still; the first shot from cloak hits double');
   if (t.burrow) b.push('can burrow: hidden and safe, but slow and unarmed below');
-  if (t.plantMine) b.push('can bury IEDs');
+  if (t.plantMine) b.push('buries free IEDs on its own while idle (spaced out, up to 8 per side)');
   if (t.jams) b.push('its hits scramble aircraft avionics');
   if (t.pad) b.push(`lives on the airfield: ${t.maxAmmo} shots per sortie, lands to rearm`);
   if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)${t.bailOut ? ' — riders bail out, hurt but alive, if it dies' : ' — riders die with the vehicle'}`);
@@ -4036,10 +4034,6 @@ function refreshPanel() {
     elSelInfo.textContent = 'Attack-move — left-click a destination, Esc to cancel';
     return;
   }
-  if (plantArmed) {
-    elSelInfo.textContent = 'Plant IED — left-click where to bury it, Esc to cancel';
-    return;
-  }
   if (abilityTargeting) {
     elSelInfo.textContent = abilityTargeting === 'zone'
       ? 'Weather Modification — click a target area, Esc to cancel'
@@ -4147,7 +4141,7 @@ function refreshPanel() {
       if (ut.cloakStill) info += uu.cloaked ? ' — cloaked (holding still)' : ' — cloaks when it holds still';
       if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
       if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
-      if (ut.plantMine) info += uu.planted ? ' — IED spent' : ' — can plant one IED [E]';
+      if (ut.plantMine) info += ' — buries free IEDs on its own while standing idle';
       if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
     }
     elSelInfo.textContent = info;
@@ -4214,14 +4208,6 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = 'Attack-Move [A]';
       btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
-      addAction(btn);
-    }
-    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine)) {
-      const ready = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && !s.planted);
-      const btn = document.createElement('button');
-      btn.textContent = 'Plant IED [E]';
-      btn.disabled = !ready;
-      btn.onclick = () => { plantArmed = true; attackMoveArmed = false; refreshPanel(); };
       addAction(btn);
     }
     if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.transit)) {
@@ -5783,21 +5769,6 @@ canvas.addEventListener('mousedown', e => {
       refreshSidebar();
       return;
     }
-    if (plantArmed) {
-      plantArmed = false;
-      // the nearest ready infantryman walks over and buries one IED
-      const sappers = selection.filter(u => u.kind === 'unit' && u.owner === PLAYER && u.hp > 0 &&
-        UNIT_TYPES[u.type].plantMine && !u.planted);
-      if (sappers.length) {
-        sappers.sort((a, b) => Math.hypot(a.x - p.x, a.y - p.y) - Math.hypot(b.x - p.x, b.y - p.y));
-        sappers[0].order = { type: 'plant', x: p.x, y: p.y };
-        sfx('click');
-      } else {
-        eva('No IED ready');
-      }
-      refreshPanel();
-      return;
-    }
     if (placing) {
       // RA2-style walls lay in stretches: press-drag lays a whole run at once
       // (committed on mouseup). Gates place one at a time.
@@ -5946,11 +5917,6 @@ window.addEventListener('keydown', e => {
     refreshPanel();
   }
 
-  if (k === 'e' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].plantMine && !s.planted)) {
-    plantArmed = true;
-    attackMoveArmed = false;
-    refreshPanel();
-  }
 
   if (k === 'x') toggleBurrowSelection();
 
