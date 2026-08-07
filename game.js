@@ -1528,6 +1528,20 @@ function dealDamage(attacker, target, dmg, stats) {
     }
     grantLoosh(target.owner, 2); // grantLoosh no-ops for non-Reptilian owners
   }
+  // workers under fire run for home instead of stuttering at the patch —
+  // unarmed miners bolt at the first hit, armed rigs stand their ground
+  // until half health. They resume mining on their own once it's over.
+  if (target.kind === 'unit' && target.hp > 0 && UNIT_TYPES[target.type].role === 'worker' &&
+      !target.garrisoned && !target.transit && !(target.fleeUntil > state.time) &&
+      (!UNIT_TYPES[target.type].dmg || target.hp < target.maxHp * 0.5)) {
+    const home = nearest(target, state.buildings, b => b.owner === target.owner && b.hp > 0 && b.done &&
+      (b.type === 'hq' || bstatsOf(b).dropoff));
+    if (home) {
+      target.fleeUntil = state.time + 5;
+      target.resumeHarvest = true;
+      target.order = { type: 'move', x: home.x, y: home.y + home.h / 2 + 30 };
+    }
+  }
   if (target.owner === PLAYER) {
     const now = performance.now();
     if (now - lastUnderAttack > 20000) {
@@ -2287,13 +2301,14 @@ function updateUnit(u, dt) {
         u.hp = Math.min(u.maxHp, u.hp + u.maxHp * dt / 40);
       }
       if (u.burrowed) break; // lying in wait — no auto-anything underground
-      // slaves are never idle: the whip finds them a crystal field on its own
-      if (stats.lifespan && stats.role === 'worker') {
+      // slaves are never idle (the whip finds them a crystal field), and any
+      // worker that fled gunfire heads back to work once the coast clears
+      if (stats.role === 'worker' && (stats.lifespan || u.resumeHarvest) && !(u.fleeUntil > state.time)) {
         u.mineScanT = (u.mineScanT === undefined ? (u.id % 10) * 0.05 : u.mineScanT) - dt;
         if (u.mineScanT <= 0) {
           u.mineScanT = 0.5;
           const patch = nearest(u, state.patches, p => p.amount > 0);
-          if (patch) { orderHarvest(u, patch); break; }
+          if (patch) { delete u.resumeHarvest; orderHarvest(u, patch); break; }
         }
       }
       if (stats.repair) { repairAcquire(u, dt); break; }
@@ -2868,11 +2883,18 @@ function updateBuilding(b, dt) {
         }
       }
     } else if (wkind === 'missile') {
-      // patriot battery: launches a visible homing missile
+      // patriot battery: launches a visible homing missile. Sticky target:
+      // keep pounding the same craft while it's valid instead of flitting to
+      // whatever drifted 2px closer this shot.
       if (b.cooldown <= 0) {
-        const foe = nearestTarget(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
-          !hiddenFrom(un, b.owner) && !un.garrisoned && canTarget(bt, un) &&
-          dist(b, un) <= bt.atkRange + entityRadius(un));
+        let foe = b.foeId ? state.units.find(un => un.id === b.foeId) : null;
+        if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
+            dist(b, foe) > bt.atkRange + entityRadius(foe)) {
+          foe = nearestTarget(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
+            !hiddenFrom(un, b.owner) && !un.garrisoned && canTarget(bt, un) &&
+            dist(b, un) <= bt.atkRange + entityRadius(un));
+        }
+        b.foeId = foe ? foe.id : null;
         if (foe) {
           b.cooldown = bt.cooldown;
           b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
@@ -2919,7 +2941,15 @@ function updateBuilding(b, dt) {
         b.beamHold = 0;
       }
     } else if (b.cooldown <= 0) {
-      const foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+      // sticky target: a tower keeps shooting what it's shooting while that
+      // target stays valid — fresh bodies appearing nearby (a squad piling out
+      // of a transport) no longer instantly pull every shot off the vehicle
+      let foe = b.foeId ? findEntity(b.foeId) : null;
+      if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
+          dist(b, foe) > bt.atkRange + entityRadius(foe)) {
+        foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+      }
+      b.foeId = foe ? foe.id : null;
       if (foe) {
         dealDamage(b, foe, bt.dmg, bt);
         b.cooldown = bt.cooldown;
@@ -3319,7 +3349,16 @@ function updateAI(owner, dt) {
   }
   if (threat) {
     for (const s of army) {
-      if (canTarget(UNIT_TYPES[s.type], threat)) orderAttack(s, threat);
+      if (!canTarget(UNIT_TYPES[s.type], threat)) continue;
+      // stickiness: a defender already engaging a live nearby threat keeps
+      // shooting it — disembarking a squad next to it must not yank every
+      // gun off the transport onto the fresh bodies
+      if (s.order.type === 'attack') {
+        const cur = findEntity(s.order.targetId);
+        if (cur && cur.kind === 'unit' && cur.hp > 0 && cur.owner !== owner && !hiddenFrom(cur, owner) &&
+            dist(hq, cur) < 700) continue;
+      }
+      orderAttack(s, threat);
     }
     return;
   }
