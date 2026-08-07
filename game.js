@@ -2650,16 +2650,21 @@ function unitCount(owner, type) {
   return n;
 }
 
+// how many of a capped unit this owner may field RIGHT NOW: the base limit
+// plus one per operational drop-off — while a Refinery stands, the miner
+// count stays adjusted up; lose it and the cap settles back down
+function minerCap(owner, unitType) {
+  const ut = UNIT_TYPES[unitType];
+  if (!ut.limit) return Infinity;
+  const bonus = ut.role === 'worker'
+    ? state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).dropoff).length : 0;
+  return ut.limit + bonus;
+}
+
 function trainUnit(owner, unitType) {
   const ut = UNIT_TYPES[unitType];
   if (ut.req && !hasStruct(owner, ut.req)) return false;
-  if (ut.limit) {
-    // each Refinery lifts the mining cap by one, so building out drop-offs is
-    // what actually grows a worker economy
-    const bonus = ut.role === 'worker'
-      ? state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).dropoff).length : 0;
-    if (unitCount(owner, unitType) >= ut.limit + bonus) return false;
-  }
+  if (ut.limit && unitCount(owner, unitType) >= minerCap(owner, unitType)) return false;
   let trainers = state.buildings.filter(b =>
     b.owner === owner && b.hp > 0 && b.done && b.type === ut.builtAt && b.queue.length < 5);
   if (ut.pad) trainers = trainers.filter(b => padLoad(b) < padCapOf(b)); // needs a free pad slot
@@ -3143,7 +3148,7 @@ function updateAI(owner, dt) {
 
   // economy recovery: below the starting workforce (raided, or just off the
   // start), rebuild rigs FIRST — a starved base can't fund anything else
-  const workerCap = f.worker ? Math.max(f.economy.workers, UNIT_TYPES[f.worker].limit || 0) : 0;
+  const workerCap = f.worker ? Math.max(f.economy.workers, minerCap(owner, f.worker)) : 0;
   const starved = f.worker && workers.length < f.economy.workers;
   if (starved && state.minerals[owner] >= UNIT_TYPES[f.worker].cost) trainUnit(owner, f.worker);
 
@@ -3612,7 +3617,7 @@ function sidebarUnitClick(type) {
   if (!hasTrainer) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.builtAt] || ut.builtAt}`); return; }
   if (ut.req && !hasStruct(PLAYER, ut.req)) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.req] || ut.req}`); return; }
   if (ut.pad && !padSlotsFree(PLAYER, ut.builtAt)) { eva('Airfields at capacity'); return; }
-  if (ut.limit && unitCount(PLAYER, type) >= ut.limit) { eva('Unit limit reached'); return; }
+  if (ut.limit && unitCount(PLAYER, type) >= minerCap(PLAYER, type)) { eva('Unit limit reached'); return; }
   if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
   if ((ut.loosh || 0) > (state.loosh[PLAYER] || 0)) { eva('Not enough loosh'); return; }
   if (trainUnit(PLAYER, type)) sfx('click');
@@ -5251,6 +5256,19 @@ function frame(now) {
     clampCam();
 
     state.time += dt;
+    // the pit keeps itself at strength: if a slave replacement ever failed
+    // (broke at the moment of death), top the workforce back up to cap once
+    // the minerals recover — keeping a small float in the bank
+    state._slaveT = (state._slaveT || 0) - dt;
+    if (state._slaveT <= 0) {
+      state._slaveT = 4;
+      for (const o of OWNERS) {
+        const f = facOf(o);
+        if (!f || !f.worker || !UNIT_TYPES[f.worker].lifespan) continue;
+        if (state.minerals[o] < UNIT_TYPES[f.worker].cost + 50) continue;
+        if (unitCount(o, f.worker) < minerCap(o, f.worker)) trainUnit(o, f.worker);
+      }
+    }
     // who holds a UFO Crash Site this frame (air damage + in-flight repair)
     state.airTechOwners = new Set();
     for (const b of state.buildings)
