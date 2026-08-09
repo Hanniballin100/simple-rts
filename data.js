@@ -73,20 +73,21 @@ const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER
 const FACTIONS = {
   flat: {
     name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
-    desc: 'Defend the ice wall. Cheap Militia swarms, the building-ramming Truck of Truth, and the mighty Balloon of Truth. Flimsy bargain buildings, kept fueled by a convoy of lightly armed Rigs of Truth. Deeply suspicious of the sky — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
+    desc: 'Defend the ice wall. A prepper compound that runs on CONVICTION: Revival Tents stoke the faith, Ham Radios broadcast it locally, and the Megaphone Prophet preaches it — the hotter it burns, the harder every believer hits and the faster Documentary Drops flip enemy units to the cause. Militia man the Pillboxes, the Killdozer plows the road, and the sky stays suspicious — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
     economy: { workers: 5 },
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
-    air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'watchtower', aaTower: 'laserpointer',
-    extras: ['prophet', 'fireworks', 'engineer'], advanced: ['leveler'],
-    structs: ['wall', 'gate', 'refinery', 'superweapon'],
+    air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
+    extras: ['prophet', 'deerstand', 'fireworks', 'quadrunner', 'schoolbus', 'engineer'], advanced: ['combine'],
+    structs: ['hamradio', 'revivaltent', 'wall', 'gate', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
-      sig: { name: 'Documentary Drops', desc: 'Every 3 minutes a random enemy unit sees the truth and joins you.', kind: 'auto', period: 180 },
+      sig: { name: 'Documentary Drops', desc: 'Periodically an enemy unit sees the truth and joins you. Conviction speeds the drops and flips bigger fish — but elite units never turn.', kind: 'auto', period: 180 },
     },
     buildingNames: {
       hq: 'Bunker of Truth', powerplant: 'Diesel Shack', barracks: 'Recruitment Tent',
       factory: 'Truck Garage', airpad: 'Balloon Dock', tech: 'Institute of Truth',
-      watchtower: 'Watchtower', laserpointer: 'Giant Laser Pointer',
+      pillbox: 'Patriot Pillbox', laserpointer: 'Giant Laser Pointer',
+      hamradio: 'Ham Radio Shack', revivaltent: 'Revival Tent',
       wall: 'Ice Wall Segment', gate: 'Checkpoint Gate', mine: 'IED',
       superweapon: 'Katyusha Battery',
     },
@@ -287,9 +288,12 @@ const UNIT_TYPES = {
   mechanic:     { name: 'Repair Truck',       role: 'combat', builtAt: 'factory',  hp: 180, speed: 82,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 100, r: 12, buildTime: 8, repair: 9, shape: 'square' },
   menderorb:    { name: 'Mender Orb',         role: 'combat', builtAt: 'factory',  hp: 90,  speed: 100, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 8, flying: true, shape: 'blimp' },
   // specialist infantry
-  // Megaphone Prophet: no gun, but a cone of influence — nearby enemies fire
-  // weaker (debuffAura) and their infantry slowly desert to you (convert)
-  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 75, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 230, cost: 75, r: 9, buildTime: 6, debuffAura: { r: 160, weaken: 0.45 }, convert: { r: 140, every: 6 } },
+  // Megaphone Prophet: the voice of the movement — ONE per player, pricey,
+  // no gun. Nearby enemies fire weaker (debuffAura); standing still he
+  // preaches, feeding the Conviction meter (sermon — faster with a crowd of
+  // friendly infantry around him, and a Revival Tent he stands in doubles its
+  // output); and killing him only proves him right (martyr: Conviction surge).
+  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 140, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 280, r: 9, buildTime: 12, limit: 1, debuffAura: { r: 160, weaken: 0.45 }, sermon: { rate: 0.5, crowdR: 150, per: 0.1, max: 5 }, martyr: 25 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
@@ -343,13 +347,27 @@ const UNIT_TYPES = {
   // a keen nose sniffs out spies, cloaks and burrowers — the attack-dog detector
   cavesaurian:   { name: 'Cave Saurian',      role: 'combat', builtAt: 'factory',  hp: 380, speed: 78, dmg: 26, atkRange: 32, cooldown: 1,    sight: 210, cost: 170, r: 14, buildTime: 12, armor: 0.2, shape: 'square', detector: true },
   // resistance specialists: the RPG tube is their can opener (vehBonus
-  // multiplies damage vs ground vehicles), the marksman their long arm
+  // multiplies damage vs ground vehicles), the marksman their long arm —
+  // one bullet, one man: light infantry die to a single round, but the same
+  // round barely dents armor plate or concrete (vehBonus/bldgBonus < 1)
   rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2 },
-  marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 30, atkRange: 260, cooldown: 2.6, sight: 300, cost: 85, r: 9, buildTime: 7 },
+  marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 110, atkRange: 260, cooldown: 3.0, sight: 300, cost: 85, r: 9, buildTime: 7, vehBonus: 0.35, bldgBonus: 0.35 },
+  // Flat's hunter: the Deer Stand Marksman only shoots from INSIDE a forest
+  // (he has to climb his stand first) and is invisible among the trees until
+  // the muzzle flash (forestOnly). A heavier rifle than the Resistance
+  // marksman — and the same uselessness against armor.
+  deerstand:   { name: 'Deer Stand Marksman', role: 'combat', builtAt: 'barracks', hp: 60, speed: 68, dmg: 130, atkRange: 300, cooldown: 3.4, sight: 320, cost: 130, r: 9, buildTime: 9, vehBonus: 0.3, bldgBonus: 0.3, forestOnly: true },
   // vehicles
   // Killdozer: a home-armored bulldozer — crawling, nearly bulletproof
   // (armor), and it plows through walls and buildings (heavy bldgBonus)
   killdozer: { name: 'Killdozer',        role: 'combat', builtAt: 'factory', hp: 520, speed: 36,  dmg: 26, atkRange: 30,  cooldown: 1.2,  sight: 180, cost: 185, r: 14, buildTime: 12, bldgBonus: 3, armor: 0.5, shape: 'square' },
+  // prepper mobility: a camo quad bike with a varmint rifle across the bars —
+  // cheap, quick, and the only fast thing the compound owns
+  quadrunner: { name: 'Quad Runner',     role: 'combat', builtAt: 'factory', hp: 100, speed: 125, dmg: 7,  atkRange: 100, cooldown: 0.55, sight: 280, cost: 70,  r: 10, buildTime: 6, shape: 'square' },
+  // the armored School Bus: welded plate over yellow steel. Six believers
+  // ride inside firing their own weapons out the windows, and the wreck
+  // spills them out alive (bailOut) when it finally dies. No gun of its own.
+  schoolbus:  { name: 'School Bus Bunker', role: 'combat', builtAt: 'factory', hp: 400, speed: 68, dmg: 0, atkRange: 0,  cooldown: 1,    sight: 220, cost: 190, r: 14, buildTime: 11, shape: 'square', armor: 0.3, cargoCap: 6, bailOut: true },
   // the all-purpose Toyota: cheap, fast, shoots at everything — and dents
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
   // rides four in the OPEN bed: loaded partisans are visible, fire their own
@@ -442,9 +460,10 @@ const UNIT_TYPES = {
   // Heavies (hp over abductMax) are too heavy to lift; the beam just drains them.
   abductor:   { name: 'Abductor Saucer', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 200, speed: 100, dmg: 7, atkRange: 95, cooldown: 0.5, sight: 300, cost: 200, r: 12, buildTime: 13, flying: true, shape: 'saucer', weapon: 'abduct', abductTime: 3, abductMax: 300, abductBounty: 20 },
   // ---------- apex heavies (AC-130 tier, all tech-gated) ----------
-  // Flat: a diesel land-dreadnought — the gunship broadside battery on tracks,
-  // raking several targets at once, with light anti-air from the same guns
-  leveler:  { name: 'The Leveler', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 720, speed: 38, dmg: 13, atkRange: 215, cooldown: 0.28, sight: 300, cost: 520, r: 20, buildTime: 21, shape: 'square', targets: 'both', armor: 0.25, bldgBonus: 1.5, weapon: 'gunship', shellEvery: 9, shellDmg: 42, shellSplash: 32, multiTarget: 3, req: 'tech' },
+  // Flat: the Combine of Correction — an armor-plated harvester that reaps
+  // what it's pointed at. ONE heavy cannon on the cab (no broadside battery),
+  // and the header reel crushes infantry under it like wheat.
+  combine:  { name: 'Combine of Correction', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 700, speed: 42, dmg: 36, atkRange: 195, cooldown: 1.5, sight: 280, cost: 470, r: 20, buildTime: 20, shape: 'square', armor: 0.3, bldgBonus: 1.4, req: 'tech' },
   // Hollow: a Jules-Verne borer — burrows across the map and erupts in the
   // enemy base with a huge emergence blast, then chews structures
   ironmole: { name: 'Iron Mole', role: 'combat', builtAt: 'factory', hp: 680, speed: 48, dmg: 42, atkRange: 32, cooldown: 1.4, sight: 200, cost: 500, r: 18, buildTime: 21, shape: 'square', armor: 0.3, bldgBonus: 3, burrow: true, emergeAoE: { r: 110, dmg: 95 }, req: 'tech' },
@@ -470,6 +489,25 @@ const UNIT_TYPES = {
   phantom:  { name: 'Unknown Contact', role: 'scout', hp: 20,  speed: 60, dmg: 0, atkRange: 0, cooldown: 1, sight: 40,  cost: 0, r: 9,  buildTime: 0 },
 };
 
+// ---------- conversion tiers ----------
+// Documentary Drops (and any future conversion effect) climb a 3-rung ladder:
+// tier 1 flips at any Conviction, tier 2 only at high Conviction, tier 3
+// NEVER flips — elite kit stays bought (PMCs, Abrams crews, Nephilim, the
+// whole tech-gated shelf). Derived from cost/req, with overrides where the
+// sticker price undersells the tier.
+const TIER_OVERRIDE = { pmc: 3, abrams: 3, bradley: 3, himars: 3, apache: 3, f35: 3, a10: 3, b1: 3, tr3b: 3 };
+function unitTier(type) {
+  const t = UNIT_TYPES[type];
+  if (!t) return 3;
+  if (TIER_OVERRIDE[type]) return TIER_OVERRIDE[type];
+  if (!t.cost) return 3;          // brood/spawned units are bound to their master
+  if (t.req || t.loosh) return 3; // tech-gated and blood-bought elites
+  if (t.role === 'worker') return 1;
+  if (t.cost <= 70) return 1;
+  if (t.cost >= 250) return 3;
+  return 2;
+}
+
 // ---------- buildings ----------
 // tower weapon: 'gun' (default) | 'pulse' (AoE) | 'chain' (arcs) | 'beam' (lock + slow)
 
@@ -486,6 +524,10 @@ const BUILDING_TYPES = {
   tech:       { hp: 480, w: 60, h: 60, cost: 260, buildTime: 20, sight: 220, power: -80, cap: 1 },
   // ground-defense towers
   watchtower: { hp: 300, w: 40, h: 40, cost: 75,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 10, atkRange: 175, cooldown: 0.7,  targets: 'ground' },
+  // flat-earth fortification: unarmed concrete with firing slits — worthless
+  // empty, mean when garrisoned (pooled squad fire, same rules as civilian
+  // structures). The militia man their own walls.
+  pillbox:    { name: 'Pillbox', hp: 460, w: 42, h: 38, cost: 80, buildTime: 9, sight: 250, power: -10, cap: 6, slots: 3 },
   tower5g:    { hp: 340, w: 40, h: 40, cost: 100, buildTime: 12, sight: 280, power: -30, cap: 5, dmg: 6,  atkRange: 215, cooldown: 0.9,  targets: 'ground', weapon: 'pulse' },
   stalagmite: { hp: 320, w: 40, h: 40, cost: 80,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 11, atkRange: 180, cooldown: 0.7,  targets: 'ground' },
   // ownWeaponArt: the drawing already shows its weapon (crystal, lens, pods,
@@ -532,6 +574,14 @@ const BUILDING_TYPES = {
   // the superweapon slot: same structure everywhere, very different payloads
   // (see SUPER_DEFS); expensive, power-hungry, one per player
   superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },
+  // ---------- flat-earth conviction infrastructure ----------
+  // The Revival Tent is the generator: each finished tent feeds the Conviction
+  // meter (convictionRate/s), doubled while the Prophet preaches inside, and
+  // its canvas shade slowly mends the flock (healAura). The Ham Radio is the
+  // local booster: friendly units fighting inside its broadcast radius count
+  // as MORE convicted than the meter says (convictionAura.bonus).
+  revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, convictionRate: 0.4, healAura: { r: 150, rate: 4 } },
+  hamradio:    { name: 'Ham Radio',    hp: 220, w: 36, h: 36, cost: 90,  buildTime: 9,  sight: 260, power: -10, cap: 4, convictionAura: { r: 240, bonus: 25 } },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
   // neutral map structures — garrison infantry inside to claim them
@@ -594,7 +644,6 @@ const BUILDING_MODS = {
     factory:    { cost: 130, hp: 440, buildTime: 14 },
     airpad:     { cost: 110, hp: 380, buildTime: 14, req: 'tech' }, // the sky must be proven fake first
     tech:       { cost: 240, hp: 420 },
-    watchtower: { cost: 70 },
     mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
   },
   resistance: { // guerrilla salvage: cheapest structures in the game

@@ -27,6 +27,7 @@ const state = {
   sig: {},         // owner -> {cd, timer, used}
   eco: {},         // owner -> structure-income tick timer
   infiltrator: {}, // owner -> reptilian sleeper worker id
+  conviction: {},  // owner -> flat-earth faith meter (0..100)
   time: 0,
   over: false,
 };
@@ -63,6 +64,35 @@ const facOf = owner => FACTIONS[state.factions[owner]];
 // the Bloodline Throne. Only Reptilian players ever bank it.
 const isReptilian = owner => state.factions[owner] === 'reptilian';
 function grantLoosh(owner, n) { if (isReptilian(owner)) state.loosh[owner] = (state.loosh[owner] || 0) + n; }
+// ---------- conviction: the Flat Earth faith meter ----------
+// A 0..100 gauge only flat players bank. Revival Tents and the preaching
+// Prophet raise it, losing him SURGES it (martyrdom), and it bleeds slowly on
+// its own. It scales believer damage (up to +25%) and speeds Documentary
+// Drops; a Ham Radio broadcast makes nearby fighters count as hotter than the
+// meter says. See updateAbilities for generation, dealDamage for the payoff.
+const isFlat = owner => state.factions[owner] === 'flat';
+const convictionOf = owner => (state.conviction && state.conviction[owner]) || 0;
+function effectiveConviction(owner, x, y) {
+  let cv = convictionOf(owner);
+  for (const b of state.buildings) {
+    if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
+    const bt = bstatsOf(b);
+    if (bt.convictionAura && dist(b, { x, y }) <= bt.convictionAura.r) {
+      cv = Math.min(100, cv + bt.convictionAura.bonus);
+      break;
+    }
+  }
+  return cv;
+}
+// Documentary Drops accelerate with Conviction: 180s cold, 100s at full heat
+const docDropPeriod = owner => 180 - convictionOf(owner) * 0.8;
+// is this entity standing inside a forest blob? (Deer Stand's whole career)
+function inForest(e) {
+  for (const o of terrainNear(e.x, e.y)) {
+    if (o.type === 'forest' && dist(o, e) <= o.r) return true;
+  }
+  return false;
+}
 const buildingName = b => (facOf(b.owner) && facOf(b.owner).buildingNames[b.type])
   || BUILDING_TYPES[b.type].name || b.type;
 // building stats vary per faction (a Diesel Shack is not a Fusion Plant);
@@ -764,7 +794,11 @@ function castRevealInfiltrator(owner) {
 }
 
 function documentaryDrop(owner) {
-  const pool = state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned && u.type !== 'phantom');
+  // conviction gates the catch: tier 1 flips anytime, tier 2 once the meter
+  // runs hot, tier 3 (elite kit — PMCs, Abrams, the tech shelf) never turns
+  const maxTier = convictionOf(owner) >= 60 ? 2 : 1;
+  const pool = state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned &&
+    u.type !== 'phantom' && unitTier(u.type) <= maxTier);
   if (!pool.length) return;
   const u = pool[Math.floor(Math.random() * pool.length)];
   const wasPlayers = u.owner === PLAYER;
@@ -822,9 +856,37 @@ function updateAbilities(dt) {
       // with power actually drawn, so there's no incentive to spam idle plants
       sig.timer -= 10;
       state.minerals[owner] += Math.round(powerOf(owner).used * 0.12);
-    } else if (fkey === 'flat' && sig.timer >= 180) {
-      sig.timer -= 180;
-      documentaryDrop(owner);
+    } else if (fkey === 'flat') {
+      // ---------- conviction generation ----------
+      // Revival Tents feed the meter (doubled while the Prophet preaches
+      // inside one), the Prophet's sermon feeds it wherever he stands still
+      // (more with a crowd of infantry around him), and it bleeds 0.15/s on
+      // its own — a compound that stops preaching loses heart.
+      const prophet = state.units.find(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].sermon);
+      const preaching = prophet && !prophet.transit && !prophet.garrisoned && !prophet.burrowed &&
+        state.time - (prophet.movedT || -99) > 1.5;
+      let gen = 0;
+      for (const b of state.buildings) {
+        if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
+        const bt = bstatsOf(b);
+        if (!bt.convictionRate) continue;
+        const amped = preaching && dist(b, prophet) <= Math.max(bt.w, bt.h) * 0.9 + 30;
+        gen += bt.convictionRate * (amped ? 2 : 1);
+      }
+      if (preaching) {
+        const s = UNIT_TYPES[prophet.type].sermon;
+        let crowd = 0;
+        for (const u of state.units) {
+          if (u.owner !== owner || u.hp <= 0 || u === prophet || u.garrisoned) continue;
+          if (UNIT_TYPES[u.type].builtAt === 'barracks' && dist(u, prophet) <= s.crowdR) crowd++;
+        }
+        gen += s.rate + Math.min(s.max, crowd) * s.per;
+      }
+      state.conviction[owner] = clamp(convictionOf(owner) + (gen - 0.15) * dt, 0, 100);
+      if (sig.timer >= docDropPeriod(owner)) {
+        sig.timer = 0;
+        documentaryDrop(owner);
+      }
     } else if (fkey === 'resistance' && sig.timer >= 120) {
       sig.timer -= 120;
       spawnSmuggler(owner);
@@ -1523,6 +1585,11 @@ function dealDamage(attacker, target, dmg, stats) {
   }
   // Grey Technician shielding: a hardened ally shrugs off part of the blow
   if (target.kind === 'unit' && target.hardenedUntil > state.time) dmg *= 0.72;
+  // flat-earth conviction: believers hit harder as the meter climbs (up to
+  // +25%), and a Ham Radio broadcast keeps local fighters hotter still
+  if (attacker && attacker.owner !== undefined && isFlat(attacker.owner)) {
+    dmg *= 1 + effectiveConviction(attacker.owner, attacker.x, attacker.y) * 0.0025;
+  }
   target.hp -= dmg;
   // loosh harvest: book it once, on the lethal blow. A Reptilian killer reaps
   // loosh from any kill (more from enemy infantry); a Reptilian owner reaps it
@@ -1803,11 +1870,13 @@ function planeAttack(u, target, t, dt) {
 
 function fireAt(u, target, t) {
   if (u.burrowed) return; // no firing ports underground
+  if (t.forestOnly && !inForest(u)) return; // no stand to shoot from out here
   if (u.cooldown <= 0) {
     const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
     let dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
     u.disguised = false; // skin suit drops the moment they open fire
     if (t.stealth) u.exposedUntil = state.time + 2.5; // muzzle flash gives it away
+    if (t.forestOnly) u.exposedUntil = state.time + 2.5; // the treeline lights up
     if (t.cloakStill) { if (u.cloaked) u.ambush = true; u.exposedUntil = state.time + 1.6; }
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing / decloak first-strike bonus
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
@@ -2064,6 +2133,11 @@ function updateUnit(u, dt) {
   if (stats.cloakStill) {
     u.cloaked = !u.transit && !(u.exposedUntil > state.time) &&
       (state.time - (u.movedT || -99) > (stats.cloakDelay || 1.5));
+  }
+  // the Deer Stand Marksman vanishes among the trees: cloaked while inside a
+  // forest (until a recent shot lights him up), plainly visible outside it
+  if (stats.forestOnly) {
+    u.cloaked = !u.transit && !(u.exposedUntil > state.time) && inForest(u);
   }
 
   // turreted vehicles: the gun slews toward its aim point (set in tryAttack
@@ -3084,6 +3158,13 @@ function aiDesiredStructure(owner, counts, power) {
     order.splice(order.indexOf('airpad'), 1);
     order.splice(order.indexOf('factory') + 1, 0, 'airpad');
   }
+  // the flat compound stands up its faith economy early: a Revival Tent
+  // before the factory, a Ham Radio right after it, the rest woven in later
+  if (state.factions[owner] === 'flat') {
+    order.splice(order.indexOf('factory'), 0, 'revivaltent');
+    order.splice(order.indexOf('factory') + 1, 0, 'hamradio');
+    order.push('revivaltent', 'hamradio');
+  }
   // hangar factions add the AC-130's dedicated field once the lab is up
   if ((f.advanced || []).some(u => UNIT_TYPES[u].builtAt === 'hangar')) order.push('hangar');
   // air-doctrine factions (2+ airfield-built types) double up on airpads so the
@@ -3221,6 +3302,7 @@ function updateAI(owner, dt) {
     const ut = UNIT_TYPES[type];
     if (ut.role !== 'combat') return;               // scouts don't join the army
     if (!ut.dmg) return;                            // engineers/repair crews stay home
+    if (ut.forestOnly) return;                      // the AI can't hunt from a deer stand
     if (!counts[ut.builtAt]) return;                // no building that makes it
     if (ut.req && !counts[ut.req]) return;          // tech not researched yet
     mix.push([type, w]);
@@ -3279,6 +3361,32 @@ function updateAI(owner, dt) {
       const have = state.units.reduce((n, x) => n + (x.owner === owner && x.hp > 0 && x.type === detType ? 1 : 0), 0) +
         state.buildings.reduce((n, b) => n + (b.owner === owner && b.hp > 0 ? b.queue.filter(j => j.type === detType).length : 0), 0);
       if (have < 2 && state.minerals[owner] >= UNIT_TYPES[detType].cost + reserve) trainUnit(owner, detType);
+    }
+  }
+
+  // the flat compound hires its ONE Prophet once a Revival Tent stands, and
+  // mans its pillboxes with militia so the concrete isn't just scenery
+  if (state.factions[owner] === 'flat') {
+    if (counts.revivaltent) {
+      const hasProphet = state.units.some(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].sermon) ||
+        state.buildings.some(b => b.owner === owner && b.hp > 0 && b.queue.some(j => UNIT_TYPES[j.type].sermon));
+      if (!hasProphet && state.minerals[owner] >= UNIT_TYPES.prophet.cost + reserve) trainUnit(owner, 'prophet');
+    }
+    for (const b of state.buildings) {
+      if (b.owner !== owner || b.hp <= 0 || !b.done || !b.garrison) continue;
+      const bt = bstatsOf(b);
+      if (!bt.slots || !bt.cost) continue; // own pillboxes only, not captured landmarks
+      const inbound = state.units.filter(x => x.owner === owner && x.hp > 0 &&
+        x.order.type === 'garrison' && x.order.destId === b.id).length;
+      let free = bt.slots - b.garrison.length - inbound;
+      // only spare militia man the slits — the wave army stays in the field
+      for (const x of state.units) {
+        if (free <= 0) break;
+        if (x.owner !== owner || x.hp <= 0 || x.garrisoned || x.type !== f.infantry) continue;
+        if (x.order.type !== 'idle' || dist(x, b) > 600) continue;
+        x.order = { type: 'garrison', destId: b.id };
+        free--;
+      }
     }
   }
 
@@ -3489,7 +3597,7 @@ function issueCommand(x, y) {
 
   // right-click a neutral (or own-held) civilian structure: infantry garrison it
   const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots &&
-    (b.owner === NEUTRAL || b.owner === PLAYER) && visibleToPlayer(b) &&
+    (b.owner === NEUTRAL || (b.owner === PLAYER && b.done)) && visibleToPlayer(b) &&
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   if (gb) {
     let any = false;
@@ -3771,6 +3879,9 @@ function unitBlurb(type) {
   if (t.brood) b.push('leads a bound escort that regrows over time');
   if (t.detector) b.push('DETECTOR: reveals stealth, disguise and burrowers');
   if (t.stealth) b.push('stealth — invisible until it fires');
+  if (t.forestOnly) b.push('only fires from INSIDE a forest — invisible among the trees until the muzzle flash');
+  if (t.sermon) b.push('preaches while standing still: builds Conviction, faster with a crowd of infantry around him, and doubles any Revival Tent he stands in');
+  if (t.martyr) b.push(`martyrdom: +${t.martyr} Conviction if he dies`);
   if (t.cloakStill) b.push('cloaks while holding still; the first shot from cloak hits double');
   if (t.burrow) b.push('can burrow: hidden and safe, but slow and unarmed below');
   if (t.plantMine) b.push('buries free IEDs on its own while idle (spaced out, up to 8 per side)');
@@ -3800,6 +3911,9 @@ function buildingBlurb(type) {
   if (bt.dropoff) b.push('mineral drop-off — each one also raises your mining-rig cap by one');
   if (bt.repairRate) b.push('repairs vehicles and aircraft parked on it');
   if (bt.healAura) b.push('heals nearby friendlies');
+  if (bt.convictionRate) b.push(`stokes Conviction +${bt.convictionRate}/s — doubled while the Prophet preaches inside`);
+  if (bt.convictionAura) b.push(`broadcast: your units fighting within range count +${bt.convictionAura.bonus} Conviction`);
+  if (bt.slots && bt.cost) b.push(`unarmed concrete until garrisoned — right-click with infantry (${bt.slots} slots) to man the firing slits`);
   if (bt.detector) b.push('DETECTOR: reveals stealth, disguise and burrowers');
   if (bt.superweapon) b.push('superweapon — charges over minutes, then devastates a target zone anywhere on the map');
   if (bt.trip) b.push('buried charge — detonates under enemy ground forces');
@@ -3872,7 +3986,8 @@ function sigClick() {
 function refreshSidebar() {
   if (!started) return;
   elCredits.textContent = '$ ' + state.minerals[PLAYER] +
-    (isReptilian(PLAYER) ? '   ☠ ' + Math.floor(state.loosh[PLAYER] || 0) : '');
+    (isReptilian(PLAYER) ? '   ☠ ' + Math.floor(state.loosh[PLAYER] || 0) : '') +
+    (isFlat(PLAYER) ? '   ✊ ' + Math.round(convictionOf(PLAYER)) : '');
   const power = powerOf(PLAYER);
   elPowerFill.style.width = power.cap ? clamp(100 - power.used / power.cap * 100, 0, 100) + '%' : '0%';
   elPowerFill.classList.toggle('low', power.low);
@@ -3888,9 +4003,11 @@ function refreshSidebar() {
       // toggle with an explicit boolean: remove-then-maybe-add rewrote the
       // class attribute every refresh even when nothing changed
       if (pk.kind === 'auto') {
+        // conviction shortens the flat drop cycle — show the LIVE period
+        const period = isFlat(PLAYER) ? docDropPeriod(PLAYER) : pk.period;
         ui.btn.classList.toggle('castable', false);
-        ui.prog.style.height = (sig.timer / pk.period * 100) + '%';
-        ui.costEl.textContent = Math.ceil(pk.period - sig.timer) + 's';
+        ui.prog.style.height = clamp(sig.timer / period * 100, 0, 100) + '%';
+        ui.costEl.textContent = Math.ceil(Math.max(0, period - sig.timer)) + 's';
       } else if (pk.kind === 'info') {
         ui.btn.classList.toggle('castable', false);
         ui.costEl.textContent = 'ALWAYS ON';
@@ -3978,6 +4095,7 @@ function startGame(faction) {
     // worker-less factions get a head start while their income ramps up
     state.minerals[owner] = 300 + (facOf(owner).economy.start || 0);
     state.loosh[owner] = 0;
+    state.conviction[owner] = 0;
   }
 
   setupWorld(generateMap(selectedSize, OWNERS.length, selectedSetting === 'random' ? null : selectedSetting));
@@ -5442,6 +5560,13 @@ function frame(now) {
           if (!u.looshBooked) { u.looshBooked = true; grantLoosh(u.owner, UNIT_TYPES[u.type].looshOnDeath); }
           Particles.pulse(u.x, u.y, 16, [220, 60, 90]);
           trainUnit(u.owner, u.type);
+        }
+        // the Prophet's death only proves him right: conviction SURGES
+        if (UNIT_TYPES[u.type].martyr && isFlat(u.owner) && !u.martyrBooked) {
+          u.martyrBooked = true;
+          state.conviction[u.owner] = Math.min(100, convictionOf(u.owner) + UNIT_TYPES[u.type].martyr);
+          Particles.pulse(u.x, u.y, 34, [255, 215, 120]);
+          if (u.owner === PLAYER) eva('They have made a martyr of him');
         }
         if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
         Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
