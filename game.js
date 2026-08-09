@@ -4450,12 +4450,15 @@ function refreshSidebar() {
       const ut = UNIT_TYPES[type];
       const trainers = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
       const locked = !!ut.req && !hasStruct(PLAYER, ut.req);
+      // the LIVE cap, not the base one — refineries lift the miner ceiling
+      // (and the Gene Vault deepens the slave pit) while they stand
+      const cap = ut.limit ? minerCap(PLAYER, type) : 0;
       const have = ut.limit ? unitCount(PLAYER, type) : 0;
-      const capped = !!ut.limit && have >= ut.limit;
+      const capped = !!ut.limit && have >= cap;
       ui.btn.classList.toggle('disabled', trainers.length === 0 || locked || capped);
       ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req)
         : capped ? 'MAX'
-        : '$' + ui.baseCost + (ut.loosh ? ` ☠${ut.loosh}` : '') + (ut.limit ? ` (${have}/${ut.limit})` : '');
+        : '$' + ui.baseCost + (ut.loosh ? ` ☠${ut.loosh}` : '') + (ut.limit ? ` (${have}/${cap})` : '');
       const queued = trainers.reduce((n, b) => n + b.queue.filter(j => j.type === type).length, 0);
       ui.badge.style.display = queued ? '' : 'none';
       ui.badge.textContent = queued;
