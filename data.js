@@ -159,22 +159,22 @@ const FACTIONS = {
   },
   hollow: {
     name: 'Hollow Earthers', family: 'EARTHERS', emoji: '🕳️',
-    desc: 'The real world is below. Tough Mole Militia, Drill Tanks that eat buildings, and burrowing raiders. From the Cavern Roost rise brass Haunebu saucers and fire-breathing Feathered Serpents. Dug-in structures are the sturdiest around, Geothermal Vents make the cheapest power, and hulking Bore Rigs haul oversized loads.',
+    desc: 'The real world is below — and it left its machines behind. Excavation Rigs crack open DIG SITES for buried relics; Tech Priests carry them home and the lost arts return: Mole Servitors ascend to vril-armored Lantern Guards, Guards are entombed in Dreadnoughts, and one Dreadnought — fused with a Tech Priest — is enthroned in the Warlord Drill Titan. Quake Drill Trucks and Seismic Imitators speak with the voice of the earth itself.',
     economy: { workers: 4 },
-    worker: 'borerig', infantry: 'moleman', aa: 'slinger', vehicle: 'drill',
-    air: ['haunebu', 'serpent'], tower: 'stalagmite', aaTower: 'geyser',
-    extras: ['magma', 'guardian', 'cavesaurian', 'vrilpriestess', 'engineer'], advanced: ['ironmole', 'vrildisc'],
-    structs: ['wall', 'gate', 'tunnelentrance', 'geode', 'refinery', 'superweapon'],
+    worker: 'borerig', infantry: 'moleservitor', aa: 'slinger', vehicle: 'quaketruck',
+    air: ['ornithopter'], tower: 'seismic', aaTower: 'geyser',
+    extras: ['techpriest', 'excavationrig', 'engineer'], advanced: ['aerostat'],
+    structs: ['wall', 'gate', 'titanworks', 'geode', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
-      sig: { name: 'Tunnel Network', desc: 'Right-click your HQ, a power plant, or a Tunnel Entrance: selected ground units travel there underground.', kind: 'info' },
+      sig: { name: 'Vril Recall', desc: 'Target ONE of your units anywhere on the map: it teleports home to your HQ in a vril flash.', kind: 'unit', cd: 90 },
     },
     buildingNames: {
       hq: 'Inner Sanctum', powerplant: 'Geothermal Vent', barracks: 'Burrow',
-      factory: 'Drill Works', airpad: 'Cavern Roost', tech: 'Core Forge',
-      stalagmite: 'Stalagmite Spitter', geyser: 'Geyser Cannon',
+      factory: 'Drill Works', airpad: 'Cavern Roost', tech: 'Reliquary',
+      seismic: 'Seismic Imitator', geyser: 'Geyser Cannon',
       wall: 'Stone Rampart', gate: 'Stone Gate', mine: 'Sinkhole Trap',
-      tunnelentrance: 'Tunnel Entrance', geode: 'Crystal Geode',
+      titanworks: 'Titan Foundry', geode: 'Crystal Geode',
       superweapon: 'Seismic Resonator',
     },
   },
@@ -269,7 +269,10 @@ const UNIT_TYPES = {
   // MiB-grade invoice — no cloak, just kit
   pmc:         { name: 'PMC Contractor',  role: 'combat', builtAt: 'barracks', hp: 105, speed: 72, dmg: 12, atkRange: 140, cooldown: 0.85, sight: 240, cost: 120, r: 10, buildTime: 7, drawScale: 1.08 },
   mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7, cloakStill: true, cloakDelay: 1.8 },
-  moleman:     { name: 'Mole Militia',    role: 'combat', builtAt: 'barracks', hp: 85,  speed: 75, dmg: 5,  atkRange: 90,  cooldown: 0.7,  sight: 190, cost: 50, r: 9,  buildTime: 5, burrow: true },
+  // Hollow line infantry: half-flesh menials with pick-rifles — cheap, loyal,
+  // and the raw material of the ascension ladder (the Reliquary makes them
+  // Lantern Guards once enough relics are banked)
+  moleservitor: { name: 'Mole Servitor',  role: 'combat', builtAt: 'barracks', hp: 80,  speed: 74, dmg: 6,  atkRange: 95,  cooldown: 0.7,  sight: 190, cost: 45, r: 9,  buildTime: 5 },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
   // anti-air infantry: full damage vs air, dmgVsGround when shooting ground
@@ -340,12 +343,22 @@ const UNIT_TYPES = {
   // (debuffAura) over the battlefield, with a shrieking sonic bolt of its own
   // echolocation: the wail that terrifies also finds — the brood's detector
   screecher: { name: 'Dread Screecher', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 155, speed: 100, dmg: 11, atkRange: 135, cooldown: 1.1, sight: 270, cost: 140, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', debuffAura: { r: 180, weaken: 0.35 }, detector: true },
-  // hollow-earth court: the priestess channels Vril (repair aura), the
-  // guardian and saurian are the heavy line — all of it can go underground
-  vrilpriestess: { name: 'Vril Priestess',    role: 'combat', builtAt: 'barracks', hp: 70,  speed: 72, dmg: 0,  atkRange: 0,  cooldown: 1,    sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 7, burrow: true },
-  guardian:      { name: 'Agarthan Guardian', role: 'combat', builtAt: 'barracks', hp: 190, speed: 62, dmg: 13, atkRange: 30, cooldown: 0.85, sight: 200, cost: 95,  r: 10, buildTime: 8, armor: 0.3, burrow: true },
-  // a keen nose sniffs out spies, cloaks and burrowers — the attack-dog detector
-  cavesaurian:   { name: 'Cave Saurian',      role: 'combat', builtAt: 'factory',  hp: 380, speed: 78, dmg: 26, atkRange: 32, cooldown: 1,    sight: 210, cost: 170, r: 14, buildTime: 12, armor: 0.2, shape: 'square', detector: true },
+  // ---------- the Hollow Mechanicus ----------
+  // Tech Priest: heals the flesh AND mends the machine (repair), recovers
+  // excavated relics (walks to a dug site, channels, teleports home with the
+  // prize), salvages fallen Guard/Dreadnought armor for cheaper rebuilds,
+  // and is consumed — willingly — in the forging of the Titan.
+  techpriest: { name: 'Tech Priest', role: 'combat', builtAt: 'barracks', hp: 95, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 140, r: 9, buildTime: 9, repair: 8, priest: true },
+  // ascension bodies — never trained, only made from lesser bodies + relics.
+  // The Lantern Guard fights like a space marine: vril bolts on the approach,
+  // then the halberd once it closes (meleeDmg/meleeRange in tryAttack).
+  lanternguard: { name: 'Lantern Guard', role: 'combat', builtAt: 'barracks', hp: 230, speed: 66, dmg: 13, atkRange: 135, cooldown: 0.9, sight: 230, cost: 0, r: 10, buildTime: 0, armor: 0.25, meleeDmg: 30, meleeRange: 34, vril: true, armorTier: 'guard', drawScale: 1.12 },
+  dreadnought:  { name: 'Dreadnought',   role: 'combat', builtAt: 'barracks', hp: 560, speed: 50, dmg: 24, atkRange: 165, cooldown: 0.55, sight: 240, cost: 0, r: 13, buildTime: 0, armor: 0.35, bldgBonus: 1.3, vril: true, armorTier: 'dread', drawScale: 1.35 },
+  // the Warlord Drill Titan: near-invincible, an autocannon arm for the
+  // ground, shoulder rocket salvos for the sky (aaAura), and a claw that
+  // ruins anything it reaches (bldgBonus + crush). Forged in the Titan
+  // Foundry from one Dreadnought, one Tech Priest, and a fortune.
+  titan: { name: 'Warlord Drill Titan', role: 'combat', builtAt: 'titanworks', hp: 2100, speed: 30, dmg: 30, atkRange: 215, cooldown: 0.35, sight: 320, cost: 0, r: 24, buildTime: 0, armor: 0.45, bldgBonus: 2, targets: 'ground', aaAura: { r: 210, dps: 22 }, vril: true, shape: 'square', drawScale: 2.6 },
   // resistance specialists: the RPG tube is their can opener (vehBonus
   // multiplies damage vs ground vehicles), the marksman their long arm —
   // one bullet, one man: light infantry die to a single round, but the same
@@ -389,7 +402,15 @@ const UNIT_TYPES = {
   // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
   spooktank: { name: 'Redacted', role: 'combat', builtAt: 'factory', hp: 260, speed: 78, dmg: 24, atkRange: 155, cooldown: 1.6, sight: 250, cost: 155, r: 12, buildTime: 9, shape: 'square', armor: 0.15, cloakStill: true, cloakDelay: 1.3 },
   disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, detector: true, brood: { type: 'phantom', count: 4, regen: 6 } },
-  drill:     { name: 'Drill Tank',       role: 'combat', builtAt: 'factory', hp: 320, speed: 55,  dmg: 24, atkRange: 28,  cooldown: 1.2,  sight: 180, cost: 130, r: 13, buildTime: 10, bldgBonus: 2,   shape: 'square', burrow: true, emergeAoE: { r: 60, dmg: 30 } },
+  // the rebuilt Drill Tank: an armored digger whose auger opens Dig Sites
+  // (right-click one to dig; progress is visible to EVERYONE). The drill
+  // still hurts whatever wanders too close, but this is a tool, not a tank.
+  excavationrig: { name: 'Excavation Rig', role: 'combat', builtAt: 'factory', hp: 340, speed: 55, dmg: 12, atkRange: 26, cooldown: 1.2, sight: 190, cost: 140, r: 13, buildTime: 10, shape: 'square', digger: true },
+  // Quake Drill Truck: drives, then DEPLOYS — plants its drill and fires a
+  // targeted quake: a crack races along the ground and the earth convulses
+  // under the target (tremor zone: damage + slow, cruel to buildings).
+  // Packed up it is harmless; deployed it cannot move.
+  quaketruck: { name: 'Quake Drill Truck', role: 'combat', builtAt: 'factory', hp: 270, speed: 60, dmg: 30, atkRange: 300, minRange: 110, cooldown: 4, sight: 310, cost: 210, r: 13, buildTime: 12, shape: 'square', weapon: 'quake', bldgBonus: 1.8, deployable: true },
   tripod:    { name: 'Tripod Strider',   role: 'combat', builtAt: 'factory', hp: 240, speed: 70,  dmg: 18, atkRange: 140, cooldown: 1,    sight: 250, cost: 140, r: 13, buildTime: 10, shape: 'square', armor: 0.15 },
   // Basilisk: a full multi-segment serpent-lizard. Its gaze does light damage
   // but turns victims to stone (petrify: stunned N seconds — can't move or
@@ -399,7 +420,6 @@ const UNIT_TYPES = {
   // Firework Battery: a flatbed of bottle-rocket tubes that lobs a fast, wildly
   // inaccurate saturation volley (scatter spreads each shot around the aim)
   fireworks:     { name: 'Firework Battery', role: 'combat', builtAt: 'factory', hp: 130, speed: 46, dmg: 15, atkRange: 275, minRange: 90, cooldown: 0.9, sight: 300, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.4, shape: 'square', weapon: 'lob', projectile: 'firework', splash: 26, scatter: 46 },
-  magma:         { name: 'Magma Mortar',     role: 'combat', builtAt: 'factory', hp: 150, speed: 48, dmg: 28, atkRange: 270, minRange: 100, cooldown: 3,   sight: 290, cost: 155, r: 13, buildTime: 11, bldgBonus: 1.3, shape: 'square', weapon: 'lob', projectile: 'magma', splash: 34, groundEffect: { kind: 'fire', r: 26, dur: 2.2, dps: 8 } },
   mortarcrawler: { name: 'Plasma Mortar',    role: 'combat', builtAt: 'factory', hp: 160, speed: 50, dmg: 32, atkRange: 290, minRange: 110, cooldown: 3.3, sight: 310, cost: 175, r: 13, buildTime: 12, shape: 'square', weapon: 'lob', projectile: 'plasma', splash: 40 },
   // Grey anti-grav siege: a hovering projector that lobs a micro-singularity —
   // it drags every ground unit in the zone toward the core, then the well
@@ -464,16 +484,12 @@ const UNIT_TYPES = {
   // what it's pointed at. ONE heavy cannon on the cab (no broadside battery),
   // and the header reel crushes infantry under it like wheat.
   combine:  { name: 'Combine of Correction', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 700, speed: 42, dmg: 36, atkRange: 195, cooldown: 1.5, sight: 280, cost: 470, r: 20, buildTime: 20, shape: 'square', armor: 0.3, bldgBonus: 1.4, req: 'tech' },
-  // Hollow: a Jules-Verne borer — burrows across the map and erupts in the
-  // enemy base with a huge emergence blast, then chews structures
-  ironmole: { name: 'Iron Mole', role: 'combat', builtAt: 'factory', hp: 680, speed: 48, dmg: 42, atkRange: 32, cooldown: 1.4, sight: 200, cost: 500, r: 18, buildTime: 21, shape: 'square', armor: 0.3, bldgBonus: 3, burrow: true, emergeAoE: { r: 110, dmg: 95 }, req: 'tech' },
-  // Hollow air wing (Cavern Roost): the Haunebu is a bell-domed dieselpunk Vril
-  // saucer that rakes ground and air alike; the Feathered Serpent is a swift
-  // Quetzalcoatl wyrm that breathes a lingering ember-fire over ground targets
-  haunebu: { name: 'Haunebu', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 210, speed: 104, dmg: 16, atkRange: 150, cooldown: 0.7, sight: 300, cost: 185, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer' },
-  serpent: { name: 'Feathered Serpent', flyH: 28, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 165, speed: 118, dmg: 16, atkRange: 85, cooldown: 1.0, sight: 270, cost: 175, r: 11, buildTime: 11, flying: true, targets: 'ground', shape: 'tri', weapon: 'spray', groundEffect: { kind: 'fire', r: 22, dur: 1.8, dps: 7 } },
-  // Hollow advanced air: brass-riveted Vril Disc with a channeled beam
-  vrildisc: { name: 'Vril Disc', flyH: 32, role: 'combat', builtAt: 'airpad', hp: 260, speed: 112, dmg: 20, atkRange: 155, cooldown: 0.6, sight: 300, cost: 260, r: 13, buildTime: 14, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
+  // Hollow air wing (Cavern Roost): the Tesla Ornithopter is a brass
+  // flapping-wing contraption that strafes with crackling vril arcs; the
+  // Pipe Organ Aerostat is a hovering calliope whose shockwave chords shred
+  // nearby aircraft (aaAura) while its drone dampens enemy fire below.
+  ornithopter: { name: 'Tesla Ornithopter', flyH: 30, drawScale: 1.05, role: 'combat', builtAt: 'airpad', hp: 155, speed: 120, dmg: 14, atkRange: 110, cooldown: 0.6, sight: 270, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'ground', shape: 'tri', vril: true },
+  aerostat: { name: 'Pipe Organ Aerostat', flyH: 36, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 270, speed: 76, dmg: 0, atkRange: 0, cooldown: 1, sight: 290, cost: 230, r: 13, buildTime: 13, flying: true, shape: 'blimp', aaAura: { r: 165, dps: 18 }, debuffAura: { r: 175, weaken: 0.3 }, vril: true, req: 'tech' },
   // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
   // lance vaporizes ONE ground target at a time; its bound Tic Tac escort
   // (slow to regrow once shot down) is all that screens the sky above it.
@@ -488,6 +504,34 @@ const UNIT_TYPES = {
   smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
   phantom:  { name: 'Unknown Contact', role: 'scout', hp: 20,  speed: 60, dmg: 0, atkRange: 0, cooldown: 1, sight: 40,  cost: 0, r: 9,  buildTime: 0 },
 };
+
+// ---------- the Hollow relic economy ----------
+// Dig Sites seed across the map at generation (small markers, visible to ALL
+// players from the start, never near a starting base). Only Hollow can dig:
+// an Excavation Rig parks on a site and opens it over DIG_TIME seconds with a
+// progress bar everyone can read; the exposed relic then waits until a Tech
+// Priest channels on it and teleports home, banking it. Each relic pays a
+// boon (drawn without replacement from the pool below) AND counts toward the
+// ascension thresholds in ASCEND/TITAN_DEF.
+const DIG_TIME = 50;
+const RELIC_DEFS = {
+  plating:   { name: 'Brazen Plating',      desc: 'your buildings take 15% less damage' },
+  engine:    { name: 'Ancient Engine',      desc: 'your ground vehicles move 12% faster' },
+  capacitor: { name: 'Vril Capacitor',      desc: 'your vril and tesla weapons hit 15% harder' },
+  resonant:  { name: 'Resonant Core',       desc: 'your quake weapons hit 25% harder' },
+  thirdeye:  { name: 'Third Eye of Agartha', desc: 'every remaining Dig Site reveals what it holds, and your HQ becomes a detector' },
+  forges:    { name: 'Deep Forges',         desc: 'your units train 12% faster' },
+  gyros:     { name: 'Gyroscopic Vanes',    desc: 'your aircraft move 12% faster' },
+  coffers:   { name: 'Golden Coffers',      desc: 'the vaults pay +12 minerals / 10s' },
+};
+// the ascension ladder: pay the fee, walk the body into the building, wait.
+// Banked armor (a Tech Priest salvaging a fallen Guard/Dreadnought) halves
+// the fee for the next body of that tier.
+const ASCEND = {
+  lanternguard: { from: 'moleservitor', at: 'tech',    relics: 2, cost: 120, time: 8 },
+  dreadnought:  { from: 'lanternguard', at: 'factory', relics: 3, cost: 300, time: 14 },
+};
+const TITAN_DEF = { relics: 5, cost: 900, time: 60, minPlayers: 4 };
 
 // ---------- conversion tiers ----------
 // Documentary Drops (and any future conversion effect) climb a 3-rung ladder:
@@ -530,6 +574,11 @@ const BUILDING_TYPES = {
   pillbox:    { name: 'Pillbox', hp: 460, w: 42, h: 38, cost: 80, buildTime: 9, sight: 250, power: -10, cap: 6, slots: 3 },
   tower5g:    { hp: 340, w: 40, h: 40, cost: 100, buildTime: 12, sight: 280, power: -30, cap: 5, dmg: 6,  atkRange: 215, cooldown: 0.9,  targets: 'ground', weapon: 'pulse' },
   stalagmite: { hp: 320, w: 40, h: 40, cost: 80,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 11, atkRange: 180, cooldown: 0.7,  targets: 'ground' },
+  // Hollow ground defense: the Seismic Imitator slams a resonant piston and a
+  // visible shockwave races along the ground into its target (weapon 'quake',
+  // small tremor on impact). Its instruments also read every liar in the dirt:
+  // this tower is the Hollow detector (stealth, disguise, burrowers).
+  seismic:    { name: 'Seismic Imitator', hp: 330, w: 40, h: 40, cost: 95, buildTime: 11, sight: 250, power: -30, cap: 5, dmg: 13, atkRange: 195, cooldown: 1.1, targets: 'ground', weapon: 'quake', ownWeaponArt: true, detector: true, vril: true },
   // ownWeaponArt: the drawing already shows its weapon (crystal, lens, pods,
   // dish) — the engine must not stamp the generic swivel turret over it
   pylon:      { hp: 340, w: 40, h: 40, cost: 105, buildTime: 12, sight: 260, power: -30, cap: 5, dmg: 16, atkRange: 200, cooldown: 0.85, targets: 'ground', weapon: 'chain', ownWeaponArt: true },
@@ -571,6 +620,11 @@ const BUILDING_TYPES = {
   // is revealed (terrain + visible units; cloaked units still need a detector).
   // Pricey, power-hungry, tech-gated, one per player.
   satellite: { name: 'Satellite Uplink', hp: 360, w: 60, h: 60, cost: 320, buildTime: 22, sight: 300, power: -70, cap: 1, req: 'tech', revealMap: true },
+  // the Titan Foundry: one per player, tech-gated, and only worth its slab
+  // on big maps (Titans are disabled with 3 or fewer players — see TITAN_DEF).
+  // Consumes one Dreadnought and one Tech Priest walked in together, plus a
+  // fortune, and forges the Warlord Drill Titan over a very long build.
+  titanworks: { name: 'Titan Foundry', hp: 620, w: 96, h: 84, cost: 420, buildTime: 22, sight: 220, power: -80, cap: 1, req: 'tech' },
   // the superweapon slot: same structure everywhere, very different payloads
   // (see SUPER_DEFS); expensive, power-hungry, one per player
   superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },

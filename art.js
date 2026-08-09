@@ -3198,6 +3198,56 @@
       }
     });
   };
+  // ================= Seismic Imitator =================
+  // a rock-socketed brass piston that slams the bedrock — its own art IS the
+  // weapon (ownWeaponArt), so no engine turret gets stamped on top
+  B.seismic = (ctx, t, o) => {
+    pad(ctx, o);
+    // stone collar
+    ctx.fillStyle = '#57534a';
+    ctx.beginPath(); ctx.ellipse(0, 2, 15, 8, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#6f6a5e';
+    ctx.beginPath(); ctx.ellipse(0, 0, 12, 6.5, 0, 0, TAU); ctx.fill();
+    billboard(ctx, 0, 2, () => {
+      // brass piston housing + the ram, mid-stroke on a slow cycle
+      const stroke = Math.abs(Math.sin(t * 2.4)) * 5;
+      ctx.fillStyle = '#8a7a52';
+      rr(ctx, -5, -22, 10, 14, 2); ctx.fill();
+      ctx.strokeStyle = '#5c5136'; ctx.lineWidth = 0.7;
+      rr(ctx, -5, -22, 10, 14, 2); ctx.stroke();
+      ctx.fillStyle = '#9aa2ae';
+      ctx.fillRect(-2.2, -9 + stroke * 0.4, 4.4, 6 - stroke * 0.4); // the ram
+      ctx.fillStyle = `rgba(125,255,214,${(0.4 + 0.4 * Math.sin(t * 2.4)).toFixed(2)})`;
+      ctx.fillRect(-3.4, -20, 6.8, 2); // resonance gauge
+      // hairline seismograph needle arm
+      ctx.strokeStyle = '#3f3c35'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(5, -16); ctx.lineTo(9, -13 + Math.sin(t * 5) * 1.5); ctx.stroke();
+    });
+  };
+  // ================= Titan Foundry =================
+  // a great casting shed with gantry cranes and the half-lit shape inside
+  B.titanworks = (ctx, t, o) => {
+    pad(ctx, o);
+    isoBox(ctx, -26, -22, 48, 44, 16, '#5c5747', { r: 2 });
+    // gantry posts over the yard
+    ctx.strokeStyle = '#8a7a52'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(14, 6); ctx.lineTo(2, -20);
+    ctx.moveTo(-14, 16); ctx.lineTo(-26, -10);
+    ctx.stroke();
+    ctx.strokeStyle = '#6d6041'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(2, -20); ctx.lineTo(-26, -10); ctx.stroke();
+    billboard(ctx, 6, 18, () => {
+      // the doorway glow: something enormous stands in there
+      ctx.fillStyle = 'rgba(20,16,10,0.9)';
+      ctx.fillRect(-9, -16, 18, 16);
+      const g = 0.35 + 0.25 * Math.sin(t * 2);
+      ctx.fillStyle = `rgba(125,255,214,${g.toFixed(2)})`;
+      ctx.fillRect(-2.4, -13, 4.8, 1.6);  // the lantern eyes, waiting
+      ctx.fillStyle = `rgba(255,150,60,${(0.3 + 0.2 * Math.sin(t * 7)).toFixed(2)})`;
+      ctx.fillRect(-7, -4, 14, 2);        // forge light under the shape
+    });
+  };
   B.stalagmite = (ctx, t, o) => {
     pad(ctx, o);
     // rubble skirt on the ground
@@ -5494,6 +5544,90 @@
       }
     },
   });
+  // ---------- the Hollow Mechanicus ----------
+  // Mole Servitor: a menial with implant cabling and a pick-rifle
+  I.moleservitor = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6b5a45', pants: '#4a4032', head: ihHardhat, weapon: iwRifle,
+    pack: (c2) => {
+      c2.strokeStyle = 'rgba(125,255,214,0.6)'; c2.lineWidth = 0.5;
+      c2.beginPath(); c2.moveTo(-2.4, -8.4); c2.quadraticCurveTo(-3.6, -5, -2.6, -2.4); c2.stroke();
+    },
+  });
+  // Tech Priest: hooded, vril staff, reliquary backpack glowing
+  I.techpriest = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#5f5a78', pants: '#46425c', head: ihHood,
+    weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, '#7dffd6'),
+    pack: (c2) => {
+      c2.fillStyle = '#8a7a52'; rr(c2, -3.6, -8.6, 3.4, 5, 0.8); c2.fill();
+      c2.fillStyle = 'rgba(125,255,214,0.8)'; c2.fillRect(-2.8, -7.6, 1.4, 2.6);
+    },
+  });
+  // Lantern Guard: brass diving-helm marine — bolts at range, halberd up close
+  I.lanternguard = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#8a7a52', pants: '#6d6041',
+    head: (c2) => {
+      c2.fillStyle = '#9c8c5e';
+      c2.beginPath(); c2.arc(0, -0.4, 3, 0, TAU); c2.fill();
+      c2.strokeStyle = '#5c5136'; c2.lineWidth = 0.5; c2.stroke();
+      c2.fillStyle = 'rgba(125,255,214,0.95)'; c2.fillRect(-1.6, -1.2, 3.2, 1.4); // the lantern visor
+    },
+    weapon: (c2, t2, o2) => { // the vril halberd
+      c2.strokeStyle = '#4c4436'; c2.lineWidth = 1.3;
+      c2.beginPath(); c2.moveTo(1.6, -1); c2.lineTo(7.8, -12.6); c2.stroke();
+      c2.fillStyle = '#b8c4bb';
+      c2.beginPath(); c2.moveTo(6.6, -13.4); c2.lineTo(10, -12); c2.lineTo(7.6, -10.2); c2.closePath(); c2.fill();
+      c2.fillStyle = 'rgba(125,255,214,0.9)';
+      c2.beginPath(); c2.arc(8, -12, 1.1, 0, TAU); c2.fill();
+      if (o2.firing) {
+        c2.strokeStyle = 'rgba(125,255,214,0.85)'; c2.lineWidth = 0.8;
+        c2.beginPath(); c2.moveTo(8.4, -11.8); c2.lineTo(12.6, -8.8); c2.stroke();
+      }
+    },
+    pack: (c2) => { // slab pauldron
+      c2.fillStyle = '#7a6a48'; rr(c2, -3.8, -8.8, 3.2, 3.2, 0.8); c2.fill();
+    },
+  });
+  // Dreadnought: a walking sarcophagus with an autocannon fist
+  I.dreadnought = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#7a6a48', pants: '#5c5136',
+    head: (c2) => {
+      c2.fillStyle = '#8a7a52'; rr(c2, -3, -2.4, 6, 4.4, 1); c2.fill();
+      c2.strokeStyle = '#4c4436'; c2.lineWidth = 0.5; c2.stroke();
+      c2.fillStyle = 'rgba(125,255,214,0.9)'; c2.fillRect(-1.8, -1, 3.6, 1);
+    },
+    weapon: (c2, t2, o2) => {
+      c2.fillStyle = '#3b4046'; rr(c2, 2, -7.6, 6.6, 2.8, 0.8); c2.fill();
+      c2.fillStyle = '#15191f'; c2.fillRect(8.2, -7.2, 2.6, 2);
+      if (o2.firing) { c2.fillStyle = 'rgba(255,230,150,0.95)'; c2.beginPath(); c2.arc(11.4, -6.2, 1.9, 0, TAU); c2.fill(); }
+    },
+    pack: (c2) => { // boiler stack, breathing smoke rings when lit
+      c2.fillStyle = '#6d6041'; rr(c2, -4.6, -9.6, 4, 7.4, 1); c2.fill();
+      c2.fillStyle = '#2c2f36'; c2.beginPath(); c2.arc(-3.6, -10.4, 1, 0, TAU); c2.fill();
+    },
+  });
+  // Warlord Drill Titan: autocannon arm, shoulder rocket racks, drill claw
+  I.titan = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6d6048', pants: '#4c4436',
+    head: (c2) => {
+      c2.fillStyle = '#8a7a52'; rr(c2, -3.4, -3, 6.8, 5, 1.2); c2.fill();
+      c2.strokeStyle = '#3f3828'; c2.lineWidth = 0.6; c2.stroke();
+      c2.fillStyle = 'rgba(125,255,214,1)'; c2.fillRect(-2.2, -1.4, 4.4, 1.2);
+    },
+    weapon: (c2, t2, o2) => { // the enormous autocannon arm
+      c2.fillStyle = '#33383e'; rr(c2, 1.6, -8.4, 9, 3.6, 1); c2.fill();
+      c2.fillStyle = '#15191f'; c2.fillRect(10.2, -7.9, 3.4, 2.6);
+      c2.strokeStyle = '#5a616a'; c2.lineWidth = 0.5;
+      c2.beginPath(); c2.moveTo(3, -8.2); c2.lineTo(3, -4.9); c2.moveTo(5.4, -8.2); c2.lineTo(5.4, -4.9); c2.stroke();
+      if (o2.firing) { c2.fillStyle = 'rgba(255,230,150,0.95)'; c2.beginPath(); c2.arc(14.4, -6.6, 2.4, 0, TAU); c2.fill(); }
+    },
+    pack: (c2, t2) => { // shoulder rocket racks + the drill claw on the off arm
+      c2.fillStyle = '#5c5136'; rr(c2, -5.4, -10.4, 4.4, 3.4, 0.8); c2.fill();
+      c2.fillStyle = '#23271e';
+      for (let i = 0; i < 3; i++) c2.fillRect(-4.8 + i * 1.3, -9.9, 0.9, 2.2);
+      c2.fillStyle = '#9aa2ae';
+      c2.beginPath(); c2.moveTo(-4.6, -2.6); c2.lineTo(-8.4, -0.6); c2.lineTo(-4.6, 0.8); c2.closePath(); c2.fill();
+    },
+  });
   I.engineer = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#c9862c', head: ihHardhat,
     pack: c2 => { // the trusty red toolbox
@@ -6086,6 +6220,48 @@
       { poly: [[-8, -0.7], [-11, -0.7], [-11, 0.7], [-8, 0.7]], base: 2, h: 3, body: '#33372f' }, // tail fin
     ],
     props: [{ x: -10.5, y: 0, z: 3, r: 2.4, speed: 40 }],
+  });
+
+  // Tesla Ornithopter: a brass four-winged contraption, coil crackling amidships
+  I.ornithopter = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[4, -10], [-2, -12], [-5, -10.5], [0, -1.5]], base: 2.2, h: 0.7, body: '#9c8c5e' }, // fore wing L
+      { poly: [[4, 10], [-2, 12], [-5, 10.5], [0, 1.5]], base: 2.2, h: 0.7, body: '#9c8c5e' },      // fore wing R
+      { poly: [[-3, -8], [-8, -9.5], [-9.5, -8], [-5, -1.5]], base: 1.6, h: 0.6, body: '#8a7a52' }, // aft wing L
+      { poly: [[-3, 8], [-8, 9.5], [-9.5, 8], [-5, 1.5]], base: 1.6, h: 0.6, body: '#8a7a52' },     // aft wing R
+      { poly: [[9, 0], [6, -2.2], [-8, -2], [-10, 0], [-8, 2], [6, 2.2]], base: 0, h: 3, body: '#7a6a48',
+        detail: (c, t2, o2) => {
+          c.strokeStyle = '#4c4436'; c.lineWidth = 0.5; // riveted hull seams
+          c.beginPath(); c.moveTo(4, -1.8); c.lineTo(4, 1.8); c.moveTo(-2, -1.8); c.lineTo(-2, 1.8); c.stroke();
+          const g = o2.firing ? 1 : 0.55 + 0.3 * Math.sin(t2 * 6);
+          c.fillStyle = `rgba(125,255,214,${g.toFixed(2)})`;   // the tesla coil
+          c.beginPath(); c.arc(1, 0, 1.5, 0, TAU); c.fill();
+          if (o2.firing) {
+            c.strokeStyle = 'rgba(125,255,214,0.9)'; c.lineWidth = 0.7;
+            c.beginPath(); c.moveTo(2, 0); c.lineTo(7.5, -1.2); c.moveTo(2, 0); c.lineTo(7, 1.4); c.stroke();
+          }
+        } },
+    ],
+  });
+  // Pipe Organ Aerostat: a boilerplate balloon with a rank of brass pipes
+  // slung beneath — the chords are the flak
+  I.aerostat = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[11, 0], [8, -6], [2, -8.5], [-6, -8], [-11, -4], [-11, 4], [-6, 8], [2, 8.5], [8, 6]], base: 5, h: 7, body: '#8a7a52',
+        detail: (c) => {
+          c.strokeStyle = '#5c5136'; c.lineWidth = 0.6; // brass ribs
+          for (let i = -8; i <= 8; i += 4) { c.beginPath(); c.moveTo(i, -7.5); c.lineTo(i, 7.5); c.stroke(); }
+        } },
+      { poly: [[5, -2.6], [5, 2.6], [-6, 2.6], [-6, -2.6]], base: 0, h: 3.4, body: '#5c5136',
+        detail: (c, t2) => {
+          // the organ rank: pipes of falling length, breathing vril
+          c.fillStyle = '#b8a86a';
+          for (let i = 0; i < 5; i++) c.fillRect(-5 + i * 2.1, -2, 1.4, 4);
+          const g = 0.4 + 0.3 * Math.sin(t2 * 4);
+          c.fillStyle = `rgba(125,255,214,${g.toFixed(2)})`;
+          c.fillRect(-5, -2.4, 10.6, 0.8);
+        } },
+    ],
   });
 
   // ---- floating orbs: radially-symmetric sensor/utility spheres ----
@@ -7090,6 +7266,36 @@
     };
   }
   I.magma = (ctx, t, o) => isoVehicle(ctx, t, o, mortarCfg('#5c5347', '#7a4a30'));
+  // the Excavation Rig is the old Drill Tank hull; the auger spins while digging
+  I.excavationrig = (ctx, t, o) => I.drill(ctx, t, { ...o, moving: o.moving || o.digging });
+  // Quake Drill Truck: a six-wheel rig with a derrick drill amidships that
+  // plants into the ground when deployed (outriggers down, drill lowered)
+  I.quaketruck = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 27,
+    under: (c, t2, o2) => {
+      wheels(c, t2, o2, [[-9, -7.4], [-9, 7.4], [1, -7.4], [1, 7.4], [8, -7.4], [8, 7.4]], 5.4, 3);
+      if (o2.deployed) { // outrigger feet
+        c.fillStyle = '#3f3c33';
+        for (const [ox, oy] of [[-11, -9], [-11, 9], [9, -9], [9, 9]]) { c.fillRect(ox - 1.5, oy - 1.5, 3, 3); }
+      }
+    },
+    tiers: [
+      { poly: [[13, -3.2], [13, 3.2], [10, 6.2], [-13, 6], [-13, -6], [10, -6.2]], h: 4.4, body: '#6a5c48',
+        detail: (c) => {
+          c.fillStyle = shade('#6a5c48', 0.14); rr(c, 5, -5.4, 7.4, 10.8, 1.2); c.fill(); // cab
+          c.fillStyle = '#1c2026'; c.fillRect(11.2, -4, 1.6, 8);
+        } },
+      { // the derrick: an A-frame with the drill column, lowered when deployed
+        poly: [[1, -4], [1, 4], [-10, 4], [-10, -4]], h: 3.6, body: '#5c5136',
+        detail: (c, t2, o2) => {
+          c.strokeStyle = '#8a7a52'; c.lineWidth = 1.2;
+          c.beginPath(); c.moveTo(-8, -3); c.lineTo(-4.5, -9); c.moveTo(-1, -3); c.lineTo(-4.5, -9); c.stroke();
+          c.fillStyle = o2.deployed ? '#9aa2ae' : '#6d727a';
+          c.beginPath(); c.moveTo(-5.6, -9); c.lineTo(-3.4, -9); c.lineTo(-4.5, o2.deployed ? 3 : -3); c.closePath(); c.fill();
+          if (o2.firing) { c.fillStyle = 'rgba(166,142,104,0.9)'; c.beginPath(); c.arc(-4.5, 3, 3, 0, TAU); c.fill(); }
+        } },
+    ],
+  });
   I.mortarcrawler = (ctx, t, o) => isoVehicle(ctx, t, o, mortarCfg('#4a525e', '#3c6a5c'));
   I.smuggler = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 24,
