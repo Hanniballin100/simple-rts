@@ -5553,65 +5553,131 @@
       c2.beginPath(); c2.moveTo(-2.4, -8.4); c2.quadraticCurveTo(-3.6, -5, -2.6, -2.4); c2.stroke();
     },
   });
-  // Tech Priest: hooded, vril staff, reliquary backpack glowing
-  I.techpriest = (ctx, t, o) => isoTrooper(ctx, t, o, {
-    coat: '#5f5a78', pants: '#46425c', head: ihHood,
-    weapon: (c2, t2, o2) => iwStaff(c2, t2, o2, '#7dffd6'),
-    pack: (c2) => {
-      c2.fillStyle = '#8a7a52'; rr(c2, -3.6, -8.6, 3.4, 5, 0.8); c2.fill();
-      c2.fillStyle = 'rgba(125,255,214,0.8)'; c2.fillRect(-2.8, -7.6, 1.4, 2.6);
-    },
-  });
+  // Tech Priest: rust-red Mechanicus robes, a pale mask under the hood with
+  // twin vril optics, a mechadendrite arcing over the shoulder, and the
+  // cog-staff. Hunched, hem to the ground, cabled.
+  I.techpriest = (ctx, t, o) => {
+    const m = Math.cos(o.hdg) < 0 ? -1 : 1;
+    const step = o.moving ? Math.sin((o.dist || 0) * 0.45) : 0;
+    ctx.save();
+    ctx.scale(m, 1);
+    // the robe: a hunched cowl mass tapering to an uneven hem
+    const g = ctx.createLinearGradient(0, -12, 0, 0);
+    g.addColorStop(0, '#8a352a'); g.addColorStop(1, '#471a14');
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.moveTo(-0.6, -12.8);                       // hood peak, pitched forward
+    ctx.quadraticCurveTo(3.2, -12.4, 3.4, -8.6);   // hood front
+    ctx.quadraticCurveTo(4.4, -4, 3.6 + step * 0.9, 0);  // front hem
+    ctx.lineTo(1 + step * 0.5, -0.8);
+    ctx.lineTo(-1.4 - step * 0.5, 0);
+    ctx.lineTo(-3.6 - step * 0.9, -0.6);
+    ctx.quadraticCurveTo(-4.6, -6, -3.2, -10.4);   // hunched back
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#2c0f0b'; ctx.lineWidth = 0.7; ctx.stroke();
+    // rope belt + dangling cog charm
+    ctx.strokeStyle = '#c9a95e'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(-3.6, -5.2); ctx.quadraticCurveTo(0, -4.2, 3.8, -5.4); ctx.stroke();
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(-2.2, -3.4, 0.8, 0, TAU); ctx.fill();
+    // the hood's dark mouth, the pale mask, the optics
+    ctx.fillStyle = '#1a0c0a';
+    ctx.beginPath(); ctx.ellipse(1, -10.2, 2.2, 2.5, 0.15, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#d8d2c0';
+    ctx.beginPath(); ctx.ellipse(1.4, -9.6, 1.5, 1.7, 0.15, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(125,255,214,1)';
+    ctx.fillRect(0.7, -10.3, 0.9, 0.9); ctx.fillRect(2.1, -10.1, 0.9, 0.9);
+    // cabling from the backpack hump into the robe
+    ctx.strokeStyle = '#3b382f'; ctx.lineWidth = 0.8;
+    ctx.beginPath(); ctx.moveTo(-2.8, -9.4); ctx.quadraticCurveTo(-4.4, -7, -3.2, -4.6); ctx.stroke();
+    // mechadendrite: arcs from the back, over the hood, claw poised ahead
+    const sway = Math.sin(t * 2.2) * 0.8;
+    ctx.strokeStyle = '#4a463c'; ctx.lineWidth = 1.1;
+    ctx.beginPath();
+    ctx.moveTo(-2.6, -10.6);
+    ctx.quadraticCurveTo(0.5, -16.5 + sway * 0.5, 5.4, -13.6 + sway);
+    ctx.stroke();
+    ctx.fillStyle = '#c9a95e'; // brass joints
+    ctx.beginPath(); ctx.arc(-0.6, -14.1 + sway * 0.7, 0.6, 0, TAU);
+    ctx.arc(2.8, -14.2 + sway * 0.85, 0.6, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#4a463c'; ctx.lineWidth = 0.9; // the claw, three prongs
+    ctx.beginPath();
+    ctx.moveTo(5.4, -13.6 + sway); ctx.lineTo(6.8, -12.6 + sway);
+    ctx.moveTo(5.4, -13.6 + sway); ctx.lineTo(6.9, -13.9 + sway);
+    ctx.moveTo(5.4, -13.6 + sway); ctx.lineTo(6.3, -15 + sway);
+    ctx.stroke();
+    // the cog-staff, planted forward
+    ctx.strokeStyle = '#3b382f'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(4.4, 0); ctx.lineTo(5.6, -11.6); ctx.stroke();
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(5.8, -13.4, 2, 0, TAU); ctx.fill();
+    for (let i = 0; i < 8; i++) { // cog teeth
+      const a = i / 8 * TAU + t * 0.6;
+      ctx.fillRect(5.8 + Math.cos(a) * 2.3 - 0.45, -13.4 + Math.sin(a) * 2.3 - 0.45, 0.9, 0.9);
+    }
+    ctx.fillStyle = `rgba(125,255,214,${(0.6 + 0.3 * Math.sin(t * 3)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(5.8, -13.4, 0.9, 0, TAU); ctx.fill();
+    ctx.restore();
+  };
   // Lantern Guard: TRUE power armor — filled greaves, keel chest, pauldrons,
   // vent pack, glowing lantern visor, and the vril halberd. Roughly 1.4x the
   // mass of a line trooper; the silhouette should read "space marine".
   I.lanternguard = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
     const step = o.moving ? Math.sin((o.dist || 0) * 0.45) : 0;
-    const B = '#8a7a52', L = shade(B, 0.18), D = shade(B, -0.35);
+    const IRON = '#4a463c', TRIM = '#c9a95e';
     ctx.save();
     ctx.scale(m, 1);
-    // armored greaves + sabatons (filled, not stick legs)
-    ctx.fillStyle = '#6d6041';
+    // greaves + sabatons
+    ctx.fillStyle = shade(IRON, -0.15);
     rr(ctx, -2.9 - step * 1.6, -5, 2.4, 5.2, 0.9); ctx.fill();
     rr(ctx, 0.7 + step * 1.6, -5, 2.4, 5.2, 0.9); ctx.fill();
-    ctx.fillStyle = '#4c4436';
+    ctx.fillStyle = '#26231d';
     ctx.fillRect(-3.3 - step * 1.6, -0.8, 3.2, 1.4);
     ctx.fillRect(0.3 + step * 1.6, -0.8, 3.2, 1.4);
-    // backpack first (behind the torso): twin vents + breathing vril core
-    ctx.fillStyle = '#5c5136';
-    rr(ctx, -5.1, -10.2, 2, 4.4, 0.6); ctx.fill();
-    rr(ctx, -5.8, -8.6, 1.6, 2.6, 0.5); ctx.fill();
-    ctx.fillStyle = `rgba(125,255,214,${(0.5 + 0.3 * Math.sin(t * 4)).toFixed(2)})`;
-    ctx.fillRect(-4.7, -7.2, 1.2, 1.2);
-    // torso: wide power-armor keel
-    const g = ctx.createLinearGradient(0, -11.4, 0, -3.8);
-    g.addColorStop(0, L); g.addColorStop(1, D);
+    // red tabard hanging between the legs, swaying with the stride
+    ctx.fillStyle = '#7a2a22';
+    ctx.beginPath();
+    ctx.moveTo(-1.5, -5.5); ctx.lineTo(1.5, -5.5);
+    ctx.lineTo(1 + step * 0.8, -0.6); ctx.lineTo(-1 + step * 0.8, -0.6);
+    ctx.closePath(); ctx.fill();
+    // backpack vents peeking above the shoulders
+    ctx.fillStyle = shade(IRON, -0.32);
+    rr(ctx, -3.4, -13.8, 1.9, 3, 0.6); ctx.fill();
+    rr(ctx, 1.7, -13.8, 1.9, 3, 0.6); ctx.fill();
+    // torso: iron keel, brass-trimmed
+    const g = ctx.createLinearGradient(0, -11.6, 0, -4);
+    g.addColorStop(0, shade(IRON, 0.22)); g.addColorStop(1, shade(IRON, -0.28));
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(-4.4, -10.8); ctx.lineTo(4.4, -10.8); ctx.lineTo(3.4, -4.2); ctx.lineTo(-3.4, -4.2);
+    ctx.moveTo(-4.2, -11); ctx.lineTo(4.2, -11); ctx.lineTo(3.2, -4.4); ctx.lineTo(-3.2, -4.4);
     ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = shade(B, -0.5); ctx.lineWidth = 0.7; ctx.stroke();
-    ctx.fillStyle = 'rgba(125,255,214,0.9)'; ctx.fillRect(-0.9, -9.6, 1.8, 2.2); // chest lamp
-    ctx.fillStyle = shade(B, -0.5);
-    for (const rx of [-3.2, 3.2]) { ctx.beginPath(); ctx.arc(rx, -9.8, 0.4, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = o.color; ctx.fillRect(-3.4, -5.2, 6.8, 1.2); // team band
-    // pauldrons: the silhouette-makers
-    for (const px of [-6.2, 2.8]) {
-      ctx.fillStyle = L; rr(ctx, px, -11.6, 3.4, 3.4, 1.1); ctx.fill();
-      ctx.strokeStyle = shade(B, -0.5); ctx.lineWidth = 0.6; rr(ctx, px, -11.6, 3.4, 3.4, 1.1); ctx.stroke();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
+    ctx.fillStyle = 'rgba(125,255,214,0.95)'; ctx.fillRect(-0.9, -9.8, 1.8, 2.4); // chest lantern
+    ctx.fillStyle = o.color; ctx.fillRect(-3.1, -5.4, 6.2, 1.1); // team girdle
+    // helmet FIRST, sunk low — no neck, the pauldrons swallow it
+    ctx.fillStyle = shade(IRON, 0.1);
+    ctx.beginPath(); ctx.arc(0.3, -11.9, 2.5, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.fillStyle = 'rgba(125,255,214,1)'; ctx.fillRect(-1, -12.3, 3, 1.2);
+    // pauldrons: MASSIVE, trim-edged, cresting above the helmet's crown
+    for (const s of [-1, 1]) {
+      const px = s < 0 ? -7.4 : 3;
+      ctx.fillStyle = shade(IRON, s < 0 ? -0.06 : 0.08);
+      rr(ctx, px, -13.4, 4.4, 4.6, 1.5); ctx.fill();
+      ctx.strokeStyle = TRIM; ctx.lineWidth = 0.9;
+      rr(ctx, px, -13.4, 4.4, 4.6, 1.5); ctx.stroke();
     }
-    ctx.fillStyle = o.color; ctx.fillRect(2.8, -9.2, 3.4, 0.9); // heraldry stripe
-    // helm: brass dome, glowing lantern visor
-    ctx.fillStyle = '#9c8c5e';
-    ctx.beginPath(); ctx.arc(0.2, -12.6, 2.6, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#4c4436'; ctx.lineWidth = 0.5; ctx.stroke();
-    ctx.fillStyle = 'rgba(125,255,214,1)'; ctx.fillRect(-1.2, -13, 3, 1.3);
-    // the vril halberd, held at guard
-    ctx.strokeStyle = '#4c4436'; ctx.lineWidth = 1.4;
+    ctx.fillStyle = o.color; ctx.fillRect(3.5, -10.1, 3.4, 1); // heraldry, right pauldron
+    ctx.fillStyle = '#d8d2c0'; // purity seal off the left
+    ctx.fillRect(-5.7, -9.5, 1.1, 1.9);
+    ctx.fillStyle = '#7a2a22'; ctx.fillRect(-5.7, -10.1, 1.1, 0.8);
+    // the vril halberd
+    ctx.strokeStyle = '#211d15'; ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.moveTo(2.6, -2); ctx.lineTo(8.6, -14.6); ctx.stroke();
-    ctx.fillStyle = '#b8c4bb';
+    ctx.fillStyle = TRIM;
     ctx.beginPath(); ctx.moveTo(7.4, -15.4); ctx.lineTo(11, -13.8); ctx.lineTo(8.4, -11.8); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.5; ctx.stroke();
     ctx.fillStyle = 'rgba(125,255,214,0.95)';
     ctx.beginPath(); ctx.arc(8.8, -13.8, 1.2, 0, TAU); ctx.fill();
     if (o.firing) {
@@ -5625,40 +5691,59 @@
   I.dreadnought = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
     const step = o.moving ? Math.sin((o.dist || 0) * 0.4) : 0;
-    const B = '#7a6a48';
+    const IRON = '#4a463c', TRIM = '#c9a95e';
     ctx.save();
     ctx.scale(m, 1);
     ctx.rotate(step * 0.03); // ponderous sway
-    // piston legs + wide stamped feet
-    ctx.fillStyle = '#5c5136';
-    rr(ctx, -4.6 - step * 1.8, -6, 3, 6.2, 0.8); ctx.fill();
-    rr(ctx, 1.6 + step * 1.8, -6, 3, 6.2, 0.8); ctx.fill();
-    ctx.fillStyle = '#463d2c';
-    rr(ctx, -5.6 - step * 1.8, -1.2, 4.6, 1.8, 0.5); ctx.fill();
-    rr(ctx, 0.8 + step * 1.8, -1.2, 4.6, 1.8, 0.5); ctx.fill();
-    ctx.fillStyle = shade(B, -0.2); rr(ctx, -4.4, -8.2, 8.8, 3, 0.8); ctx.fill(); // hip block
-    // the sarcophagus
-    const g = ctx.createLinearGradient(0, -18, 0, -7);
-    g.addColorStop(0, shade(B, 0.2)); g.addColorStop(1, shade(B, -0.28));
+    // stubby wide-set trapezoid legs + slab feet: the box does the walking
+    ctx.fillStyle = shade(IRON, -0.22);
+    ctx.beginPath();
+    ctx.moveTo(-6.4 - step * 1.6, -7.4); ctx.lineTo(-2.8 - step * 1.6, -7.4);
+    ctx.lineTo(-3.6 - step * 1.6, -1); ctx.lineTo(-7.2 - step * 1.6, -1);
+    ctx.closePath(); ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(2.8 + step * 1.6, -7.4); ctx.lineTo(6.4 + step * 1.6, -7.4);
+    ctx.lineTo(7.2 + step * 1.6, -1); ctx.lineTo(3.6 + step * 1.6, -1);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#26231d';
+    ctx.fillRect(-8.2 - step * 1.6, -1.4, 5.6, 2);
+    ctx.fillRect(2.6 + step * 1.6, -1.4, 5.6, 2);
+    // the body: one WIDE armored box, brass-trimmed
+    const g = ctx.createLinearGradient(0, -17.8, 0, -7);
+    g.addColorStop(0, shade(IRON, 0.24)); g.addColorStop(1, shade(IRON, -0.3));
     ctx.fillStyle = g;
-    rr(ctx, -6.4, -18, 12.8, 10.4, 1.6); ctx.fill();
-    ctx.strokeStyle = shade(B, -0.5); ctx.lineWidth = 0.8; rr(ctx, -6.4, -18, 12.8, 10.4, 1.6); ctx.stroke();
-    ctx.strokeStyle = shade(B, -0.45); ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(-6.4, -13); ctx.lineTo(6.4, -13); ctx.moveTo(-2, -18); ctx.lineTo(-2, -7.6); ctx.stroke();
-    ctx.fillStyle = shade(B, -0.5);
-    for (const rx of [-5.4, -0.8, 4.6]) for (const ry of [-17, -8.6]) { ctx.beginPath(); ctx.arc(rx, ry, 0.45, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = 'rgba(125,255,214,1)'; ctx.fillRect(-2.6, -16.4, 5.2, 1.4); // the lantern slit
-    ctx.fillStyle = o.color; ctx.fillRect(-6.4, -10.6, 12.8, 1.6); // team banner plate
-    ctx.fillStyle = '#3f3828'; // smokestacks
-    ctx.fillRect(-6, -20.4, 1.8, 3); ctx.fillRect(-3.4, -19.6, 1.5, 2.2);
-    // autocannon arm (forward) + power fist (rear)
-    ctx.fillStyle = '#33383e'; rr(ctx, 5.4, -15, 7, 3.6, 1); ctx.fill();
-    ctx.fillStyle = '#15191f'; ctx.fillRect(12, -14.4, 3, 2.4);
-    ctx.strokeStyle = '#5a616a'; ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(7, -14.8); ctx.lineTo(7, -11.6); ctx.moveTo(9, -14.8); ctx.lineTo(9, -11.6); ctx.stroke();
-    ctx.fillStyle = '#6d6041'; rr(ctx, -9.4, -14.6, 3.6, 4.6, 1.2); ctx.fill();
-    ctx.strokeStyle = '#4c4436'; ctx.lineWidth = 0.5; rr(ctx, -9.4, -14.6, 3.6, 4.6, 1.2); ctx.stroke();
-    if (o.firing) { ctx.fillStyle = 'rgba(255,230,150,0.95)'; ctx.beginPath(); ctx.arc(16, -13.2, 2.2, 0, TAU); ctx.fill(); }
+    rr(ctx, -8.4, -17.8, 16.8, 10.8, 1.8); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.8; rr(ctx, -8.4, -17.8, 16.8, 10.8, 1.8); ctx.stroke();
+    // bone sarcophagus panel, front and center
+    ctx.fillStyle = '#d8d2c0';
+    rr(ctx, -3.6, -16.6, 7.2, 6.6, 1); ctx.fill();
+    ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6; rr(ctx, -3.6, -16.6, 7.2, 6.6, 1); ctx.stroke();
+    ctx.fillStyle = 'rgba(125,255,214,1)';
+    ctx.fillRect(-2, -15.4, 4, 1.3);                 // the lantern slit in the bone
+    ctx.beginPath(); ctx.arc(0, -12.4, 1, 0, TAU); ctx.fill(); // vril roundel
+    ctx.fillStyle = shade(IRON, -0.5);               // stud row under the panel
+    for (const rx of [-7, -5.2, 5.6, 7.2]) { ctx.beginPath(); ctx.arc(rx, -9, 0.5, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = o.color; ctx.fillRect(-8.4, -8.6, 16.8, 1.6); // team girdle
+    // topside: twin exhaust stacks + the campaign banner
+    ctx.fillStyle = '#26231d';
+    ctx.fillRect(4.2, -20.6, 1.9, 3.2); ctx.fillRect(6.6, -19.8, 1.6, 2.4);
+    ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(-4.6, -17.8); ctx.lineTo(-4.6, -24.6); ctx.stroke();
+    ctx.fillStyle = '#7a2a22';
+    ctx.beginPath(); ctx.moveTo(-4.6, -24.6); ctx.lineTo(-0.6, -23.6); ctx.lineTo(-4.6, -21.6); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(125,255,214,0.9)'; ctx.beginPath(); ctx.arc(-3.4, -23.2, 0.6, 0, TAU); ctx.fill();
+    // hanging arm boxes OUTSIDE the hull: autocannon (fore), power fist (aft)
+    ctx.fillStyle = shade(IRON, 0.05);
+    rr(ctx, 8.8, -16.8, 5.2, 6.8, 1.2); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, 8.8, -16.8, 5.2, 6.8, 1.2); ctx.stroke();
+    ctx.fillStyle = '#15191f';
+    for (let i = 0; i < 2; i++) ctx.fillRect(14, -15.6 + i * 2.6, 3.6, 1.4); // twin barrels
+    ctx.fillStyle = shade(IRON, 0.05);
+    rr(ctx, -14, -16.8, 5.2, 6.8, 1.2); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, -14, -16.8, 5.2, 6.8, 1.2); ctx.stroke();
+    ctx.fillStyle = TRIM; // fist knuckles
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-12.8 + i * 1.5, -9.6, 0.6, 0, TAU); ctx.fill(); }
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,150,0.95)'; ctx.beginPath(); ctx.arc(18.6, -14, 2.3, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
   // Warlord Drill Titan: a proper god-engine — reverse-jointed leg towers,
@@ -5667,62 +5752,79 @@
   I.titan = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
     const step = o.moving ? Math.sin((o.dist || 0) * 0.3) : 0;
-    const B = '#6d6048';
+    const IRON = '#4a463c', TRIM = '#c9a95e';
     ctx.save();
     ctx.scale(m, 1);
     ctx.rotate(step * 0.02);
     // reverse-jointed leg towers
-    ctx.fillStyle = shade(B, -0.25);
+    ctx.fillStyle = shade(IRON, -0.2);
     for (const s of [-1, 1]) {
-      const lx = s * 4.6 + (s < 0 ? -step : step) * 2.2;
-      rr(ctx, lx - 2, -12, 4, 6.5, 1); ctx.fill();          // thigh column
-      rr(ctx, lx - 1.6, -6.5, 3.2, 5.6, 0.9); ctx.fill();   // shin, knee back-bent
-      ctx.fillRect(lx - 3, -1.2, 6, 1.8);                    // splayed foot
+      const lx = s * 4.8 + (s < 0 ? -step : step) * 2.2;
+      rr(ctx, lx - 2.1, -12, 4.2, 6.5, 1); ctx.fill();       // thigh column
+      rr(ctx, lx - 1.7, -6.5, 3.4, 5.6, 0.9); ctx.fill();    // shin, knee back-bent
+      ctx.fillRect(lx - 3.2, -1.2, 6.4, 1.9);                 // splayed foot
     }
-    ctx.fillStyle = shade(B, -0.4);
-    rr(ctx, -6.6, -14.4, 13.2, 3.4, 1); ctx.fill();          // hip skirt
+    ctx.fillStyle = shade(IRON, -0.36);
+    rr(ctx, -7, -14.6, 14, 3.6, 1); ctx.fill();               // armored hip skirt
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(-7, -11.4); ctx.lineTo(7, -11.4); ctx.stroke();
     // torso keep
     const g = ctx.createLinearGradient(0, -27, 0, -13);
-    g.addColorStop(0, shade(B, 0.22)); g.addColorStop(1, shade(B, -0.3));
+    g.addColorStop(0, shade(IRON, 0.26)); g.addColorStop(1, shade(IRON, -0.3));
     ctx.fillStyle = g;
-    rr(ctx, -7.6, -27, 15.2, 13, 2); ctx.fill();
-    ctx.strokeStyle = shade(B, -0.55); ctx.lineWidth = 0.9; rr(ctx, -7.6, -27, 15.2, 13, 2); ctx.stroke();
-    ctx.strokeStyle = shade(B, -0.45); ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(-7.6, -20.5); ctx.lineTo(7.6, -20.5); ctx.moveTo(-2.4, -27); ctx.lineTo(-2.4, -14); ctx.stroke();
-    ctx.fillStyle = 'rgba(255,150,60,0.6)'; // furnace grille
-    for (let i = 0; i < 3; i++) ctx.fillRect(-1 + i * 2, -18.4, 1.2, 2.6);
-    ctx.fillStyle = o.color; ctx.fillRect(-7.6, -15.8, 15.2, 1.8); // team girdle
-    // shoulder rocket racks
+    rr(ctx, -7.8, -27, 15.6, 13, 2); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.9; rr(ctx, -7.8, -27, 15.6, 13, 2); ctx.stroke();
+    ctx.strokeStyle = shade(IRON, -0.5); ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(-7.8, -20.5); ctx.lineTo(7.8, -20.5); ctx.moveTo(-2.4, -27); ctx.lineTo(-2.4, -14.2); ctx.stroke();
+    ctx.fillStyle = `rgba(255,150,60,${(0.5 + 0.25 * Math.sin(t * 6)).toFixed(2)})`; // breathing furnace grille
+    for (let i = 0; i < 3; i++) ctx.fillRect(-1 + i * 2, -18.6, 1.2, 2.8);
+    ctx.fillStyle = o.color; ctx.fillRect(-7.8, -15.9, 15.6, 1.9); // team girdle
+    // carapace slab overhanging the keep
+    ctx.fillStyle = shade(IRON, -0.12);
+    rr(ctx, -9, -28.8, 18, 3.4, 1.2); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, -9, -28.8, 18, 3.4, 1.2); ctx.stroke();
+    // shoulder rocket racks riding the carapace
     for (const s of [-1, 1]) {
-      const px = s < 0 ? -11.4 : 6.4;
-      ctx.fillStyle = '#5c5136'; rr(ctx, px, -29.4, 5, 4.2, 0.9); ctx.fill();
-      ctx.strokeStyle = '#3f3828'; ctx.lineWidth = 0.5; rr(ctx, px, -29.4, 5, 4.2, 0.9); ctx.stroke();
-      ctx.fillStyle = '#23271e';
-      for (let i = 0; i < 3; i++) ctx.fillRect(px + 0.7 + i * 1.5, -28.7, 1, 2.8);
+      const px = s < 0 ? -12.2 : 7.2;
+      ctx.fillStyle = shade(IRON, -0.05); rr(ctx, px, -31, 5, 4.2, 0.9); ctx.fill();
+      ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.5; rr(ctx, px, -31, 5, 4.2, 0.9); ctx.stroke();
+      ctx.fillStyle = '#15191f';
+      for (let i = 0; i < 3; i++) ctx.fillRect(px + 0.7 + i * 1.5, -30.3, 1, 2.8);
     }
-    // head cupola
-    ctx.fillStyle = '#8a7a52'; rr(ctx, -3, -30.6, 6, 4.4, 1.2); ctx.fill();
-    ctx.strokeStyle = '#3f3828'; ctx.lineWidth = 0.6; rr(ctx, -3, -30.6, 6, 4.4, 1.2); ctx.stroke();
-    ctx.fillStyle = 'rgba(125,255,214,1)'; ctx.fillRect(-2, -29.6, 4, 1.3);
-    // campaign banner off the rear rack
-    ctx.strokeStyle = '#3f3828'; ctx.lineWidth = 0.7;
-    ctx.beginPath(); ctx.moveTo(-12.6, -29); ctx.lineTo(-12.6, -36); ctx.stroke();
-    ctx.fillStyle = o.color;
-    ctx.beginPath(); ctx.moveTo(-12.6, -36); ctx.lineTo(-7.8, -34.8); ctx.lineTo(-12.6, -32.6); ctx.closePath(); ctx.fill();
-    // the autocannon arm: tri-barrel, shoulder-slung
-    ctx.fillStyle = '#33383e'; rr(ctx, 6.8, -25.4, 10.4, 4.6, 1.2); ctx.fill();
+    // twin campaign banners hanging from the racks, swaying as it walks
+    for (const s of [-1, 1]) {
+      const bx = s < 0 ? -11.2 : 9.2;
+      ctx.fillStyle = '#7a2a22';
+      ctx.beginPath();
+      ctx.moveTo(bx - 1.4, -26.6); ctx.lineTo(bx + 1.4, -26.6);
+      ctx.lineTo(bx + 1.1 + step * s, -18.4); ctx.lineTo(bx - 1.1 + step * s, -19.2);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2c0f0b'; ctx.lineWidth = 0.4; ctx.stroke();
+      ctx.fillStyle = 'rgba(125,255,214,0.95)';
+      ctx.beginPath(); ctx.arc(bx, -23.4, 0.8, 0, TAU); ctx.fill(); // vril sigil
+      ctx.fillStyle = TRIM; ctx.fillRect(bx - 1.5, -27, 3, 0.7);    // hanging rail
+    }
+    // bone head cupola, eyes burning
+    ctx.fillStyle = '#d8d2c0'; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.fill();
+    ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.stroke();
+    ctx.fillStyle = 'rgba(125,255,214,1)';
+    ctx.fillRect(-1.9, -30.6, 1.4, 1.2); ctx.fillRect(0.6, -30.6, 1.4, 1.2);
+    // the autocannon arm: tri-barrel, slung from the carapace edge
+    ctx.fillStyle = '#33383e'; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.stroke();
     ctx.strokeStyle = '#5a616a'; ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(9, -25.2); ctx.lineTo(9, -21.2); ctx.moveTo(11.4, -25.2); ctx.lineTo(11.4, -21.2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(9.2, -25.4); ctx.lineTo(9.2, -21.2); ctx.moveTo(11.6, -25.4); ctx.lineTo(11.6, -21.2); ctx.stroke();
     ctx.fillStyle = '#15191f';
-    for (let i = 0; i < 3; i++) ctx.fillRect(17, -24.9 + i * 1.5, 4.4, 1);
+    for (let i = 0; i < 3; i++) ctx.fillRect(17.2, -25 + i * 1.5, 4.6, 1);
     // the drill claw on the off arm
-    ctx.fillStyle = shade(B, -0.2); rr(ctx, -11.8, -22.4, 4, 6.4, 1.1); ctx.fill();
+    ctx.fillStyle = shade(IRON, -0.15); rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.5; rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.stroke();
     ctx.fillStyle = '#9aa2ae';
-    ctx.beginPath(); ctx.moveTo(-9.8, -16.2); ctx.lineTo(-12.6, -11.6); ctx.lineTo(-7.6, -14.4); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-9.4, -16); ctx.lineTo(-6.2, -11.9); ctx.lineTo(-6.8, -15); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-10, -16.2); ctx.lineTo(-12.8, -11.4); ctx.lineTo(-7.8, -14.4); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-9.6, -16); ctx.lineTo(-6.2, -11.7); ctx.lineTo(-7, -15); ctx.closePath(); ctx.fill();
     if (o.firing) {
       ctx.fillStyle = 'rgba(255,230,150,0.95)';
-      ctx.beginPath(); ctx.arc(22.6, -23.4 + (Math.sin(t * 40) > 0 ? 0 : 1.6), 2.6, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(22.8, -23.4 + (Math.sin(t * 40) > 0 ? 0 : 1.6), 2.6, 0, TAU); ctx.fill();
     }
     ctx.restore();
   };
