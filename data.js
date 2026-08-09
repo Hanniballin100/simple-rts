@@ -353,7 +353,7 @@ const UNIT_TYPES = {
   // The Lantern Guard fights like a space marine: vril bolts on the approach,
   // then the halberd once it closes (meleeDmg/meleeRange in tryAttack).
   lanternguard: { name: 'Lantern Guard', role: 'combat', builtAt: 'barracks', hp: 230, speed: 66, dmg: 13, atkRange: 135, cooldown: 0.9, sight: 230, cost: 0, r: 10, buildTime: 0, armor: 0.25, meleeDmg: 30, meleeRange: 34, vril: true, armorTier: 'guard', drawScale: 1.12 },
-  dreadnought:  { name: 'Dreadnought',   role: 'combat', builtAt: 'barracks', hp: 560, speed: 50, dmg: 24, atkRange: 165, cooldown: 0.55, sight: 240, cost: 0, r: 13, buildTime: 0, armor: 0.35, bldgBonus: 1.3, vril: true, armorTier: 'dread', drawScale: 1.35 },
+  dreadnought:  { name: 'Dreadnought',   role: 'combat', builtAt: 'barracks', hp: 560, speed: 50, dmg: 24, atkRange: 165, cooldown: 0.55, sight: 240, cost: 0, r: 13, buildTime: 0, armor: 0.35, bldgBonus: 1.3, vril: true, armorTier: 'dread', drawScale: 1.8 },
   // the Warlord Drill Titan: near-invincible, an autocannon arm for the
   // ground, shoulder rocket salvos for the sky (aaAura), and a claw that
   // ruins anything it reaches (bldgBonus + crush). Forged in the Titan

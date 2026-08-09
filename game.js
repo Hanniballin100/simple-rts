@@ -5246,6 +5246,26 @@ function drawBuildingIso(b) {
       ctx.fillRect(ix - bw / 2, qy, bw * clamp(b.queue[0].t / b.queue[0].duration, 0, 1), 5);
     }
 
+    // vril work meter: a Titan being forged, or bodies ascending inside the
+    // Reliquary / Drill Works — teal bar in the production-bar slot
+    let vfrac = -1;
+    if (b.type === 'titanworks' && b.forging) {
+      vfrac = 1 - (b.forging - state.time) / TITAN_DEF.time;
+    } else {
+      for (const u of state.units) {
+        if (u.hp > 0 && u.ascension && u.ascension.bld === b.id) {
+          vfrac = Math.max(vfrac, 1 - (u.ascension.at - state.time) / ASCEND[u.ascension.to].time);
+        }
+      }
+    }
+    if (vfrac >= 0) {
+      const bw = (b.w + b.h) / 2, qy = iy + (b.w + b.h) / 4 + 3 + (b.queue.length ? 7 : 0);
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(ix - bw / 2, qy, bw, 5);
+      ctx.fillStyle = '#7dffd6';
+      ctx.fillRect(ix - bw / 2, qy, bw * clamp(vfrac, 0, 1), 5);
+    }
+
     // superweapon status, always visible on the silo so you never have to
     // select it to know: a charge bar + seconds-left countdown, becoming a
     // pulsing READY beacon when it can fire (enemy silos only while scouted)
