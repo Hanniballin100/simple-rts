@@ -488,7 +488,7 @@ const UNIT_TYPES = {
   // flapping-wing contraption that strafes with crackling vril arcs; the
   // Pipe Organ Aerostat is a hovering calliope whose shockwave chords shred
   // nearby aircraft (aaAura) while its drone dampens enemy fire below.
-  ornithopter: { name: 'Tesla Ornithopter', flyH: 30, drawScale: 1.05, role: 'combat', builtAt: 'airpad', hp: 155, speed: 120, dmg: 14, atkRange: 110, cooldown: 0.6, sight: 270, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'ground', shape: 'tri', vril: true },
+  ornithopter: { name: 'Tesla Ornithopter', flyH: 30, drawScale: 1.5, role: 'combat', builtAt: 'airpad', hp: 155, speed: 120, dmg: 14, atkRange: 110, cooldown: 0.6, sight: 270, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'ground', shape: 'tri', vril: true },
   aerostat: { name: 'Pipe Organ Aerostat', flyH: 36, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 270, speed: 76, dmg: 0, atkRange: 0, cooldown: 1, sight: 290, cost: 230, r: 13, buildTime: 13, flying: true, shape: 'blimp', aaAura: { r: 165, dps: 18 }, debuffAura: { r: 175, weaken: 0.3 }, vril: true, req: 'tech' },
   // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
   // lance vaporizes ONE ground target at a time; its bound Tic Tac escort

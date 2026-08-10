@@ -5561,62 +5561,91 @@
     const step = o.moving ? Math.sin((o.dist || 0) * 0.45) : 0;
     ctx.save();
     ctx.scale(m, 1);
-    // the robe: a hunched cowl mass tapering to an uneven hem
-    const g = ctx.createLinearGradient(0, -12, 0, 0);
-    g.addColorStop(0, '#8a352a'); g.addColorStop(1, '#471a14');
+    // skeletal metal feet stepping out under the hem — the man is mostly gone
+    ctx.strokeStyle = '#5a5548'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(-1.4 - step * 1.4, -2); ctx.lineTo(-1.8 - step * 1.4, 0);
+    ctx.moveTo(1.2 + step * 1.4, -2); ctx.lineTo(1.6 + step * 1.4, 0);
+    ctx.stroke();
+    ctx.fillStyle = '#5a5548';
+    ctx.fillRect(-2.9 - step * 1.4, -0.4, 2, 0.9);
+    ctx.fillRect(0.7 + step * 1.4, -0.4, 2, 0.9);
+    // the robe: tall, hunched, ANGULAR — sharp cowl peak, draped shoulders,
+    // and a ragged zigzag hem, nothing egg-shaped about it
+    const g = ctx.createLinearGradient(0, -15, 0, -1);
+    g.addColorStop(0, '#8a352a'); g.addColorStop(1, '#421711');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.moveTo(-0.6, -12.8);                       // hood peak, pitched forward
-    ctx.quadraticCurveTo(3.2, -12.4, 3.4, -8.6);   // hood front
-    ctx.quadraticCurveTo(4.4, -4, 3.6 + step * 0.9, 0);  // front hem
-    ctx.lineTo(1 + step * 0.5, -0.8);
-    ctx.lineTo(-1.4 - step * 0.5, 0);
-    ctx.lineTo(-3.6 - step * 0.9, -0.6);
-    ctx.quadraticCurveTo(-4.6, -6, -3.2, -10.4);   // hunched back
+    ctx.moveTo(0.4, -15.2);                        // cowl peak, pitched forward
+    ctx.lineTo(3.2, -11.8);                        // hood front slope
+    ctx.lineTo(2.6, -9);                           // chest under the hood
+    ctx.lineTo(3.8 + step * 0.9, -1.6);            // front drape
+    ctx.lineTo(2.4 + step * 0.7, -2.6);            // ragged hem: zigzag
+    ctx.lineTo(1.5 + step * 0.5, -1.2);
+    ctx.lineTo(0, -2.4);
+    ctx.lineTo(-1.6 - step * 0.5, -1.1);
+    ctx.lineTo(-2.6 - step * 0.7, -2.7);
+    ctx.lineTo(-4 - step * 0.9, -1.5);
+    ctx.lineTo(-4.6, -7.4);                        // wide draped back
+    ctx.lineTo(-3.4, -12.4);                       // the hunch
     ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = '#2c0f0b'; ctx.lineWidth = 0.7; ctx.stroke();
-    // rope belt + dangling cog charm
+    ctx.strokeStyle = '#260d09'; ctx.lineWidth = 0.7; ctx.stroke();
+    // robe creases: sharp vertical folds
+    ctx.strokeStyle = 'rgba(20,6,4,0.55)'; ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(-1.8, -9.8); ctx.lineTo(-2.2 - step * 0.5, -2.2);
+    ctx.moveTo(0.8, -9.2); ctx.lineTo(1.1 + step * 0.4, -2);
+    ctx.stroke();
+    // the exhaust hump: two soot chimneys off the shoulder blades
+    ctx.fillStyle = '#33302a';
+    ctx.fillRect(-4.3, -13.6, 1.2, 3.4); ctx.fillRect(-2.7, -14.4, 1.1, 3);
+    ctx.fillStyle = 'rgba(150,140,120,0.35)';
+    ctx.beginPath(); ctx.arc(-3.7 + Math.sin(t * 3) * 0.5, -15 - (t * 4 % 2), 0.8, 0, TAU); ctx.fill();
+    // rope belt + cog charm + hanging purity scroll
     ctx.strokeStyle = '#c9a95e'; ctx.lineWidth = 0.7;
-    ctx.beginPath(); ctx.moveTo(-3.6, -5.2); ctx.quadraticCurveTo(0, -4.2, 3.8, -5.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-4, -6.4); ctx.quadraticCurveTo(0, -5.2, 3.4, -6.6); ctx.stroke();
     ctx.fillStyle = '#c9a95e';
-    ctx.beginPath(); ctx.arc(-2.2, -3.4, 0.8, 0, TAU); ctx.fill();
-    // the hood's dark mouth, the pale mask, the optics
-    ctx.fillStyle = '#1a0c0a';
-    ctx.beginPath(); ctx.ellipse(1, -10.2, 2.2, 2.5, 0.15, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#d8d2c0';
-    ctx.beginPath(); ctx.ellipse(1.4, -9.6, 1.5, 1.7, 0.15, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(-2.4, -4.6, 0.8, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#d8d2c0'; ctx.fillRect(1.7, -5.6, 1.2, 2.6); // seal parchment
+    ctx.fillStyle = '#7a2a22'; ctx.fillRect(1.7, -6.2, 1.2, 0.8);
+    // the hood is a VOID: no face, just two vril optics and a glint of jaw
+    ctx.fillStyle = '#120705';
+    ctx.beginPath();
+    ctx.moveTo(0.3, -14.2); ctx.lineTo(2.6, -11.6); ctx.lineTo(2.1, -9.4); ctx.lineTo(-0.9, -10.6);
+    ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(125,255,214,1)';
-    ctx.fillRect(0.7, -10.3, 0.9, 0.9); ctx.fillRect(2.1, -10.1, 0.9, 0.9);
-    // cabling from the backpack hump into the robe
-    ctx.strokeStyle = '#3b382f'; ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.moveTo(-2.8, -9.4); ctx.quadraticCurveTo(-4.4, -7, -3.2, -4.6); ctx.stroke();
+    ctx.fillRect(0.2, -11.9, 0.8, 0.8); ctx.fillRect(1.5, -11.6, 0.8, 0.8);
+    ctx.fillStyle = 'rgba(216,210,192,0.5)';
+    ctx.fillRect(0.6, -10.2, 1.2, 0.5); // steel jaw sliver, barely caught by the light
     // mechadendrite: arcs from the back, over the hood, claw poised ahead
     const sway = Math.sin(t * 2.2) * 0.8;
-    ctx.strokeStyle = '#4a463c'; ctx.lineWidth = 1.1;
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.1;
     ctx.beginPath();
-    ctx.moveTo(-2.6, -10.6);
-    ctx.quadraticCurveTo(0.5, -16.5 + sway * 0.5, 5.4, -13.6 + sway);
+    ctx.moveTo(-2.6, -11.2);
+    ctx.quadraticCurveTo(0.5, -17 + sway * 0.5, 5.4, -14.2 + sway);
     ctx.stroke();
     ctx.fillStyle = '#c9a95e'; // brass joints
-    ctx.beginPath(); ctx.arc(-0.6, -14.1 + sway * 0.7, 0.6, 0, TAU);
-    ctx.arc(2.8, -14.2 + sway * 0.85, 0.6, 0, TAU); ctx.fill();
-    ctx.strokeStyle = '#4a463c'; ctx.lineWidth = 0.9; // the claw, three prongs
+    ctx.beginPath(); ctx.arc(-0.6, -14.7 + sway * 0.7, 0.65, 0, TAU);
+    ctx.arc(2.8, -14.8 + sway * 0.85, 0.65, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 0.9; // the claw, three prongs
     ctx.beginPath();
-    ctx.moveTo(5.4, -13.6 + sway); ctx.lineTo(6.8, -12.6 + sway);
-    ctx.moveTo(5.4, -13.6 + sway); ctx.lineTo(6.9, -13.9 + sway);
-    ctx.moveTo(5.4, -13.6 + sway); ctx.lineTo(6.3, -15 + sway);
+    ctx.moveTo(5.4, -14.2 + sway); ctx.lineTo(6.8, -13.2 + sway);
+    ctx.moveTo(5.4, -14.2 + sway); ctx.lineTo(6.9, -14.5 + sway);
+    ctx.moveTo(5.4, -14.2 + sway); ctx.lineTo(6.3, -15.6 + sway);
     ctx.stroke();
-    // the cog-staff, planted forward
+    // the cog-staff, planted forward and taller than its bearer
     ctx.strokeStyle = '#3b382f'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(4.4, 0); ctx.lineTo(5.6, -11.6); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(4.6, 0); ctx.lineTo(5.9, -14.8); ctx.stroke();
+    ctx.fillStyle = '#5a5548'; // the metal hand on the shaft
+    ctx.beginPath(); ctx.arc(5, -7.2, 1, 0, TAU); ctx.fill();
     ctx.fillStyle = '#c9a95e';
-    ctx.beginPath(); ctx.arc(5.8, -13.4, 2, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(6.1, -16.6, 2.1, 0, TAU); ctx.fill();
     for (let i = 0; i < 8; i++) { // cog teeth
       const a = i / 8 * TAU + t * 0.6;
-      ctx.fillRect(5.8 + Math.cos(a) * 2.3 - 0.45, -13.4 + Math.sin(a) * 2.3 - 0.45, 0.9, 0.9);
+      ctx.fillRect(6.1 + Math.cos(a) * 2.4 - 0.45, -16.6 + Math.sin(a) * 2.4 - 0.45, 0.9, 0.9);
     }
     ctx.fillStyle = `rgba(125,255,214,${(0.6 + 0.3 * Math.sin(t * 3)).toFixed(2)})`;
-    ctx.beginPath(); ctx.arc(5.8, -13.4, 0.9, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(6.1, -16.6, 0.9, 0, TAU); ctx.fill();
     ctx.restore();
   };
   // Lantern Guard: TRUE power armor — filled greaves, keel chest, pauldrons,
