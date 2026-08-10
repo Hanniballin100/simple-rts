@@ -5861,7 +5861,11 @@
     ctx.fillStyle = '#d8d2c0'; // purity seal off the left
     ctx.fillRect(-5.7, -9.5, 1.1, 1.9);
     ctx.fillStyle = '#7a2a22'; ctx.fillRect(-5.7, -10.1, 1.1, 0.8);
-    // the vril halberd
+    // the vril halberd — sweeping down through the strike (o.claw)
+    ctx.save();
+    ctx.translate(2.6, -2);
+    ctx.rotate((o.claw || 0) * 0.9);
+    ctx.translate(-2.6, 2);
     ctx.strokeStyle = '#211d15'; ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.moveTo(2.6, -2); ctx.lineTo(8.6, -14.6); ctx.stroke();
     ctx.fillStyle = TRIM;
@@ -5873,6 +5877,11 @@
       ctx.strokeStyle = 'rgba(125,255,214,0.9)'; ctx.lineWidth = 0.9;
       ctx.beginPath(); ctx.moveTo(9.2, -13.6); ctx.lineTo(14.2, -10.4); ctx.moveTo(9.2, -13.6); ctx.lineTo(13.4, -13.2); ctx.stroke();
     }
+    if ((o.claw || 0) > 0.6) { // the arc of the blow
+      ctx.strokeStyle = 'rgba(125,255,214,0.55)'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.arc(2.6, -2, 12.6, -0.9, 0.25); ctx.stroke();
+    }
+    ctx.restore();
     ctx.restore();
   };
   // Dreadnought: a walking sarcophagus — piston legs, riveted keep of a
@@ -6021,7 +6030,9 @@
     // elbow band and weapon are one connected assembly, no floating parts
     const armPh = (o.dist || 0) * (Math.PI * 2 / 56);
     for (const s of [1, -1]) {
-      const sw = o.moving ? Math.sin(armPh + (s > 0 ? Math.PI : 0)) * 0.13 : 0;
+      // the fist arm hauls back and swings on a close-quarters hit (o.claw)
+      const punch = s < 0 ? (o.claw || 0) : 0;
+      const sw = (o.moving ? Math.sin(armPh + (s > 0 ? Math.PI : 0)) * 0.13 : 0) + punch * 0.6;
       const px = s * 9.6, py = -17.4;
       // shoulder mount bolted over the cowl corner
       ctx.fillStyle = shade(IRON, 0.2);
@@ -6052,11 +6063,15 @@
           ctx.beginPath(); ctx.arc(8.2, 5.8, 2.2, 0, TAU); ctx.fill();
         }
       } else {
-        // power-fist knuckles + purity seal
+        // power-fist knuckles + purity seal (+ impact flash mid-punch)
         ctx.fillStyle = TRIM;
         for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-1.6 + i * 1.6, 9.2, 0.65, 0, TAU); ctx.fill(); }
         ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-1, 4.6, 1.2, 2.4);
         ctx.fillStyle = '#7a2a22'; ctx.fillRect(-1, 4, 1.2, 0.8);
+        if (punch > 0.6) {
+          ctx.fillStyle = 'rgba(255,230,150,0.9)';
+          ctx.beginPath(); ctx.arc(0, 10.6, 1.9, 0, TAU); ctx.fill();
+        }
       }
       ctx.restore();
       // the brass hinge pin over the joint
@@ -6191,15 +6206,22 @@
       ctx.fillStyle = 'rgba(255,230,150,0.95)';
       ctx.beginPath(); ctx.arc(thx + 11.4, thy + (Math.sin(t * 40) > 0 ? -0.8 : 0.8), 2.6, 0, TAU); ctx.fill();
     }
+    // a close-quarters kill drives the whole claw arm forward (o.claw)
+    const pnch = o.claw || 0;
     const [clx, cly, csw] = mechArm(ctx, o, {
-      sx: -7.4, sy: -26.8, handX: -12.8, handY: -18.6, upper: 5.6, fore: 5.8,
+      sx: -7.4, sy: -26.8, handX: -12.8 - pnch * 3.6, handY: -18.6 + pnch * 2.6, upper: 5.6, fore: 5.8,
       w: 2.8, swing: 2, elbowSign: 1, color: shade(IRON, 0.06),
     });
-    // the drill claw at the hand, blades breathing with the swing
+    // the drill claw at the hand, blades breathing with the swing —
+    // and thrown WIDE on the strike
     ctx.fillStyle = shade(IRON, -0.1);
     rr(ctx, clx - 2.2, cly - 2.6, 4.6, 5.2, 1.1); ctx.fill();
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.5; rr(ctx, clx - 2.2, cly - 2.6, 4.6, 5.2, 1.1); ctx.stroke();
-    const scis = csw * 0.9;
+    const scis = csw * 0.9 + pnch * 2.8;
+    if (pnch > 0.6) { // sparks off whatever it just tore into
+      ctx.fillStyle = 'rgba(255,230,150,0.9)';
+      ctx.beginPath(); ctx.arc(clx - 1 - pnch * 2, cly + 7.6, 1.8, 0, TAU); ctx.fill();
+    }
     ctx.fillStyle = '#9aa2ae';
     ctx.beginPath(); ctx.moveTo(clx, cly + 2.2); ctx.lineTo(clx - 2.6 - scis, cly + 7.4); ctx.lineTo(clx + 1.6, cly + 3.2); ctx.closePath(); ctx.fill();
     ctx.beginPath(); ctx.moveTo(clx + 0.4, cly + 2.4); ctx.lineTo(clx + 3.4 + scis, cly + 6.8); ctx.lineTo(clx + 2.2, cly + 2.6); ctx.closePath(); ctx.fill();

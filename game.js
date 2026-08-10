@@ -1774,26 +1774,27 @@ function spawnProjectile(kind, x, y, tx, ty, owner, stats) {
 function updateProjectiles(dt) {
   for (const p of state.projectiles) {
     if (p.kind === 'missile') {
-      // homing: track the target until impact or fuel runs out
+      // homing: track the target (unit OR building) until impact or dry tank
       p.life -= dt;
-      const tgt = state.units.find(u => u.id === p.targetId && u.hp > 0 && !u.garrisoned);
-      if (!tgt || p.life <= 0) {
+      const tgt = findEntity(p.targetId);
+      if (!tgt || tgt.hp <= 0 || tgt.garrisoned || p.life <= 0) {
         p.done = true;
         Particles.boom(p.x, p.y, 0.35);
         continue;
       }
       p.angle = Math.atan2(tgt.y - p.y, tgt.x - p.x);
       const step = p.speed * dt;
-      if (dist(p, tgt) <= step + UNIT_TYPES[tgt.type].r) {
+      if (dist(p, tgt) <= step + entityRadius(tgt)) {
         p.done = true;
-        dealDamage(null, tgt, p.stats.dmg, p.stats);
-        Particles.boom(tgt.x, tgt.y, 0.5);
+        // srcId keeps the kill attributed (conviction, loosh, leech-free)
+        if (p.stats.dmg) dealDamage((p.srcId && findEntity(p.srcId)) || null, tgt, p.stats.dmg, p.stats);
+        Particles.boom(tgt.x, tgt.y, p.stats.dmg ? 0.5 : 0.35);
         if (tileState(tgt.x, tgt.y) === 2) sfx('boom');
       } else {
         p.x += Math.cos(p.angle) * step;
         p.y += Math.sin(p.angle) * step;
         p.trail = (p.trail || 0) - dt;
-        if (p.trail <= 0) { p.trail = 0.05; Particles.smoke(p.x, p.y, 1.6, FLY_H); }
+        if (p.trail <= 0) { p.trail = 0.05; Particles.smoke(p.x, p.y, 1.6, p.alt !== undefined ? p.alt : FLY_H); }
       }
       continue;
     }
@@ -2035,7 +2036,10 @@ function fireAt(u, target, t) {
     const isAir = target.kind === 'unit' && UNIT_TYPES[target.type].flying;
     let dmg = (!isAir && t.dmgVsGround !== undefined) ? t.dmgVsGround : t.dmg;
     // the Lantern Guard's halberd: melee profile once it has closed the gap
-    if (t.meleeDmg && dist(u, target) <= t.meleeRange + entityRadius(target) + 4) dmg = t.meleeDmg;
+    if (t.meleeDmg && dist(u, target) <= t.meleeRange + entityRadius(target) + 4) {
+      dmg = t.meleeDmg;
+      u.clawT = state.time; // the halberd sweeps (art)
+    }
     u.disguised = false; // skin suit drops the moment they open fire
     if (t.stealth) u.exposedUntil = state.time + 2.5; // muzzle flash gives it away
     if (t.forestOnly) u.exposedUntil = state.time + 2.5; // the treeline lights up
@@ -2141,11 +2145,23 @@ function fireAt(u, target, t) {
       }
       if (visible) sfx('laser');
       if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
+    } else if (t.rocketArt) {
+      // shoulder-launched: a visible homing rocket carries the warhead —
+      // the damage lands on impact, not on the trigger pull
+      state.projectiles.push({
+        kind: 'missile', x: u.x + Math.cos(a) * (t.r + 2), y: u.y + Math.sin(a) * (t.r + 2),
+        targetId: target.id, owner: u.owner, srcId: u.id,
+        stats: { ...t, dmg }, angle: a, speed: 300, life: 3,
+        alt: (isAir ? undefined : 3),
+      });
+      if (visible) sfx('shot');
     } else {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
       if (t.petrify && target.kind === 'unit') target.petrifiedUntil = state.time + t.petrify; // the gaze
       if (t.leech) u.hp = Math.min(u.maxHp, u.hp + dmg * 0.8); // vivisection pays
+      // a close-quarters hit swings the claw/fist (titan, dreadnought art)
+      if (t.clawArm && dist(u, target) <= 60 + entityRadius(target)) u.clawT = state.time;
       // turreted vehicles fire from the barrel tip up on the turret; everyone
       // else from the sprite edge at body height, so tracer meets muzzle flash
       const turreted = Art.hasIsoTurret(u.type);
@@ -2430,14 +2446,30 @@ function updateUnit(u, dt) {
     }
   }
   // Barrage Balloon: its tether cables shred enemy aircraft that stray near
+  // (the Titan's racks answer with visible rocket salvos; the Aerostat's
+  // chords ring out as expanding shockwaves)
   if (stats.aaAura) {
     u.aaT = (u.aaT || 0) - dt;
     if (u.aaT <= 0) {
       u.aaT = 0.25;
+      let struck = null;
       for (const e of state.units) {
         if (e.owner === u.owner || e.owner === NEUTRAL || e.hp <= 0) continue;
         if (!UNIT_TYPES[e.type].flying) continue;
-        if (dist(e, u) <= stats.aaAura.r) dealDamage(u, e, stats.aaAura.dps * 0.25, {});
+        if (dist(e, u) <= stats.aaAura.r) { dealDamage(u, e, stats.aaAura.dps * 0.25, {}); struck = e; }
+      }
+      if (struck && stats.aaRockets && Math.random() < 0.55) {
+        // a rocket streaks off one of the shoulder racks (visual — the aura
+        // damage is already booked; the rocket lands with a dry warhead)
+        state.projectiles.push({
+          kind: 'missile', x: u.x + (Math.random() < 0.5 ? -7 : 6), y: u.y - 3,
+          targetId: struck.id, owner: u.owner, stats: { dmg: 0 },
+          angle: Math.atan2(struck.y - u.y, struck.x - u.x), speed: 280, life: 1.8,
+        });
+      }
+      if (struck && stats.aaChord && state.time - (u.chordT || -9) > 0.7) {
+        u.chordT = state.time;
+        Particles.pulse(u.x, u.y, stats.aaAura.r * 0.55, [125, 255, 214]);
       }
     }
   }
@@ -5427,7 +5459,9 @@ function drawUnitIso(u) {
   // gait × flags per type) and tanks wide-zoom FPS; creatures read fine at 8
   // once their undulation coefficients are tuned for it.
   const gait = Math.floor((u.travel || 0) / 7) & 7;
-  const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' + (animAtk ? atkB : 0) + '|' +
+  // claw strike: 3-bucket flip-book driven by the last close-quarters hit
+  const clawB = u.clawT ? Math.round(Math.max(0, 1 - (state.time - u.clawT) / 0.45) * 2) : 0;
+  const key = u.type + '|' + drawCol + '|' + qf + '|' + gait + '|' + (animAtk ? atkB : 0) + '|c' + clawB + '|' +
     ((moving ? 1 : 0) | (firing ? 2 : 0) | (u.carrying > 0 ? 4 : 0) | (grounded ? 8 : 0) | (airborne ? 16 : 0) | (melee ? 32 : 0) |
      (u.deployed ? 64 : 0) | (u.digging ? 128 : 0));
   const qFacing = qf * (Math.PI / 16); // render the bucket's representative pose
@@ -5456,6 +5490,7 @@ function drawUnitIso(u) {
         carrying: u.carrying > 0,
         deployed: !!u.deployed,
         digging: !!u.digging,
+        claw: clawB / 2,
         facing: qFacing,
         hdg: isoAngle(qFacing),
       });
@@ -5571,11 +5606,11 @@ function drawProjectilesIso() {
   for (const p of state.projectiles) {
     const px = isoX(p.x, p.y), py = isoY(p.x, p.y);
     if (p.kind === 'missile') {
-      // missiles chase aircraft, so they fly at aircraft altitude
+      // SAMs fly at aircraft altitude; shoulder rockets skim the ground
       ctx.fillStyle = 'rgba(0,0,0,0.25)';
       ctx.beginPath(); ctx.ellipse(px, py, 3.5, 1.8, 0, 0, Math.PI * 2); ctx.fill();
       ctx.save();
-      ctx.translate(px, py - FLY_H);
+      ctx.translate(px, py - (p.alt !== undefined ? p.alt + 4 : FLY_H));
       ctx.rotate(isoAngle(p.angle));
       ctx.fillStyle = '#e8edf2';
       ctx.fillRect(-4, -1.4, 8, 2.8);

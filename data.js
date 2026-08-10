@@ -279,7 +279,7 @@ const UNIT_TYPES = {
   laserguy: { name: 'Laser Pointer Guy', role: 'combat', builtAt: 'barracks', hp: 65, speed: 75, dmg: 9,  dmgVsGround: 4, atkRange: 175, cooldown: 0.6,  sight: 250, cost: 60, r: 9, buildTime: 6, targets: 'both' },
   // Resistance AA: a shoulder-fired Stinger — brutal to aircraft, near-useless
   // against ground, long reach and a slow reload
-  manpad:   { name: 'MANPAD Partisan',   role: 'combat', builtAt: 'barracks', hp: 55, speed: 88, dmg: 17, dmgVsGround: 3, atkRange: 235, cooldown: 1.9, sight: 270, cost: 65, r: 8, buildTime: 6, targets: 'both' },
+  manpad:   { name: 'MANPAD Partisan',   role: 'combat', builtAt: 'barracks', hp: 55, speed: 88, dmg: 17, dmgVsGround: 3, atkRange: 235, cooldown: 1.9, sight: 270, cost: 65, r: 8, buildTime: 6, targets: 'both', rocketArt: true },
   jammer:   { name: 'Signal Jammer',     role: 'combat', builtAt: 'barracks', hp: 80, speed: 70, dmg: 11, dmgVsGround: 5, atkRange: 185, cooldown: 0.7,  sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both', jams: true },
   slinger:  { name: 'Crystal Slinger',   role: 'combat', builtAt: 'barracks', hp: 70, speed: 72, dmg: 10, dmgVsGround: 4, atkRange: 180, cooldown: 0.65, sight: 250, cost: 65, r: 9, buildTime: 6, targets: 'both' },
   beamer:   { name: 'Beam Walker',       role: 'combat', builtAt: 'barracks', hp: 75, speed: 74, dmg: 10, dmgVsGround: 5, atkRange: 180, cooldown: 0.65, sight: 260, cost: 70, r: 9, buildTime: 6, targets: 'both' },
@@ -353,17 +353,17 @@ const UNIT_TYPES = {
   // The Lantern Guard fights like a space marine: vril bolts on the approach,
   // then the halberd once it closes (meleeDmg/meleeRange in tryAttack).
   lanternguard: { name: 'Lantern Guard', role: 'combat', builtAt: 'barracks', hp: 230, speed: 66, dmg: 13, atkRange: 135, cooldown: 0.9, sight: 230, cost: 0, r: 10, buildTime: 0, armor: 0.25, meleeDmg: 30, meleeRange: 34, vril: true, armorTier: 'guard', drawScale: 1.12 },
-  dreadnought:  { name: 'Dreadnought',   role: 'combat', builtAt: 'barracks', hp: 560, speed: 50, dmg: 24, atkRange: 165, cooldown: 0.55, sight: 240, cost: 0, r: 13, buildTime: 0, armor: 0.35, bldgBonus: 1.3, vril: true, armorTier: 'dread', drawScale: 1.8 },
+  dreadnought:  { name: 'Dreadnought',   role: 'combat', builtAt: 'barracks', hp: 560, speed: 50, dmg: 24, atkRange: 165, cooldown: 0.55, sight: 240, cost: 0, r: 13, buildTime: 0, armor: 0.35, bldgBonus: 1.3, clawArm: true, vril: true, armorTier: 'dread', drawScale: 1.8 },
   // the Warlord Drill Titan: near-invincible, an autocannon arm for the
   // ground, shoulder rocket salvos for the sky (aaAura), and a claw that
   // ruins anything it reaches (bldgBonus + crush). Forged in the Titan
   // Foundry from one Dreadnought, one Tech Priest, and a fortune.
-  titan: { name: 'Warlord Drill Titan', role: 'combat', builtAt: 'titanworks', hp: 2100, speed: 30, dmg: 30, atkRange: 215, cooldown: 0.35, sight: 320, cost: 0, r: 24, buildTime: 0, armor: 0.45, bldgBonus: 2, targets: 'ground', aaAura: { r: 210, dps: 22 }, vril: true, shape: 'square', drawScale: 2.6 },
+  titan: { name: 'Warlord Drill Titan', role: 'combat', builtAt: 'titanworks', hp: 2100, speed: 30, dmg: 30, atkRange: 215, cooldown: 0.35, sight: 320, cost: 0, r: 24, buildTime: 0, armor: 0.45, bldgBonus: 2, targets: 'ground', aaAura: { r: 210, dps: 22 }, aaRockets: true, clawArm: true, vril: true, shape: 'square', drawScale: 2.6 },
   // resistance specialists: the RPG tube is their can opener (vehBonus
   // multiplies damage vs ground vehicles), the marksman their long arm —
   // one bullet, one man: light infantry die to a single round, but the same
   // round barely dents armor plate or concrete (vehBonus/bldgBonus < 1)
-  rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2 },
+  rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2, rocketArt: true },
   marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 110, atkRange: 260, cooldown: 3.0, sight: 300, cost: 85, r: 9, buildTime: 7, vehBonus: 0.35, bldgBonus: 0.35 },
   // Flat's hunter: the Deer Stand Marksman only shoots from INSIDE a forest
   // (he has to climb his stand first) and is invisible among the trees until
@@ -489,7 +489,7 @@ const UNIT_TYPES = {
   // Pipe Organ Aerostat is a hovering calliope whose shockwave chords shred
   // nearby aircraft (aaAura) while its drone dampens enemy fire below.
   ornithopter: { name: 'Tesla Ornithopter', flyH: 30, drawScale: 1.5, role: 'combat', builtAt: 'airpad', hp: 155, speed: 120, dmg: 14, atkRange: 110, cooldown: 0.6, sight: 270, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'ground', shape: 'tri', vril: true },
-  aerostat: { name: 'Pipe Organ Aerostat', flyH: 36, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 270, speed: 76, dmg: 0, atkRange: 0, cooldown: 1, sight: 290, cost: 230, r: 13, buildTime: 13, flying: true, shape: 'blimp', aaAura: { r: 165, dps: 18 }, debuffAura: { r: 175, weaken: 0.3 }, vril: true, req: 'tech' },
+  aerostat: { name: 'Pipe Organ Aerostat', flyH: 36, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 270, speed: 76, dmg: 0, atkRange: 0, cooldown: 1, sight: 290, cost: 230, r: 13, buildTime: 13, flying: true, shape: 'blimp', aaAura: { r: 165, dps: 18 }, aaChord: true, debuffAura: { r: 175, weaken: 0.3 }, vril: true, req: 'tech' },
   // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
   // lance vaporizes ONE ground target at a time; its bound Tic Tac escort
   // (slow to regrow once shot down) is all that screens the sky above it.
