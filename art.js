@@ -2116,46 +2116,76 @@
       blinker(ctx, t + 1.1, -30, -30, '#8cd0ff', 2.2);
       blinker(ctx, t + 2.2, 30, 30, '#8cd0ff', 2.2);
     } else if (o.fam === 'hollow') {
-      // layered mound rising to a glowing chasm
+      // the Inner Sanctum: a stepped stone ziggurat-forge — the great cog
+      // turns over a brass gate, braziers burn, the mountain has a skyline
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(4, 5, 35, 33, 0, 0, TAU); ctx.fill();
-      for (const [rad, col] of [[34, '#4e463b'], [27, '#5c5347'], [20, '#6b6152'], [13, '#79705f']]) {
-        ctx.fillStyle = col;
-        ctx.beginPath();
-        ctx.arc(-((34 - rad) * 0.25), -((34 - rad) * 0.25), rad, 0, TAU);
-        ctx.fill();
-      }
-      // rocks on the slopes
-      ctx.fillStyle = '#433c32';
-      for (let i = 0; i < 9; i++) {
-        const a = i * 2.42, rr2 = 22 + (i * 13) % 9;
-        ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * rr2, Math.sin(a) * rr2);
-        ctx.lineTo(Math.cos(a) * rr2 + 4, Math.sin(a) * rr2 - 5);
-        ctx.lineTo(Math.cos(a) * rr2 + 7, Math.sin(a) * rr2);
-        ctx.closePath(); ctx.fill();
-      }
-      // glowing chasm w/ inner shaft
+      ctx.beginPath(); ctx.ellipse(4, 6, 36, 28, 0, 0, TAU); ctx.fill();
+      // rubble apron at the foundations
+      ctx.fillStyle = '#4e463b';
+      ctx.beginPath(); ctx.ellipse(0, 4, 34, 24, 0, 0, TAU); ctx.fill();
       const heat = 0.5 + 0.5 * Math.sin(t * 2.5);
-      const g = ctx.createRadialGradient(-3, -3, 1, -3, -3, 13);
-      g.addColorStop(0, `rgba(255,170,80,${0.75 + heat * 0.25})`);
-      g.addColorStop(1, 'rgba(255,120,50,0)');
-      ctx.fillStyle = g;
-      ctx.beginPath(); ctx.arc(-3, -3, 13, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#1d1813';
-      ctx.beginPath(); ctx.ellipse(-3, -3, 6.5, 5, 0.4, 0, TAU); ctx.fill();
-      ctx.fillStyle = `rgba(255,140,60,${0.4 + heat * 0.4})`;
-      ctx.beginPath(); ctx.ellipse(-3, -3, 3, 2.2, 0.4, 0, TAU); ctx.fill();
-      // carved glowing runes
-      ctx.strokeStyle = `rgba(255,150,70,${0.25 + heat * 0.3})`;
-      ctx.lineWidth = 1;
-      for (let i = 0; i < 6; i++) {
-        const a = i * 1.05 + 0.5;
+      billboard(ctx, 0, 14, () => {
+        const tiers = [[32, 13, '#584f43'], [25, 12, '#665c4e'], [18, 11, '#74695a'], [11, 11, '#7f7563']];
+        let y = 0;
+        for (const [w, h, col] of tiers) {
+          const g = ctx.createLinearGradient(0, y - h, 0, y);
+          g.addColorStop(0, shade(col, 0.16)); g.addColorStop(1, shade(col, -0.18));
+          ctx.fillStyle = g;
+          rr(ctx, -w, y - h, w * 2, h, 2); ctx.fill();
+          ctx.strokeStyle = '#352f26'; ctx.lineWidth = 0.8; rr(ctx, -w, y - h, w * 2, h, 2); ctx.stroke();
+          ctx.strokeStyle = 'rgba(40,35,28,0.5)'; ctx.lineWidth = 0.5; // block seams
+          for (let sx = -w + 6; sx < w - 3; sx += 8) {
+            ctx.beginPath(); ctx.moveTo(sx, y - h + 2); ctx.lineTo(sx, y - 2); ctx.stroke();
+          }
+          // brass trim lip on every tier edge
+          ctx.strokeStyle = 'rgba(201,169,94,0.55)'; ctx.lineWidth = 0.7;
+          ctx.beginPath(); ctx.moveTo(-w + 2, y - h); ctx.lineTo(w - 2, y - h); ctx.stroke();
+          y -= h;
+        }
+        // the crown: brass half-dome + campaign banner
+        ctx.fillStyle = '#c9a95e';
+        ctx.beginPath(); ctx.arc(0, y, 6.5, Math.PI, 0); ctx.fill();
+        ctx.strokeStyle = '#6d6041'; ctx.lineWidth = 0.7;
+        ctx.beginPath(); ctx.arc(0, y, 6.5, Math.PI, 0); ctx.stroke();
+        ctx.strokeStyle = '#352f26'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(6, y - 4); ctx.lineTo(6, y - 16); ctx.stroke();
+        ctx.fillStyle = '#7a2a22';
+        ctx.beginPath(); ctx.moveTo(6, y - 16); ctx.lineTo(12, y - 14.4); ctx.lineTo(6, y - 11.6); ctx.closePath(); ctx.fill();
+        // the great cog, set into the second tier, forever turning
+        ctx.save();
+        ctx.translate(0, -19);
+        ctx.fillStyle = '#c9a95e';
+        for (let i = 0; i < 10; i++) {
+          const a = (i / 10) * TAU + t * 0.25;
+          ctx.save(); ctx.rotate(a); ctx.fillRect(-1.4, -9.4, 2.8, 3); ctx.restore();
+        }
+        ctx.beginPath(); ctx.arc(0, 0, 7.6, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#3a352c';
+        ctx.beginPath(); ctx.arc(0, 0, 4.6, 0, TAU); ctx.fill();
+        ctx.fillStyle = `rgba(125,255,214,${(0.5 + 0.4 * Math.sin(t * 2)).toFixed(2)})`;
+        ctx.beginPath(); ctx.arc(0, 0, 2.2, 0, TAU); ctx.fill();
+        ctx.restore();
+        // the gate: dark arch breathing furnace light, teal glyph lintel
+        ctx.fillStyle = '#16120d';
         ctx.beginPath();
-        ctx.moveTo(Math.cos(a) * 16 - 3, Math.sin(a) * 16 - 3);
-        ctx.lineTo(Math.cos(a) * 21 - 3, Math.sin(a) * 21 - 3);
-        ctx.stroke();
-      }
+        ctx.moveTo(-5.5, 0); ctx.lineTo(-5.5, -6.5); ctx.arc(0, -6.5, 5.5, Math.PI, 0); ctx.lineTo(5.5, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = `rgba(255,150,60,${(0.25 + heat * 0.35).toFixed(2)})`;
+        ctx.beginPath(); ctx.ellipse(0, -1, 3.6, 4.5, 0, Math.PI, 0); ctx.fill();
+        ctx.fillStyle = `rgba(125,255,214,${(0.55 + heat * 0.35).toFixed(2)})`;
+        for (let i = 0; i < 4; i++) ctx.fillRect(-6.5 + i * 3.6, -13.6, 1.6, 1.6);
+        // brazier poles flanking the gate, flames guttering
+        for (const s of [-1, 1]) {
+          ctx.strokeStyle = '#352f26'; ctx.lineWidth = 1.1;
+          ctx.beginPath(); ctx.moveTo(s * 12, 0); ctx.lineTo(s * 12, -8); ctx.stroke();
+          ctx.fillStyle = '#4a463c'; ctx.fillRect(s * 12 - 1.6, -9.4, 3.2, 1.8);
+          const fl = 0.5 + 0.5 * Math.sin(t * 7 + s);
+          ctx.fillStyle = `rgba(255,170,70,${(0.55 + fl * 0.45).toFixed(2)})`;
+          ctx.beginPath();
+          ctx.moveTo(s * 12 - 1.4, -9.4); ctx.quadraticCurveTo(s * 12, -13 - fl * 2, s * 12 + 1.4, -9.4);
+          ctx.closePath(); ctx.fill();
+        }
+      });
     } else {
       // alien anchor: flat conduit deck + grand dome
       alienSlab(ctx, 68, 68, 8);
@@ -2479,32 +2509,55 @@
       ctx.fillRect(rt[0] + 3, rt[1] + 18, 38, 5);
       blinker(ctx, t, rt[0] + 3, rt[1] + 3, '#8cd0ff', 2.5);
     } else if (o.fam === 'hollow') {
-      // burrow mound with timber-framed entrance
+      // the Burrow: a stone gatehouse over the way down — iron-banded doors,
+      // glyph lintel, a chimney trailing cookfire smoke. Soldiers live here.
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(3, 4, 25, 22, 0, 0, TAU); ctx.fill();
-      for (const [rad, col] of [[24, '#584f43'], [18, '#665c4e'], [12, '#74695a']]) {
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.arc(-(24 - rad) * 0.3, -(24 - rad) * 0.3, rad, 0, TAU); ctx.fill();
-      }
-      // worn path
+      ctx.beginPath(); ctx.ellipse(3, 5, 25, 20, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#4e463b'; // spoil heap the gatehouse is dug into
+      ctx.beginPath(); ctx.ellipse(-4, -2, 20, 15, 0, 0, TAU); ctx.fill();
+      billboard(ctx, 2, 10, () => {
+        // stone blockhouse
+        const g = ctx.createLinearGradient(0, -20, 0, 0);
+        g.addColorStop(0, '#74695a'); g.addColorStop(1, '#544c40');
+        ctx.fillStyle = g;
+        rr(ctx, -14, -19, 28, 19, 2); ctx.fill();
+        ctx.strokeStyle = '#352f26'; ctx.lineWidth = 0.9; rr(ctx, -14, -19, 28, 19, 2); ctx.stroke();
+        ctx.strokeStyle = 'rgba(40,35,28,0.5)'; ctx.lineWidth = 0.5; // coursework
+        for (let yy = -15; yy < -2; yy += 4.5) { ctx.beginPath(); ctx.moveTo(-13, yy); ctx.lineTo(13, yy); ctx.stroke(); }
+        for (let sx = -9; sx <= 9; sx += 6) { ctx.beginPath(); ctx.moveTo(sx, -19); ctx.lineTo(sx, -15); ctx.stroke(); }
+        // crenellated parapet with a brass trim line
+        ctx.fillStyle = '#665c4e';
+        for (let i = -3; i <= 3; i++) ctx.fillRect(i * 4 - 1.5, -21.6, 3, 3);
+        ctx.strokeStyle = 'rgba(201,169,94,0.6)'; ctx.lineWidth = 0.7;
+        ctx.beginPath(); ctx.moveTo(-13.4, -19); ctx.lineTo(13.4, -19); ctx.stroke();
+        // the way down: iron-banded double doors under a glyph lintel
+        ctx.fillStyle = '#16120d';
+        ctx.beginPath();
+        ctx.moveTo(-6, 0); ctx.lineTo(-6, -8); ctx.arc(0, -8, 6, Math.PI, 0); ctx.lineTo(6, 0);
+        ctx.closePath(); ctx.fill();
+        ctx.fillStyle = '#3a342a';
+        ctx.fillRect(-5.2, -10.5, 4.6, 10.5); ctx.fillRect(0.6, -10.5, 4.6, 10.5);
+        ctx.strokeStyle = '#5a5548'; ctx.lineWidth = 0.6; // iron banding + studs
+        ctx.beginPath(); ctx.moveTo(-5.2, -7); ctx.lineTo(-0.6, -7); ctx.moveTo(0.6, -7); ctx.lineTo(5.2, -7);
+        ctx.moveTo(-5.2, -3); ctx.lineTo(-0.6, -3); ctx.moveTo(0.6, -3); ctx.lineTo(5.2, -3); ctx.stroke();
+        const fl = 0.5 + 0.5 * Math.sin(t * 6);
+        ctx.fillStyle = `rgba(125,255,214,${(0.5 + fl * 0.4).toFixed(2)})`;
+        for (let i = 0; i < 3; i++) ctx.fillRect(-4 + i * 3.2, -13.2, 1.6, 1.6); // lintel glyphs
+        // arrow slits glowing warm — someone's home
+        ctx.fillStyle = `rgba(255,190,90,${(0.5 + fl * 0.3).toFixed(2)})`;
+        ctx.fillRect(-11, -14, 1.4, 3.6); ctx.fillRect(9.6, -14, 1.4, 3.6);
+        // chimney + cookfire smoke
+        ctx.fillStyle = '#4a4238'; ctx.fillRect(8, -26, 3, 7);
+        ctx.fillStyle = 'rgba(150,140,120,0.35)';
+        const puff = (t * 0.4) % 1;
+        ctx.beginPath(); ctx.arc(9.5 + Math.sin(t) * 1.5, -27 - puff * 8, 1.6 + puff * 1.6, 0, TAU); ctx.fill();
+      });
+      // the worn path to the doors + a leaning pick
       ctx.fillStyle = 'rgba(80,68,52,0.6)';
-      ctx.beginPath(); ctx.ellipse(16, 12, 9, 4, 0.5, 0, TAU); ctx.fill();
-      // entrance + timber frame
-      ctx.fillStyle = '#1d1813';
-      ctx.beginPath(); ctx.ellipse(10, 8, 7.5, 5.5, 0.55, 0, TAU); ctx.fill();
-      ctx.strokeStyle = '#7a5c37';
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(4, 13); ctx.lineTo(6, 3); ctx.moveTo(15, 14); ctx.lineTo(16, 4); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(5, 3.5); ctx.lineTo(16.5, 4.5); ctx.stroke();
-      // torch glow
-      const fl = 0.5 + 0.5 * Math.sin(t * 8);
-      ctx.fillStyle = `rgba(255,170,70,${0.5 + fl * 0.5})`;
-      ctx.beginPath(); ctx.arc(3, 1, 1.4 + fl * 0.5, 0, TAU); ctx.fill();
-      // leaning pickaxe
-      ctx.strokeStyle = '#8b939e';
-      ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(-14, 14); ctx.lineTo(-8, 6); ctx.stroke();
-      ctx.beginPath(); ctx.arc(-8, 6, 3, 3.5, 5.6); ctx.stroke();
+      ctx.beginPath(); ctx.ellipse(10, 14, 9, 4, 0.4, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(-16, 14); ctx.lineTo(-11, 7); ctx.stroke();
+      ctx.beginPath(); ctx.arc(-11, 7, 3, 3.5, 5.6); ctx.stroke();
     } else {
       // cloning pod triplet on a flush deck
       alienSlab(ctx, 46, 38, 6);
@@ -4314,32 +4367,57 @@
       for (let i = 0; i < 3; i++) ctx.fillRect(rt[0] + 6 + i * 7, rt[1] + 30, 5, 7);
       blinker(ctx, t + 1.3, rt[0] + 2, rt[1] + 2, '#ff5f5f', 2);
     } else if (o.fam === 'hollow') {
-      // exposed geode forge: cracked mound over a glowing crystal core
+      // the Reliquary: a bone-and-brass shrine on stone altar steps — the
+      // recovered relic hovers in the arch while candles burn below. This is
+      // also where Servitors walk in and Lantern Guards walk out.
       ctx.fillStyle = 'rgba(0,0,0,0.3)';
-      ctx.beginPath(); ctx.ellipse(3, 4, 24, 22, 0, 0, TAU); ctx.fill();
-      for (const [rad, col] of [[23, '#4e463b'], [17, '#5c5347']]) {
-        ctx.fillStyle = col;
-        ctx.beginPath(); ctx.arc(-((23 - rad) * 0.3), -((23 - rad) * 0.3), rad, 0, TAU); ctx.fill();
-      }
+      ctx.beginPath(); ctx.ellipse(3, 5, 24, 19, 0, 0, TAU); ctx.fill();
       const pulse = 0.5 + 0.5 * Math.sin(t * 2.4);
-      ctx.fillStyle = `rgba(255,150,70,${0.25 + pulse * 0.3})`;
-      ctx.beginPath(); ctx.arc(-2, -2, 12, 0, TAU); ctx.fill();
-      // crystal spikes
-      for (let i = 0; i < 5; i++) {
-        const a = i * 1.26 + 0.4;
-        const cx2 = -2 + Math.cos(a) * 7, cy2 = -2 + Math.sin(a) * 6;
-        ctx.fillStyle = `rgba(190,230,255,${0.6 + pulse * 0.3})`;
-        ctx.beginPath();
-        ctx.moveTo(cx2 - 3, cy2 + 2);
-        ctx.lineTo(cx2 + Math.cos(a) * 8, cy2 + Math.sin(a) * 8 - 6);
-        ctx.lineTo(cx2 + 3, cy2 + 2);
-        ctx.closePath(); ctx.fill();
-        ctx.strokeStyle = 'rgba(90,130,170,0.7)'; ctx.lineWidth = 0.7; ctx.stroke();
-      }
-      // anvil-drill rig on the rim
-      block(ctx, 12, 6, 12, 12, 2, '#59524a', 3);
-      ctx.strokeStyle = '#8b7f5e'; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.moveTo(18, 6); ctx.lineTo(14, -6); ctx.stroke();
+      billboard(ctx, 0, 10, () => {
+        // altar steps
+        ctx.fillStyle = '#544c40'; rr(ctx, -16, -4, 32, 4, 1); ctx.fill();
+        ctx.fillStyle = '#665c4e'; rr(ctx, -12.5, -8, 25, 4.5, 1); ctx.fill();
+        ctx.strokeStyle = '#352f26'; ctx.lineWidth = 0.7;
+        rr(ctx, -16, -4, 32, 4, 1); ctx.stroke(); rr(ctx, -12.5, -8, 25, 4.5, 1); ctx.stroke();
+        // the bone arch, ribbed like something that once breathed
+        ctx.strokeStyle = '#d8d2c0'; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(-9, -8); ctx.lineTo(-9, -18); ctx.arc(0, -18, 9, Math.PI, 0); ctx.lineTo(9, -8); ctx.stroke();
+        ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6;
+        for (let i = 0; i < 5; i++) {
+          const a = Math.PI + (i + 0.5) / 5 * Math.PI;
+          ctx.beginPath();
+          ctx.moveTo(Math.cos(a) * 7.6, -18 + Math.sin(a) * 7.6);
+          ctx.lineTo(Math.cos(a) * 10.4, -18 + Math.sin(a) * 10.4);
+          ctx.stroke();
+        }
+        // brass reliquary chest on the altar
+        ctx.fillStyle = '#c9a95e'; rr(ctx, -5.5, -13.4, 11, 5.4, 1); ctx.fill();
+        ctx.strokeStyle = '#6d6041'; ctx.lineWidth = 0.7; rr(ctx, -5.5, -13.4, 11, 5.4, 1); ctx.stroke();
+        ctx.strokeStyle = '#6d6041';
+        ctx.beginPath(); ctx.moveTo(-5.5, -10.7); ctx.lineTo(5.5, -10.7); ctx.stroke(); // lid seam
+        // the relic, hovering in the arch above the open chest
+        const lev = -21 + Math.sin(t * 1.8) * 1.4;
+        const rg = ctx.createRadialGradient(0, lev, 0.5, 0, lev, 7);
+        rg.addColorStop(0, `rgba(210,255,240,${(0.5 + pulse * 0.4).toFixed(2)})`);
+        rg.addColorStop(1, 'rgba(125,255,214,0)');
+        ctx.fillStyle = rg;
+        ctx.beginPath(); ctx.arc(0, lev, 7, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#7dffd6';
+        ctx.save(); ctx.translate(0, lev); ctx.rotate(t * 0.8);
+        ctx.fillRect(-1.8, -1.8, 3.6, 3.6);
+        ctx.restore();
+        // candle row along the top step, each guttering on its own clock
+        for (let i = 0; i < 4; i++) {
+          const cx2 = -10 + i * 6.6;
+          ctx.fillStyle = '#d8d2c0'; ctx.fillRect(cx2 - 0.7, -10.6 + 4, 1.4, 2.6);
+          const fl = 0.5 + 0.5 * Math.sin(t * 8 + i * 1.7);
+          ctx.fillStyle = `rgba(255,190,90,${(0.5 + fl * 0.5).toFixed(2)})`;
+          ctx.beginPath(); ctx.arc(cx2, -7.6 + 0.2, 0.8 + fl * 0.4, 0, TAU); ctx.fill();
+        }
+        // glyphs carved up the arch legs
+        ctx.fillStyle = `rgba(125,255,214,${(0.4 + pulse * 0.4).toFixed(2)})`;
+        for (const s of [-1, 1]) for (let i = 0; i < 3; i++) ctx.fillRect(s * 9 - 0.8, -10.4 - i * 3, 1.6, 1.6);
+      });
     } else {
       // alien: levitating obelisk standing over a containment ring
       ctx.strokeStyle = 'rgba(125,255,214,0.5)';
@@ -5545,14 +5623,66 @@
     },
   });
   // ---------- the Hollow Mechanicus ----------
-  // Mole Servitor: a menial with implant cabling and a pick-rifle
-  I.moleservitor = (ctx, t, o) => isoTrooper(ctx, t, o, {
-    coat: '#6b5a45', pants: '#4a4032', head: ihHardhat, weapon: iwRifle,
-    pack: (c2) => {
-      c2.strokeStyle = 'rgba(125,255,214,0.6)'; c2.lineWidth = 0.5;
-      c2.beginPath(); c2.moveTo(-2.4, -8.4); c2.quadraticCurveTo(-3.6, -5, -2.6, -2.4); c2.stroke();
-    },
-  });
+  // Mole Servitor: a half-flesh menial — hunched bare torso, iron shoulder
+  // yoke, brass skull-plate with one vril optic, a metal arm on the
+  // drill-tipped carbine, and a cable running from spine to belt lantern
+  I.moleservitor = (ctx, t, o) => {
+    const m = Math.cos(o.hdg) < 0 ? -1 : 1;
+    const step = o.moving ? Math.sin((o.dist || 0) * 0.45) : 0;
+    ctx.save();
+    ctx.scale(m, 1);
+    // trousered legs, tired stance
+    ctx.strokeStyle = '#3a342a'; ctx.lineWidth = 1.7;
+    ctx.beginPath();
+    ctx.moveTo(-0.7, -4); ctx.lineTo(-0.9 - step * 2, 0);
+    ctx.moveTo(0.9, -4); ctx.lineTo(1.1 + step * 2, 0);
+    ctx.stroke();
+    // everything above the waist pitches forward: the hunch of the worked
+    ctx.save();
+    ctx.translate(0.5, 0);
+    ctx.rotate(0.16);
+    // bare torso: pale flesh over a bad diet
+    const g = ctx.createLinearGradient(0, -9.5, 0, -3.5);
+    g.addColorStop(0, '#c9a682'); g.addColorStop(1, '#8f7355');
+    ctx.fillStyle = g;
+    rr(ctx, -2.5, -9.2, 5, 5.6, 1.6); ctx.fill();
+    ctx.strokeStyle = '#5c4936'; ctx.lineWidth = 0.5; rr(ctx, -2.5, -9.2, 5, 5.6, 1.6); ctx.stroke();
+    ctx.strokeStyle = 'rgba(70,50,35,0.5)'; ctx.lineWidth = 0.4; // rib shadows
+    ctx.beginPath(); ctx.moveTo(-1.6, -7.4); ctx.lineTo(1.8, -7.2); ctx.moveTo(-1.6, -6.4); ctx.lineTo(1.8, -6.2); ctx.stroke();
+    ctx.fillStyle = '#8a8271'; // spine bolts
+    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-2.1, -8.6 + i * 1.7, 0.5, 0, TAU); ctx.fill(); }
+    // iron yoke across the shoulders; team band at the belt
+    ctx.fillStyle = '#4a463c'; rr(ctx, -3.2, -10, 6.4, 1.7, 0.5); ctx.fill();
+    ctx.fillStyle = o.color; ctx.fillRect(-2.5, -4.6, 5, 1.1);
+    // the metal arm reaching to the grip
+    ctx.strokeStyle = '#5a5548'; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(2, -8.8); ctx.lineTo(4.2, -6.8); ctx.stroke();
+    // head: bald scalp, brass plate riveted over the back of the skull,
+    // one vril optic where an eye was
+    ctx.save();
+    ctx.translate(0.9, -11.1);
+    ctx.fillStyle = '#c9a682';
+    ctx.beginPath(); ctx.arc(0, 0, 2.3, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#9c8c5e';
+    rr(ctx, -2.4, -2.3, 2.5, 3.4, 0.9); ctx.fill();
+    ctx.fillStyle = '#6d6041';
+    ctx.beginPath(); ctx.arc(-1.7, -1.2, 0.35, 0, TAU); ctx.arc(-1.7, 0.4, 0.35, 0, TAU); ctx.fill(); // rivets
+    ctx.fillStyle = 'rgba(125,255,214,1)'; ctx.fillRect(0.5, -0.7, 1.1, 1.1); // the optic
+    ctx.restore();
+    // drill-tipped mining carbine
+    ctx.strokeStyle = '#2c2f36'; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(-0.2, -6.2); ctx.lineTo(6, -7); ctx.stroke();
+    ctx.fillStyle = '#9aa2ae';
+    ctx.beginPath(); ctx.moveTo(6, -7.7); ctx.lineTo(7.9, -7); ctx.lineTo(6, -6.3); ctx.closePath(); ctx.fill();
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.95)'; ctx.beginPath(); ctx.arc(8.5, -7, 1.6, 0, TAU); ctx.fill(); }
+    ctx.restore(); // end hunch
+    // cable from the spine down into a belt lantern
+    ctx.strokeStyle = '#33302a'; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(-2.3, -8.4); ctx.quadraticCurveTo(-3.7, -5.5, -2.5, -3.8); ctx.stroke();
+    ctx.fillStyle = `rgba(125,255,214,${(0.55 + 0.3 * Math.sin(t * 3 + 1)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(-2.4, -3.3, 0.7, 0, TAU); ctx.fill();
+    ctx.restore();
+  };
   // Tech Priest: rust-red Mechanicus robes, a pale mask under the hood with
   // twin vril optics, a mechadendrite arcing over the shoulder, and the
   // cog-staff. Hunched, hem to the ground, cabled.
@@ -5717,26 +5847,62 @@
   };
   // Dreadnought: a walking sarcophagus — piston legs, riveted keep of a
   // torso, lantern slit, autocannon arm and a power fist. A MACHINE.
+  // ---------- articulated mech legs ----------
+  // Two-segment limbs striding in antiphase with real foot lift and a knee
+  // solved by 2-bone IK — the walk cycle spans exactly the 8 gait buckets
+  // (phase = dist * TAU/56), so cached frames play back as a smooth stride.
+  // kneeSign +1 bends the knee forward (dreadnought), -1 reverse-joints it
+  // (titan). Returns the body bob so the torso rides the step.
+  function mechLegs(ctx, o, cfg) {
+    const phase = (o.dist || 0) * (Math.PI * 2 / 56);
+    const moving = !!o.moving;
+    for (const s of [-1, 1]) { // rear leg first, darker
+      const p = phase + (s < 0 ? Math.PI : 0);
+      const hx = s * cfg.hipSep, hy = cfg.hipY;
+      const fx = hx + (moving ? Math.cos(p) * cfg.stride : s * cfg.stance);
+      const lift = moving ? Math.max(0, Math.sin(p)) * cfg.lift : 0;
+      const fy = -cfg.footH - lift;
+      // 2-bone IK for the knee
+      let dx = fx - hx, dy = fy - hy, d = Math.hypot(dx, dy);
+      const maxD = cfg.thigh + cfg.shin - 0.4;
+      if (d > maxD) { dx *= maxD / d; dy *= maxD / d; d = maxD; }
+      const fx2 = hx + dx, fy2 = hy + dy;
+      const base = Math.atan2(dy, dx);
+      const cosK = Math.min(1, Math.max(-1,
+        (cfg.thigh * cfg.thigh + d * d - cfg.shin * cfg.shin) / (2 * cfg.thigh * d)));
+      const ang = base + (cfg.kneeSign || 1) * Math.acos(cosK);
+      const kx = hx + Math.cos(ang) * cfg.thigh, ky = hy + Math.sin(ang) * cfg.thigh;
+      const col = s < 0 ? shade(cfg.color, -0.22) : cfg.color;
+      ctx.lineCap = 'round';
+      ctx.strokeStyle = col; ctx.lineWidth = cfg.w;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(kx, ky); ctx.stroke();
+      ctx.strokeStyle = shade(col, -0.18); ctx.lineWidth = cfg.w * 0.82;
+      ctx.beginPath(); ctx.moveTo(kx, ky); ctx.lineTo(fx2, fy2); ctx.stroke();
+      // piston rod glinting alongside the thigh
+      ctx.strokeStyle = 'rgba(210,200,170,0.5)'; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(hx + 0.8, hy + 0.6); ctx.lineTo(kx + 0.8, ky - 0.4); ctx.stroke();
+      // knee armor cap + slab foot
+      ctx.fillStyle = shade(col, 0.12);
+      ctx.beginPath(); ctx.arc(kx, ky, cfg.w * 0.55, 0, TAU); ctx.fill();
+      ctx.fillStyle = s < 0 ? '#1c1914' : '#26231d';
+      ctx.fillRect(fx2 - cfg.footW / 2, fy2 - 0.6, cfg.footW, cfg.footH + 0.6 + lift * 0.15);
+      ctx.lineCap = 'butt';
+    }
+    return moving ? -Math.abs(Math.sin(phase)) * cfg.bob : 0;
+  }
   I.dreadnought = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
-    const step = o.moving ? Math.sin((o.dist || 0) * 0.4) : 0;
+    const step = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) : 0;
     const IRON = '#4a463c', TRIM = '#c9a95e';
     ctx.save();
     ctx.scale(m, 1);
-    ctx.rotate(step * 0.03); // ponderous sway
-    // stubby wide-set trapezoid legs + slab feet: the box does the walking
-    ctx.fillStyle = shade(IRON, -0.22);
-    ctx.beginPath();
-    ctx.moveTo(-6.4 - step * 1.6, -7.4); ctx.lineTo(-2.8 - step * 1.6, -7.4);
-    ctx.lineTo(-3.6 - step * 1.6, -1); ctx.lineTo(-7.2 - step * 1.6, -1);
-    ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(2.8 + step * 1.6, -7.4); ctx.lineTo(6.4 + step * 1.6, -7.4);
-    ctx.lineTo(7.2 + step * 1.6, -1); ctx.lineTo(3.6 + step * 1.6, -1);
-    ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#26231d';
-    ctx.fillRect(-8.2 - step * 1.6, -1.4, 5.6, 2);
-    ctx.fillRect(2.6 + step * 1.6, -1.4, 5.6, 2);
+    // legs that WALK: forward knees, wide slab feet
+    const bob = mechLegs(ctx, o, {
+      hipSep: 4.4, hipY: -8.6, thigh: 4.6, shin: 4.4, stride: 3.6, stance: 1.2,
+      lift: 2.2, footH: 1.6, footW: 5, w: 2.6, bob: 0.9, color: shade(IRON, -0.1), kneeSign: 1,
+    });
+    ctx.translate(0, bob);
+    ctx.rotate(step * 0.03); // ponderous sway riding the stride
     // the body: one WIDE armored box, brass-trimmed
     const g = ctx.createLinearGradient(0, -17.8, 0, -7);
     g.addColorStop(0, shade(IRON, 0.24)); g.addColorStop(1, shade(IRON, -0.3));
@@ -5772,6 +5938,18 @@
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, -14, -16.8, 5.2, 6.8, 1.2); ctx.stroke();
     ctx.fillStyle = TRIM; // fist knuckles
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-12.8 + i * 1.5, -9.6, 0.6, 0, TAU); ctx.fill(); }
+    // power cable looping from the hull into the cannon arm
+    ctx.strokeStyle = '#33302a'; ctx.lineWidth = 0.9;
+    ctx.beginPath(); ctx.moveTo(6.8, -11.4); ctx.quadraticCurveTo(8.6, -9.2, 10.6, -10.4); ctx.stroke();
+    // purity seal on the fist box, censer swinging under the hull
+    ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-11.6, -12.8, 1.2, 2.2);
+    ctx.fillStyle = '#7a2a22'; ctx.fillRect(-11.6, -13.4, 1.2, 0.8);
+    const cs = Math.sin(t * 2 + 1) * 1.4 + step * 2;
+    ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(3.2, -7); ctx.lineTo(3.2 + cs, -4.2); ctx.stroke();
+    ctx.fillStyle = TRIM; ctx.beginPath(); ctx.arc(3.2 + cs, -3.6, 1, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(125,255,214,0.5)';
+    ctx.beginPath(); ctx.arc(3.2 + cs, -4.6, 0.5, 0, TAU); ctx.fill(); // vril smoke
     if (o.firing) { ctx.fillStyle = 'rgba(255,230,150,0.95)'; ctx.beginPath(); ctx.arc(18.6, -14, 2.3, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
@@ -5780,23 +5958,29 @@
   // drill claw, twin shoulder rocket racks and campaign banner.
   I.titan = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
-    const step = o.moving ? Math.sin((o.dist || 0) * 0.3) : 0;
+    const step = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) : 0;
     const IRON = '#4a463c', TRIM = '#c9a95e';
     ctx.save();
     ctx.scale(m, 1);
+    // reverse-jointed god-engine stride: long bones, high foot lift
+    const bob = mechLegs(ctx, o, {
+      hipSep: 4.8, hipY: -13.2, thigh: 7.2, shin: 6.8, stride: 5.2, stance: 1.6,
+      lift: 3.4, footH: 1.9, footW: 6.4, w: 3.2, bob: 1.3, color: shade(IRON, -0.08), kneeSign: -1,
+    });
+    ctx.translate(0, bob);
     ctx.rotate(step * 0.02);
-    // reverse-jointed leg towers
-    ctx.fillStyle = shade(IRON, -0.2);
-    for (const s of [-1, 1]) {
-      const lx = s * 4.8 + (s < 0 ? -step : step) * 2.2;
-      rr(ctx, lx - 2.1, -12, 4.2, 6.5, 1); ctx.fill();       // thigh column
-      rr(ctx, lx - 1.7, -6.5, 3.4, 5.6, 0.9); ctx.fill();    // shin, knee back-bent
-      ctx.fillRect(lx - 3.2, -1.2, 6.4, 1.9);                 // splayed foot
-    }
     ctx.fillStyle = shade(IRON, -0.36);
     rr(ctx, -7, -14.6, 14, 3.6, 1); ctx.fill();               // armored hip skirt
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6;
-    ctx.beginPath(); ctx.moveTo(-7, -11.4); ctx.lineTo(7, -11.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-6.4, -11.4); ctx.lineTo(6.4, -11.4); ctx.stroke();
+    // hanging kill-banner chains off the skirt edge
+    ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-5.8, -11.2); ctx.lineTo(-6 - step * 1.4, -8);
+    ctx.moveTo(5.8, -11.2); ctx.lineTo(6 - step * 1.4, -8.4);
+    ctx.stroke();
+    ctx.fillStyle = TRIM;
+    ctx.beginPath(); ctx.arc(-6 - step * 1.4, -7.6, 0.7, 0, TAU); ctx.arc(6 - step * 1.4, -8, 0.7, 0, TAU); ctx.fill();
     // torso keep
     const g = ctx.createLinearGradient(0, -27, 0, -13);
     g.addColorStop(0, shade(IRON, 0.26)); g.addColorStop(1, shade(IRON, -0.3));
