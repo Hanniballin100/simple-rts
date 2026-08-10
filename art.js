@@ -5982,12 +5982,15 @@
     ctx.fillStyle = '#7a2a22';
     ctx.beginPath(); ctx.moveTo(-4.6, -24.6); ctx.lineTo(-0.6, -23.6); ctx.lineTo(-4.6, -21.6); ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(125,255,214,0.9)'; ctx.beginPath(); ctx.arc(-3.4, -23.2, 0.6, 0, TAU); ctx.fill();
-    // shoulder actuators: brass-pinned piston struts down to the arm housings
+    // ARTICULATED arms: each hangs from its brass shoulder pin and swings
+    // counter to the stride; the cannon kicks back on the muzzle flash
+    const armF = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56) + Math.PI) * 0.14 : 0;
+    const armA = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) * 0.14 : 0;
+    // fore arm: strut + chamfered autocannon housing
+    ctx.save();
+    ctx.translate(6.6, -18); ctx.rotate(armF); ctx.translate(-6.6 - (o.firing ? 1.3 : 0), 18);
     ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(6.6, -18); ctx.lineTo(11.2, -16.6); ctx.moveTo(-6.6, -18); ctx.lineTo(-11.2, -16.6); ctx.stroke();
-    ctx.fillStyle = '#c9a95e';
-    ctx.beginPath(); ctx.arc(6.6, -18, 0.85, 0, TAU); ctx.arc(-6.6, -18, 0.85, 0, TAU); ctx.fill();
-    // arm housings: chamfered, hung clear of the hull — autocannon fore
+    ctx.beginPath(); ctx.moveTo(6.6, -18); ctx.lineTo(11.2, -16.6); ctx.stroke();
     ctx.fillStyle = shade(IRON, 0.05);
     ctx.beginPath();
     ctx.moveTo(8.8, -15.2); ctx.lineTo(10.4, -16.8); ctx.lineTo(14, -16.8); ctx.lineTo(14, -10); ctx.lineTo(8.8, -10);
@@ -5995,7 +5998,13 @@
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
     ctx.fillStyle = '#15191f';
     for (let i = 0; i < 2; i++) ctx.fillRect(14, -15.6 + i * 2.6, 3.6, 1.4); // twin barrels
-    // power fist aft
+    if (o.firing) { ctx.fillStyle = 'rgba(255,230,150,0.95)'; ctx.beginPath(); ctx.arc(18.6, -14, 2.3, 0, TAU); ctx.fill(); }
+    ctx.restore();
+    // aft arm: strut + power fist, purity seal riding the housing
+    ctx.save();
+    ctx.translate(-6.6, -18); ctx.rotate(armA); ctx.translate(6.6, 18);
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(-6.6, -18); ctx.lineTo(-11.2, -16.6); ctx.stroke();
     ctx.fillStyle = shade(IRON, 0.05);
     ctx.beginPath();
     ctx.moveTo(-8.8, -15.2); ctx.lineTo(-10.4, -16.8); ctx.lineTo(-14, -16.8); ctx.lineTo(-14, -10); ctx.lineTo(-8.8, -10);
@@ -6003,19 +6012,22 @@
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
     ctx.fillStyle = TRIM; // fist knuckles
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-12.8 + i * 1.5, -9.6, 0.6, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-11.6, -12.8, 1.2, 2.2); // purity seal
+    ctx.fillStyle = '#7a2a22'; ctx.fillRect(-11.6, -13.4, 1.2, 0.8);
+    ctx.restore();
+    // shoulder pins over everything
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(6.6, -18, 0.85, 0, TAU); ctx.arc(-6.6, -18, 0.85, 0, TAU); ctx.fill();
     // power cable looping from the hull into the cannon arm
     ctx.strokeStyle = '#33302a'; ctx.lineWidth = 0.9;
     ctx.beginPath(); ctx.moveTo(6.8, -11.4); ctx.quadraticCurveTo(8.6, -9.2, 10.6, -10.4); ctx.stroke();
-    // purity seal on the fist box, censer swinging under the hull
-    ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-11.6, -12.8, 1.2, 2.2);
-    ctx.fillStyle = '#7a2a22'; ctx.fillRect(-11.6, -13.4, 1.2, 0.8);
+    // censer swinging under the hull
     const cs = Math.sin(t * 2 + 1) * 1.4 + step * 2;
     ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(3.2, -7); ctx.lineTo(3.2 + cs, -4.2); ctx.stroke();
     ctx.fillStyle = TRIM; ctx.beginPath(); ctx.arc(3.2 + cs, -3.6, 1, 0, TAU); ctx.fill();
     ctx.fillStyle = 'rgba(125,255,214,0.5)';
     ctx.beginPath(); ctx.arc(3.2 + cs, -4.6, 0.5, 0, TAU); ctx.fill(); // vril smoke
-    if (o.firing) { ctx.fillStyle = 'rgba(255,230,150,0.95)'; ctx.beginPath(); ctx.arc(18.6, -14, 2.3, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
   // Warlord Drill Titan: a proper god-engine — reverse-jointed leg towers,
@@ -6106,31 +6118,46 @@
     ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.stroke();
     ctx.fillStyle = 'rgba(125,255,214,1)';
     ctx.fillRect(-1.9, -30.6, 1.4, 1.2); ctx.fillRect(0.6, -30.6, 1.4, 1.2);
-    // actuator struts (brass-pinned) + power hoses out to both arms
-    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.3;
-    ctx.beginPath(); ctx.moveTo(7.6, -27.2); ctx.lineTo(11, -25.6); ctx.moveTo(-7.6, -27.2); ctx.lineTo(-10.4, -22.6); ctx.stroke();
-    ctx.fillStyle = '#c9a95e';
-    ctx.beginPath(); ctx.arc(7.6, -27.2, 0.9, 0, TAU); ctx.arc(-7.6, -27.2, 0.9, 0, TAU); ctx.fill();
+    // ARTICULATED arms hung from brass carapace pins: the cannon swings
+    // counter to the stride and kicks back as it fires; the claw arm swings
+    // opposite, blades scissoring slightly with the motion
+    const armF = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56) + Math.PI) * 0.1 : 0;
+    const armA = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) * 0.1 : 0;
+    // power hoses (body-side, slack absorbs the swing)
     ctx.strokeStyle = '#33302a'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(6.8, -16); ctx.quadraticCurveTo(10.6, -17.4, 11.4, -20.9); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(-6.8, -16.4); ctx.quadraticCurveTo(-10, -16.8, -10.6, -19.8); ctx.stroke();
-    // the autocannon arm: tri-barrel, slung from the carapace edge
+    // fore arm: strut + the tri-barrel autocannon, recoiling on the flash
+    ctx.save();
+    ctx.translate(7.6, -27.2); ctx.rotate(armF); ctx.translate(-7.6 - (o.firing ? 1.6 : 0), 27.2);
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(7.6, -27.2); ctx.lineTo(11, -25.6); ctx.stroke();
     ctx.fillStyle = '#33383e'; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.fill();
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.stroke();
     ctx.strokeStyle = '#5a616a'; ctx.lineWidth = 0.5;
     ctx.beginPath(); ctx.moveTo(9.2, -25.4); ctx.lineTo(9.2, -21.2); ctx.moveTo(11.6, -25.4); ctx.lineTo(11.6, -21.2); ctx.stroke();
     ctx.fillStyle = '#15191f';
     for (let i = 0; i < 3; i++) ctx.fillRect(17.2, -25 + i * 1.5, 4.6, 1);
-    // the drill claw on the off arm
-    ctx.fillStyle = shade(IRON, -0.15); rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.5; rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.stroke();
-    ctx.fillStyle = '#9aa2ae';
-    ctx.beginPath(); ctx.moveTo(-10, -16.2); ctx.lineTo(-12.8, -11.4); ctx.lineTo(-7.8, -14.4); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-9.6, -16); ctx.lineTo(-6.2, -11.7); ctx.lineTo(-7, -15); ctx.closePath(); ctx.fill();
     if (o.firing) {
       ctx.fillStyle = 'rgba(255,230,150,0.95)';
       ctx.beginPath(); ctx.arc(22.8, -23.4 + (Math.sin(t * 40) > 0 ? 0 : 1.6), 2.6, 0, TAU); ctx.fill();
     }
+    ctx.restore();
+    // aft arm: strut + drill-claw housing, blades scissoring with the swing
+    ctx.save();
+    ctx.translate(-7.6, -27.2); ctx.rotate(armA); ctx.translate(7.6, 27.2);
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(-7.6, -27.2); ctx.lineTo(-10.4, -22.6); ctx.stroke();
+    ctx.fillStyle = shade(IRON, -0.15); rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.5; rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.stroke();
+    const scis = armA * 8; // the blades breathe open with the arm swing
+    ctx.fillStyle = '#9aa2ae';
+    ctx.beginPath(); ctx.moveTo(-10, -16.2); ctx.lineTo(-12.8 - scis, -11.4); ctx.lineTo(-7.8, -14.4); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-9.6, -16); ctx.lineTo(-6.2 + scis, -11.7); ctx.lineTo(-7, -15); ctx.closePath(); ctx.fill();
+    ctx.restore();
+    // brass carapace pins over the arm roots
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(7.6, -27.2, 0.9, 0, TAU); ctx.arc(-7.6, -27.2, 0.9, 0, TAU); ctx.fill();
     ctx.restore();
   };
   I.engineer = (ctx, t, o) => isoTrooper(ctx, t, o, {
