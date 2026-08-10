@@ -4758,35 +4758,54 @@ function refreshPanel() {
   }
 }
 
-// a Dig Site: stone cairn, public progress bar, and the exposed relic's glow
+// a Dig Site: an ancient rune-carved cairn — it must NOT read as a random
+// boulder, so the glyphs pulse teal and a slow glimmer rises off the stones
 function drawDigSite(s) {
   const px = isoX(s.x, s.y), py = isoY(s.x, s.y);
   ctx.save();
   ctx.translate(px, py);
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.beginPath(); ctx.ellipse(0, 3, 20, 10, 0, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(0, 3, 22, 11, 0, 0, Math.PI * 2); ctx.fill();
+  // disturbed earth ring around the stones
+  ctx.fillStyle = 'rgba(90,78,58,0.55)';
+  ctx.beginPath(); ctx.ellipse(0, 1.5, 21, 10, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#6f6a5e';
   ctx.beginPath(); ctx.ellipse(0, 0, 16, 8, 0, 0, Math.PI * 2); ctx.fill();
   ctx.fillStyle = '#57534a';
   ctx.beginPath(); ctx.ellipse(0, -1, 10, 5, 0, 0, Math.PI * 2); ctx.fill();
+  // the standing stone: an off-center menhir so the site has a skyline
+  ctx.fillStyle = '#615c50';
+  ctx.beginPath();
+  ctx.moveTo(-9, 1); ctx.lineTo(-7.4, -12); ctx.lineTo(-4.2, -13); ctx.lineTo(-2.6, 0);
+  ctx.closePath(); ctx.fill();
+  ctx.strokeStyle = '#3a372f'; ctx.lineWidth = 0.8; ctx.stroke();
   const dug = s.progress >= DIG_TIME;
+  const pulse = 0.45 + 0.4 * Math.sin(state.time * 2.6 + s.id);
   if (dug) {
     const g = 0.55 + 0.35 * Math.sin(state.time * 3);
     ctx.fillStyle = `rgba(125,255,214,${g.toFixed(2)})`;
-    ctx.beginPath(); ctx.arc(0, -4, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(2, -4, 4.5, 0, Math.PI * 2); ctx.fill();
   } else {
-    ctx.strokeStyle = '#3f3c35'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(-6, -1); ctx.lineTo(0, 2); ctx.lineTo(7, -2); ctx.stroke();
+    // carved glyphs, breathing teal — the unmistakable "dig here"
+    ctx.fillStyle = `rgba(125,255,214,${pulse.toFixed(2)})`;
+    ctx.fillRect(-6.6, -9.6, 1.4, 3.4);
+    ctx.fillRect(-4.4, -7.4, 1.2, 2.2);
+    ctx.fillRect(3, -3.4, 3.6, 1.2);
+    ctx.fillRect(6.2, -1.4, 2.4, 1);
+    // a mote of vril light drifting up off the stones
+    const rise = (state.time * 0.5 + s.id * 0.37) % 1;
+    ctx.fillStyle = `rgba(125,255,214,${(0.7 * (1 - rise)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(-5.6 + Math.sin(state.time + s.id) * 2, -14 - rise * 14, 1.3, 0, Math.PI * 2); ctx.fill();
   }
   if (s.progress > 0 && !dug) {
-    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(-14, -18, 28, 4);
-    ctx.fillStyle = '#7dffd6'; ctx.fillRect(-13, -17, 26 * (s.progress / DIG_TIME), 2);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(-14, -20, 28, 4);
+    ctx.fillStyle = '#7dffd6'; ctx.fillRect(-13, -19, 26 * (s.progress / DIG_TIME), 2);
   }
   // a finished dig (or the Third Eye) names the prize
   if (dug || relicHas(PLAYER, 'thirdeye')) {
     ctx.font = '9px monospace'; ctx.textAlign = 'center';
     ctx.fillStyle = 'rgba(200,255,235,0.85)';
-    ctx.fillText(RELIC_DEFS[s.relic].name, 0, -22);
+    ctx.fillText(RELIC_DEFS[s.relic].name, 0, -24);
   }
   ctx.restore();
 }
@@ -5722,6 +5741,27 @@ function drawOverlays() {
   ctx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, WORLD_W, WORLD_H);
   ctx.restore();
 
+  // dig sites punch THROUGH the fog: everyone knows where the legends are
+  // buried, scouted or not — a ghost rune floats over unexplored ground
+  // (explored tiles already show the full cairn under the fog tint)
+  for (const s of state.digSites) {
+    if (s.taken || tileState(s.x, s.y) !== 0) continue;
+    const px = isoX(s.x, s.y), py = isoY(s.x, s.y);
+    if (px < cam.x - 60 || px > cam.x + canvas.width / cam.zoom + 60 ||
+        py < cam.y - 60 || py > cam.y + canvas.height / cam.zoom + 60) continue;
+    const pulse = 0.35 + 0.3 * Math.sin(state.time * 2.6 + s.id);
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.strokeStyle = `rgba(125,255,214,${pulse.toFixed(2)})`;
+    ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.ellipse(0, 0, 14, 7, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = `rgba(125,255,214,${(pulse + 0.25).toFixed(2)})`;
+    ctx.fillRect(-1.2, -8, 2.4, 4.6);
+    ctx.fillRect(-3.8, -5.6, 1.6, 2.2);
+    ctx.fillRect(2.2, -5.6, 1.6, 2.2);
+    ctx.restore();
+  }
+
   if (mouse.sel) {
     const s = mouse.sel;
     ctx.strokeStyle = '#7fff9f';
@@ -5870,11 +5910,19 @@ function drawMinimap() {
     mmCtx.fillStyle = '#3fd7d0';
     mmCtx.fillRect(p.x * sx - 1, p.y * sy - 1, 3, 3);
   }
-  // dig sites: everyone sees the legends, fog or no fog
+  // dig sites: everyone sees the legends, fog or no fog — bright teal
+  // diamonds with a dark outline so they pop off any terrain
   for (const s of state.digSites) {
     if (s.taken) continue;
-    mmCtx.fillStyle = s.progress >= DIG_TIME ? '#7dffd6' : '#b9a86a';
-    mmCtx.fillRect(s.x * sx - 1.5, s.y * sy - 1.5, 4, 4);
+    const mx = s.x * sx, my = s.y * sy;
+    mmCtx.save();
+    mmCtx.translate(mx, my);
+    mmCtx.rotate(Math.PI / 4);
+    mmCtx.fillStyle = '#0e1a14';
+    mmCtx.fillRect(-3.4, -3.4, 6.8, 6.8);
+    mmCtx.fillStyle = s.progress >= DIG_TIME ? '#a5ffe6' : '#5fe3bd';
+    mmCtx.fillRect(-2.2, -2.2, 4.4, 4.4);
+    mmCtx.restore();
   }
   for (const b of state.buildings) {
     if (b.hp <= 0 || !visibleToPlayer(b)) continue;
