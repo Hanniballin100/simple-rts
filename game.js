@@ -4232,7 +4232,17 @@ function cancelUnit(type) {
       }
     }
   }
-  if (!best) return;
+  if (!best) {
+    // a slave pit rarely has a standing queue — right-click culls a living
+    // slave instead, and THAT death doesn't restock: the one way to shrink
+    // the pit (the death still pays its loosh; the knife is the knife)
+    if (ut.lifespan) {
+      const pool = state.units.filter(u2 => u2.owner === PLAYER && u2.hp > 0 && u2.type === type);
+      const s = pool[pool.length - 1];
+      if (s) { s.noRestock = true; s.hp = 0; sfx('click'); }
+    }
+    return;
+  }
   best.b.queue.splice(best.i, 1);
   state.minerals[PLAYER] += ut.cost;
   sfx('click');
@@ -4529,7 +4539,8 @@ function startGame(faction) {
 // click, which is why Launch/orders sometimes needed several presses)
 function panelSignature() {
   let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
-    (abilityTargeting || '') + (superTargeting || '') + (wallDrag ? 'w' : '') + '|';
+    (abilityTargeting || '') + (superTargeting || '') + (wallDrag ? 'w' : '') +
+    (isReptilian(PLAYER) ? 'd' + slaveDriveOf(PLAYER) : '') + '|';
   for (const e of selection) {
     if (e.hp <= 0) continue;
     s += e.kind + e.id + '·';
@@ -6141,7 +6152,7 @@ function frame(now) {
         if (UNIT_TYPES[u.type].looshOnDeath) {
           if (!u.looshBooked) { u.looshBooked = true; grantLoosh(u.owner, UNIT_TYPES[u.type].looshOnDeath); }
           Particles.pulse(u.x, u.y, 16, [220, 60, 90]);
-          trainUnit(u.owner, u.type);
+          if (!u.noRestock) trainUnit(u.owner, u.type); // a culled-by-choice slave stays culled
         }
         // a fallen Guard or Dreadnought leaves its armor for the priests
         if (UNIT_TYPES[u.type].armorTier && !u.abducted && isHollow(u.owner)) {

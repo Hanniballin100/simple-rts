@@ -1608,7 +1608,37 @@
   }
 
   // low concrete foundation with team-color corner brackets
+  // Hollow buildings sit on packed EARTH, not poured concrete: an irregular
+  // dirt apron with a trodden center, scattered stones, and team-color
+  // survey stakes at the corners for ownership
+  function earthPad(ctx, o) {
+    const rw = o.w / 2 + 4, rh = o.h / 2 + 4;
+    ctx.fillStyle = 'rgba(0,0,0,0.28)';
+    ctx.beginPath(); ctx.ellipse(2, 3, rw, rh * 0.9, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#4d4437';
+    ctx.beginPath();
+    for (let i = 0; i <= 11; i++) {
+      const a = i / 11 * TAU;
+      const wob = 1 + 0.12 * Math.sin(a * 3 + o.w) + 0.08 * Math.sin(a * 5 + o.h);
+      const x = Math.cos(a) * rw * wob, y = Math.sin(a) * rh * 0.92 * wob;
+      if (i) ctx.lineTo(x, y); else ctx.moveTo(x, y);
+    }
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#5a5043';
+    ctx.beginPath(); ctx.ellipse(-1, -1, rw * 0.72, rh * 0.66, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#3a352b';
+    for (let i = 0; i < 6; i++) {
+      const a = i * 1.13 + o.w * 0.1, rd = rw * (0.55 + (i % 3) * 0.14);
+      ctx.beginPath(); ctx.ellipse(Math.cos(a) * rd, Math.sin(a) * rd * 0.85, 2.2, 1.4, a, 0, TAU); ctx.fill();
+    }
+    ctx.strokeStyle = o.color; ctx.lineWidth = 1.6;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const cx = sx * rw * 0.82, cy = sy * rh * 0.74;
+      ctx.beginPath(); ctx.moveTo(cx, cy + 1); ctx.lineTo(cx, cy - 4); ctx.stroke();
+    }
+  }
   function pad(ctx, o) {
+    if (o.fam === 'hollow') { earthPad(ctx, o); return; }
     // ground-contact shadow so the slab sits ON the terrain, not painted on it
     ctx.fillStyle = 'rgba(0,0,0,0.30)';
     rr(ctx, -o.w / 2 + 2.5, -o.h / 2 + 3.5, o.w, o.h, 4);
@@ -5903,12 +5933,37 @@
     });
     ctx.translate(0, bob);
     ctx.rotate(step * 0.03); // ponderous sway riding the stride
-    // the body: one WIDE armored box, brass-trimmed
-    const g = ctx.createLinearGradient(0, -17.8, 0, -7);
+    // hip gimbal: an exposed ball joint with pistons out to the leg mounts
+    ctx.fillStyle = '#1c1914';
+    ctx.beginPath(); ctx.arc(0, -8, 2.8, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(-2.4, -8.4); ctx.lineTo(-4.6, -8.8); ctx.moveTo(2.4, -8.4); ctx.lineTo(4.6, -8.8); ctx.stroke();
+    // dark under-frame the armor bolts onto
+    ctx.fillStyle = '#2c2822';
+    rr(ctx, -7.2, -17, 14.4, 9.2, 1); ctx.fill();
+    // main carapace: a chamfered plate, waisted at the base — not a crate
+    const g = ctx.createLinearGradient(0, -18, 0, -9);
     g.addColorStop(0, shade(IRON, 0.24)); g.addColorStop(1, shade(IRON, -0.3));
     ctx.fillStyle = g;
-    rr(ctx, -8.4, -17.8, 16.8, 10.8, 1.8); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.8; rr(ctx, -8.4, -17.8, 16.8, 10.8, 1.8); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-8.6, -14.6); ctx.lineTo(-6.6, -18); ctx.lineTo(6.6, -18); ctx.lineTo(8.6, -14.6);
+    ctx.lineTo(7.4, -9.2); ctx.lineTo(-7.4, -9.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.8; ctx.stroke();
+    // separate sloped cowl plate overhanging the crown
+    ctx.fillStyle = shade(IRON, 0.14);
+    ctx.beginPath();
+    ctx.moveTo(-7.2, -18.2); ctx.lineTo(-5, -20.2); ctx.lineTo(5, -20.2); ctx.lineTo(7.2, -18.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(-5, -20.2); ctx.lineTo(5, -20.2); ctx.stroke();
+    // louvered vents cut into the chamfers
+    ctx.strokeStyle = '#26231d'; ctx.lineWidth = 0.8;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.moveTo(-8.1 + i * 0.4, -13.8 + i * 1.6); ctx.lineTo(-6.5 + i * 0.4, -14.1 + i * 1.6); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(8.1 - i * 0.4, -13.8 + i * 1.6); ctx.lineTo(6.5 - i * 0.4, -14.1 + i * 1.6); ctx.stroke();
+    }
     // bone sarcophagus panel, front and center
     ctx.fillStyle = '#d8d2c0';
     rr(ctx, -3.6, -16.6, 7.2, 6.6, 1); ctx.fill();
@@ -5916,9 +5971,9 @@
     ctx.fillStyle = 'rgba(125,255,214,1)';
     ctx.fillRect(-2, -15.4, 4, 1.3);                 // the lantern slit in the bone
     ctx.beginPath(); ctx.arc(0, -12.4, 1, 0, TAU); ctx.fill(); // vril roundel
-    ctx.fillStyle = shade(IRON, -0.5);               // stud row under the panel
-    for (const rx of [-7, -5.2, 5.6, 7.2]) { ctx.beginPath(); ctx.arc(rx, -9, 0.5, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = o.color; ctx.fillRect(-8.4, -8.6, 16.8, 1.6); // team girdle
+    ctx.fillStyle = shade(IRON, -0.5);               // stud row along the waist
+    for (const rx of [-6.6, -5, 5.4, 7]) { ctx.beginPath(); ctx.arc(rx, -9.9, 0.5, 0, TAU); ctx.fill(); }
+    ctx.fillStyle = o.color; ctx.fillRect(-7.4, -11.4, 14.8, 1.4); // team girdle on the waist plate
     // topside: twin exhaust stacks + the campaign banner
     ctx.fillStyle = '#26231d';
     ctx.fillRect(4.2, -20.6, 1.9, 3.2); ctx.fillRect(6.6, -19.8, 1.6, 2.4);
@@ -5927,15 +5982,25 @@
     ctx.fillStyle = '#7a2a22';
     ctx.beginPath(); ctx.moveTo(-4.6, -24.6); ctx.lineTo(-0.6, -23.6); ctx.lineTo(-4.6, -21.6); ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(125,255,214,0.9)'; ctx.beginPath(); ctx.arc(-3.4, -23.2, 0.6, 0, TAU); ctx.fill();
-    // hanging arm boxes OUTSIDE the hull: autocannon (fore), power fist (aft)
+    // shoulder actuators: brass-pinned piston struts down to the arm housings
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.2;
+    ctx.beginPath(); ctx.moveTo(6.6, -18); ctx.lineTo(11.2, -16.6); ctx.moveTo(-6.6, -18); ctx.lineTo(-11.2, -16.6); ctx.stroke();
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(6.6, -18, 0.85, 0, TAU); ctx.arc(-6.6, -18, 0.85, 0, TAU); ctx.fill();
+    // arm housings: chamfered, hung clear of the hull — autocannon fore
     ctx.fillStyle = shade(IRON, 0.05);
-    rr(ctx, 8.8, -16.8, 5.2, 6.8, 1.2); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, 8.8, -16.8, 5.2, 6.8, 1.2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(8.8, -15.2); ctx.lineTo(10.4, -16.8); ctx.lineTo(14, -16.8); ctx.lineTo(14, -10); ctx.lineTo(8.8, -10);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
     ctx.fillStyle = '#15191f';
     for (let i = 0; i < 2; i++) ctx.fillRect(14, -15.6 + i * 2.6, 3.6, 1.4); // twin barrels
+    // power fist aft
     ctx.fillStyle = shade(IRON, 0.05);
-    rr(ctx, -14, -16.8, 5.2, 6.8, 1.2); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, -14, -16.8, 5.2, 6.8, 1.2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-8.8, -15.2); ctx.lineTo(-10.4, -16.8); ctx.lineTo(-14, -16.8); ctx.lineTo(-14, -10); ctx.lineTo(-8.8, -10);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
     ctx.fillStyle = TRIM; // fist knuckles
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-12.8 + i * 1.5, -9.6, 0.6, 0, TAU); ctx.fill(); }
     // power cable looping from the hull into the cannon arm
@@ -5981,14 +6046,33 @@
     ctx.stroke();
     ctx.fillStyle = TRIM;
     ctx.beginPath(); ctx.arc(-6 - step * 1.4, -7.6, 0.7, 0, TAU); ctx.arc(6 - step * 1.4, -8, 0.7, 0, TAU); ctx.fill();
-    // torso keep
-    const g = ctx.createLinearGradient(0, -27, 0, -13);
+    // waist machinery: a brass drive-cog half-swallowed by the hip skirt
+    ctx.fillStyle = '#c9a95e';
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + t * 0.5;
+      ctx.save(); ctx.translate(4.8, -13.8); ctx.rotate(a); ctx.fillRect(-0.9, -4.4, 1.8, 1.8); ctx.restore();
+    }
+    ctx.beginPath(); ctx.arc(4.8, -13.8, 3.5, 0, TAU); ctx.fill();
+    ctx.fillStyle = '#2c2822'; ctx.beginPath(); ctx.arc(4.8, -13.8, 1.8, 0, TAU); ctx.fill();
+    // dark under-frame, then the chamfered keep bolted over it
+    ctx.fillStyle = '#2c2822';
+    rr(ctx, -6.8, -26, 13.6, 12, 1.2); ctx.fill();
+    const g = ctx.createLinearGradient(0, -27.4, 0, -13.6);
     g.addColorStop(0, shade(IRON, 0.26)); g.addColorStop(1, shade(IRON, -0.3));
     ctx.fillStyle = g;
-    rr(ctx, -7.8, -27, 15.6, 13, 2); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.9; rr(ctx, -7.8, -27, 15.6, 13, 2); ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(-9.4, -22.4); ctx.lineTo(-7, -27.2); ctx.lineTo(7, -27.2); ctx.lineTo(9.4, -22.4);
+    ctx.lineTo(7.8, -14.2); ctx.lineTo(-7.8, -14.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.9; ctx.stroke();
+    // bolted plate seams + louvers on the chamfers
     ctx.strokeStyle = shade(IRON, -0.5); ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(-7.8, -20.5); ctx.lineTo(7.8, -20.5); ctx.moveTo(-2.4, -27); ctx.lineTo(-2.4, -14.2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-8.4, -20.5); ctx.lineTo(8.4, -20.5); ctx.moveTo(-2.4, -27.2); ctx.lineTo(-2.4, -14.2); ctx.stroke();
+    ctx.strokeStyle = '#26231d'; ctx.lineWidth = 0.8;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath(); ctx.moveTo(-9, -21.4 + i * 1.7); ctx.lineTo(-7.2, -21.8 + i * 1.7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(9, -21.4 + i * 1.7); ctx.lineTo(7.2, -21.8 + i * 1.7); ctx.stroke();
+    }
     ctx.fillStyle = `rgba(255,150,60,${(0.5 + 0.25 * Math.sin(t * 6)).toFixed(2)})`; // breathing furnace grille
     for (let i = 0; i < 3; i++) ctx.fillRect(-1 + i * 2, -18.6, 1.2, 2.8);
     ctx.fillStyle = o.color; ctx.fillRect(-7.8, -15.9, 15.6, 1.9); // team girdle
@@ -6022,6 +6106,14 @@
     ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.stroke();
     ctx.fillStyle = 'rgba(125,255,214,1)';
     ctx.fillRect(-1.9, -30.6, 1.4, 1.2); ctx.fillRect(0.6, -30.6, 1.4, 1.2);
+    // actuator struts (brass-pinned) + power hoses out to both arms
+    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.3;
+    ctx.beginPath(); ctx.moveTo(7.6, -27.2); ctx.lineTo(11, -25.6); ctx.moveTo(-7.6, -27.2); ctx.lineTo(-10.4, -22.6); ctx.stroke();
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(7.6, -27.2, 0.9, 0, TAU); ctx.arc(-7.6, -27.2, 0.9, 0, TAU); ctx.fill();
+    ctx.strokeStyle = '#33302a'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(6.8, -16); ctx.quadraticCurveTo(10.6, -17.4, 11.4, -20.9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-6.8, -16.4); ctx.quadraticCurveTo(-10, -16.8, -10.6, -19.8); ctx.stroke();
     // the autocannon arm: tri-barrel, slung from the carapace edge
     ctx.fillStyle = '#33383e'; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.fill();
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.stroke();
