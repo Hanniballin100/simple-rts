@@ -6063,14 +6063,26 @@
           ctx.beginPath(); ctx.arc(8.2, 5.8, 2.2, 0, TAU); ctx.fill();
         }
       } else {
-        // power-fist knuckles + purity seal (+ impact flash mid-punch)
-        ctx.fillStyle = TRIM;
-        for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-1.6 + i * 1.6, 9.2, 0.65, 0, TAU); ctx.fill(); }
-        ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-1, 4.6, 1.2, 2.4);
-        ctx.fillStyle = '#7a2a22'; ctx.fillRect(-1, 4, 1.2, 0.8);
+        // the claw HAND: three steel fingers hinged off the housing base on
+        // brass knuckle pins — they splay wide through the punch
+        ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-1, 3.9, 1.2, 2.4); // purity seal
+        ctx.fillStyle = '#7a2a22'; ctx.fillRect(-1, 3.3, 1.2, 0.8);
+        for (const [fx, fa] of [[-1.9, -0.45], [0, 0], [1.9, 0.45]]) {
+          ctx.save();
+          ctx.translate(fx, 8.4);
+          ctx.rotate(fa * (0.5 + punch * 0.9));
+          ctx.fillStyle = '#9aa2ae';
+          ctx.beginPath();
+          ctx.moveTo(-1, 0); ctx.lineTo(-0.3, 4.4 + punch * 1.2); ctx.lineTo(0.5, 4.6 + punch * 1.2); ctx.lineTo(1, 0);
+          ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.4; ctx.stroke();
+          ctx.fillStyle = '#c9a95e';
+          ctx.beginPath(); ctx.arc(0, 0.6, 0.7, 0, TAU); ctx.fill();
+          ctx.restore();
+        }
         if (punch > 0.6) {
           ctx.fillStyle = 'rgba(255,230,150,0.9)';
-          ctx.beginPath(); ctx.arc(0, 10.6, 1.9, 0, TAU); ctx.fill();
+          ctx.beginPath(); ctx.arc(0, 12.6, 2, 0, TAU); ctx.fill();
         }
       }
       ctx.restore();
@@ -6150,36 +6162,8 @@
     ctx.fillStyle = `rgba(255,150,60,${(0.5 + 0.25 * Math.sin(t * 6)).toFixed(2)})`; // breathing furnace grille
     for (let i = 0; i < 3; i++) ctx.fillRect(-1 + i * 2, -18.6, 1.2, 2.8);
     ctx.fillStyle = o.color; ctx.fillRect(-7.8, -15.9, 15.6, 1.9); // team girdle
-    // carapace slab overhanging the keep
-    ctx.fillStyle = shade(IRON, -0.12);
-    rr(ctx, -9, -28.8, 18, 3.4, 1.2); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, -9, -28.8, 18, 3.4, 1.2); ctx.stroke();
-    // shoulder rocket racks riding the carapace
-    for (const s of [-1, 1]) {
-      const px = s < 0 ? -12.2 : 7.2;
-      ctx.fillStyle = shade(IRON, -0.05); rr(ctx, px, -31, 5, 4.2, 0.9); ctx.fill();
-      ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.5; rr(ctx, px, -31, 5, 4.2, 0.9); ctx.stroke();
-      ctx.fillStyle = '#15191f';
-      for (let i = 0; i < 3; i++) ctx.fillRect(px + 0.7 + i * 1.5, -30.3, 1, 2.8);
-    }
-    // twin campaign banners hanging from the racks, swaying as it walks
-    for (const s of [-1, 1]) {
-      const bx = s < 0 ? -11.2 : 9.2;
-      ctx.fillStyle = '#7a2a22';
-      ctx.beginPath();
-      ctx.moveTo(bx - 1.4, -26.6); ctx.lineTo(bx + 1.4, -26.6);
-      ctx.lineTo(bx + 1.1 + step * s, -18.4); ctx.lineTo(bx - 1.1 + step * s, -19.2);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#2c0f0b'; ctx.lineWidth = 0.4; ctx.stroke();
-      ctx.fillStyle = 'rgba(125,255,214,0.95)';
-      ctx.beginPath(); ctx.arc(bx, -23.4, 0.8, 0, TAU); ctx.fill(); // vril sigil
-      ctx.fillStyle = TRIM; ctx.fillRect(bx - 1.5, -27, 3, 0.7);    // hanging rail
-    }
-    // bone head cupola, eyes burning
-    ctx.fillStyle = '#d8d2c0'; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.fill();
-    ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.stroke();
-    ctx.fillStyle = 'rgba(125,255,214,1)';
-    ctx.fillRect(-1.9, -30.6, 1.4, 1.2); ctx.fillRect(0.6, -30.6, 1.4, 1.2);
+    // (the great carapace, crown batteries, head and banners are drawn
+    // AFTER the arms so the shell overhangs them — see below)
     // TRUE arms off the carapace pins: upper arm, brass elbow, forearm —
     // the cannon hangs at keep height and recoils; the claw arm swings
     // opposite with its blades scissoring
@@ -6191,20 +6175,23 @@
       w: 2.8, swing: 2, phaseOff: Math.PI, elbowSign: -1,
       color: shade(IRON, 0.16), recoil: o.firing ? -1.6 : 0,
     });
-    // the tri-barrel autocannon at the hand
+    // the paired mega-cannon at the hand: two barrel decks, four tubes
     ctx.fillStyle = '#33383e';
     ctx.beginPath();
-    ctx.moveTo(thx - 1.8, thy - 2.5); ctx.lineTo(thx + 4.4, thy - 2.5); ctx.lineTo(thx + 5.8, thy - 1.2);
-    ctx.lineTo(thx + 5.8, thy + 2.5); ctx.lineTo(thx - 1.8, thy + 2.5);
+    ctx.moveTo(thx - 2, thy - 3.4); ctx.lineTo(thx + 4.6, thy - 3.4); ctx.lineTo(thx + 6, thy - 2);
+    ctx.lineTo(thx + 6, thy + 3.4); ctx.lineTo(thx - 2, thy + 3.4);
     ctx.closePath(); ctx.fill();
     ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6; ctx.stroke();
     ctx.strokeStyle = '#5a616a'; ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(thx + 0.4, thy - 2.3); ctx.lineTo(thx + 0.4, thy + 2.3); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(thx + 0.2, thy - 3.2); ctx.lineTo(thx + 0.2, thy + 3.2); ctx.stroke();
     ctx.fillStyle = '#15191f';
-    for (let i = 0; i < 3; i++) ctx.fillRect(thx + 5.8, thy - 1.9 + i * 1.5, 4.4, 1);
+    for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++)
+      ctx.fillRect(thx + 6, thy - 2.9 + j * 3.2 + i * 1.4, 5, 1);
+    ctx.fillStyle = shade(IRON, 0.1); // barrel shroud clamp
+    ctx.fillRect(thx + 8.2, thy - 3.2, 1.2, 6.6);
     if (o.firing) {
       ctx.fillStyle = 'rgba(255,230,150,0.95)';
-      ctx.beginPath(); ctx.arc(thx + 11.4, thy + (Math.sin(t * 40) > 0 ? -0.8 : 0.8), 2.6, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(thx + 12.2, thy + (Math.sin(t * 40) > 0 ? -1.9 : 1.4), 2.6, 0, TAU); ctx.fill();
     }
     // a close-quarters kill drives the whole claw arm forward (o.claw)
     const pnch = o.claw || 0;
@@ -6225,6 +6212,79 @@
     ctx.fillStyle = '#9aa2ae';
     ctx.beginPath(); ctx.moveTo(clx, cly + 2.2); ctx.lineTo(clx - 2.6 - scis, cly + 7.4); ctx.lineTo(clx + 1.6, cly + 3.2); ctx.closePath(); ctx.fill();
     ctx.beginPath(); ctx.moveTo(clx + 0.4, cly + 2.4); ctx.lineTo(clx + 3.4 + scis, cly + 6.8); ctx.lineTo(clx + 2.2, cly + 2.6); ctx.closePath(); ctx.fill();
+    // ================= THE GREAT CARAPACE =================
+    // drawn OVER the arm roots: the domed shell is the widest thing on the
+    // silhouette — a cathedral roof the whole machine hides beneath
+    const cg = ctx.createLinearGradient(0, -38.5, 0, -20);
+    cg.addColorStop(0, shade(IRON, 0.3)); cg.addColorStop(1, shade(IRON, -0.26));
+    ctx.fillStyle = cg;
+    ctx.beginPath();
+    ctx.moveTo(-14.6, -21.5);
+    ctx.quadraticCurveTo(-15.4, -33, -8, -37.6);
+    ctx.quadraticCurveTo(0, -39.6, 8, -37.6);
+    ctx.quadraticCurveTo(15.4, -33, 14.6, -21.5);
+    ctx.lineTo(11.6, -20);
+    ctx.lineTo(9, -23.5);
+    ctx.quadraticCurveTo(0, -26.4, -9, -23.5); // the brow over the head
+    ctx.lineTo(-11.6, -20);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 1; ctx.stroke();
+    // shell ribs + eave rivets
+    ctx.strokeStyle = shade(IRON, -0.45); ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(-12.4, -24.2); ctx.quadraticCurveTo(0, -30.5, 12.4, -24.2);
+    ctx.moveTo(-10.6, -29.4); ctx.quadraticCurveTo(0, -35, 10.6, -29.4);
+    ctx.stroke();
+    ctx.fillStyle = TRIM;
+    for (const [rx, ry] of [[-12.6, -23], [-6.6, -26], [0, -27.2], [6.6, -26], [12.6, -23]]) {
+      ctx.beginPath(); ctx.arc(rx, ry, 0.5, 0, TAU); ctx.fill();
+    }
+    // vril sigil blazoned on the crown
+    ctx.fillStyle = 'rgba(125,255,214,0.9)';
+    ctx.beginPath(); ctx.arc(0, -33.6, 1.6, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(125,255,214,0.55)'; ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.arc(0, -33.6, 2.9, 0, TAU); ctx.stroke();
+    // crown batteries: twin quad-tube clusters angled skyward — the racks
+    // the AA salvos streak from
+    for (const s of [-1, 1]) {
+      ctx.save();
+      ctx.translate(s * 8.8, -35.4);
+      ctx.rotate(s * -0.35);
+      ctx.fillStyle = shade(IRON, -0.05);
+      rr(ctx, -2.4, -1.8, 6.4, 3.8, 0.9); ctx.fill();
+      ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.5; rr(ctx, -2.4, -1.8, 6.4, 3.8, 0.9); ctx.stroke();
+      ctx.fillStyle = '#15191f';
+      for (let j = 0; j < 2; j++) ctx.fillRect(4, -1.5 + j * 2, 3.4, 1.1);
+      ctx.restore();
+    }
+    // the head: a small bone skull peering out from UNDER the brow
+    ctx.fillStyle = '#d8d2c0'; rr(ctx, -2.6, -24.8, 5.2, 3.8, 1.3); ctx.fill();
+    ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.5; rr(ctx, -2.6, -24.8, 5.2, 3.8, 1.3); ctx.stroke();
+    ctx.fillStyle = 'rgba(125,255,214,1)';
+    ctx.fillRect(-1.7, -23.8, 1.3, 1.1); ctx.fillRect(0.5, -23.8, 1.3, 1.1);
+    // kill banners off both eaves
+    for (const s of [-1, 1]) {
+      const bx = s * 13.4;
+      ctx.fillStyle = TRIM; ctx.fillRect(bx - 1.6, -21.8, 3.2, 0.7);
+      ctx.fillStyle = '#7a2a22';
+      ctx.beginPath();
+      ctx.moveTo(bx - 1.3, -21.1); ctx.lineTo(bx + 1.3, -21.1);
+      ctx.lineTo(bx + 1 + step * s, -13.6); ctx.lineTo(bx - 1 + step * s, -14.4);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#2c0f0b'; ctx.lineWidth = 0.4; ctx.stroke();
+      ctx.fillStyle = 'rgba(125,255,214,0.95)';
+      ctx.beginPath(); ctx.arc(bx, -18.2, 0.7, 0, TAU); ctx.fill();
+    }
+    // the great banner between the striding legs, bone-script rows swaying
+    ctx.fillStyle = TRIM; ctx.fillRect(-2.9, -13.4, 5.8, 0.8);
+    ctx.fillStyle = '#7a2a22';
+    ctx.beginPath();
+    ctx.moveTo(-2.6, -12.6); ctx.lineTo(2.6, -12.6);
+    ctx.lineTo(2 + step * 1.8, -1.4); ctx.lineTo(step * 1.8, -2.6); ctx.lineTo(-2 + step * 1.8, -1);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#2c0f0b'; ctx.lineWidth = 0.5; ctx.stroke();
+    ctx.fillStyle = '#d8d2c0';
+    for (let i = 0; i < 3; i++) ctx.fillRect(-1.3 + step * 0.6 * i, -10.4 + i * 2.6, 2.6, 0.7);
     ctx.restore();
   };
   I.engineer = (ctx, t, o) => isoTrooper(ctx, t, o, {
@@ -6821,25 +6881,38 @@
     props: [{ x: -10.5, y: 0, z: 3, r: 2.4, speed: 40 }],
   });
 
-  // Tesla Ornithopter: a brass four-winged contraption, coil crackling amidships
+  // Tesla Ornithopter, Dune-pattern: a long slender fuselage with a glazed
+  // cockpit nose, SIX razor-thin blade wings fanned from the mid hub caught
+  // mid-beat, and a tail boom — the tesla coil still crackles at the hub
   I.ornithopter = (ctx, t, o) => isoAircraft(ctx, t, o, {
     parts: [
-      { poly: [[4, -10], [-2, -12], [-5, -10.5], [0, -1.5]], base: 2.2, h: 0.7, body: '#9c8c5e' }, // fore wing L
-      { poly: [[4, 10], [-2, 12], [-5, 10.5], [0, 1.5]], base: 2.2, h: 0.7, body: '#9c8c5e' },      // fore wing R
-      { poly: [[-3, -8], [-8, -9.5], [-9.5, -8], [-5, -1.5]], base: 1.6, h: 0.6, body: '#8a7a52' }, // aft wing L
-      { poly: [[-3, 8], [-8, 9.5], [-9.5, 8], [-5, 1.5]], base: 1.6, h: 0.6, body: '#8a7a52' },     // aft wing R
-      { poly: [[9, 0], [6, -2.2], [-8, -2], [-10, 0], [-8, 2], [6, 2.2]], base: 0, h: 3, body: '#7a6a48',
+      // starboard blade fan
+      { poly: [[2.6, 1.1], [8.6, 12.8], [6.8, 13.6], [1.4, 1.6]], base: 2.8, h: 0.4, body: '#8a8f8c' },
+      { poly: [[1.6, 1.2], [2.8, 14.2], [1, 14.4], [0.2, 1.5]], base: 3.1, h: 0.4, body: '#9aa09a' },
+      { poly: [[0.4, 1.2], [-4.6, 13.4], [-6.2, 12.6], [-1, 1.4]], base: 3.4, h: 0.4, body: '#8a8f8c' },
+      // port blade fan
+      { poly: [[2.6, -1.1], [8.6, -12.8], [6.8, -13.6], [1.4, -1.6]], base: 2.8, h: 0.4, body: '#8a8f8c' },
+      { poly: [[1.6, -1.2], [2.8, -14.2], [1, -14.4], [0.2, -1.5]], base: 3.1, h: 0.4, body: '#9aa09a' },
+      { poly: [[0.4, -1.2], [-4.6, -13.4], [-6.2, -12.6], [-1, -1.4]], base: 3.4, h: 0.4, body: '#8a8f8c' },
+      // the fuselage: bulged at the wing hub, tapering to the tail boom
+      { poly: [[12.6, 0], [10.4, -1.5], [4, -2.1], [-3, -1.9], [-9, -1], [-13.6, -0.5], [-13.6, 0.5], [-9, 1], [-3, 1.9], [4, 2.1], [10.4, 1.5]], base: 0.6, h: 2.6, body: '#565c53',
         detail: (c, t2, o2) => {
-          c.strokeStyle = '#4c4436'; c.lineWidth = 0.5; // riveted hull seams
-          c.beginPath(); c.moveTo(4, -1.8); c.lineTo(4, 1.8); c.moveTo(-2, -1.8); c.lineTo(-2, 1.8); c.stroke();
-          const g = o2.firing ? 1 : 0.55 + 0.3 * Math.sin(t2 * 6);
-          c.fillStyle = `rgba(125,255,214,${g.toFixed(2)})`;   // the tesla coil
-          c.beginPath(); c.arc(1, 0, 1.5, 0, TAU); c.fill();
+          c.fillStyle = 'rgba(140,190,200,0.75)'; // glazed cockpit nose
+          c.beginPath();
+          c.moveTo(11.8, 0); c.lineTo(9.6, -1.2); c.lineTo(6.4, -1.5); c.lineTo(6.4, 1.5); c.lineTo(9.6, 1.2);
+          c.closePath(); c.fill();
+          c.strokeStyle = '#2e332e'; c.lineWidth = 0.4;
+          c.beginPath(); c.moveTo(8.2, -1.4); c.lineTo(8.2, 1.4); c.stroke(); // canopy frame
+          const g2 = o2.firing ? 1 : 0.5 + 0.3 * Math.sin(t2 * 6);
+          c.fillStyle = `rgba(125,255,214,${g2.toFixed(2)})`; // the coil at the hub
+          c.beginPath(); c.arc(1.4, 0, 1.3, 0, TAU); c.fill();
           if (o2.firing) {
             c.strokeStyle = 'rgba(125,255,214,0.9)'; c.lineWidth = 0.7;
-            c.beginPath(); c.moveTo(2, 0); c.lineTo(7.5, -1.2); c.moveTo(2, 0); c.lineTo(7, 1.4); c.stroke();
+            c.beginPath(); c.moveTo(2.6, 0); c.lineTo(8, -1.6); c.moveTo(2.6, 0); c.lineTo(7.6, 1.8); c.stroke();
           }
         } },
+      // tail fin
+      { poly: [[-12.6, -0.5], [-15.8, -1.8], [-15.8, 1.8], [-12.6, 0.5]], base: 1.6, h: 1.5, body: '#4a4f48' },
     ],
   });
   // Pipe Organ Aerostat: a boilerplate balloon with a rank of brass pipes
