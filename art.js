@@ -5920,6 +5920,40 @@
     }
     return moving ? -Math.abs(Math.sin(phase)) * cfg.bob : 0;
   }
+  // an articulated mech arm: shoulder pin -> thick upper-arm -> brass elbow
+  // -> forearm, with the hand swinging fore/aft on the stride. The weapon
+  // housing is drawn BY the caller at the returned hand point, so it hangs
+  // clearly outboard of the hull instead of reading as a bolted-on stub.
+  function mechArm(ctx, o, cfg) {
+    const phase = (o.dist || 0) * (Math.PI * 2 / 56);
+    const sw = o.moving ? Math.sin(phase + (cfg.phaseOff || 0)) * (cfg.swing || 2.6) : 0;
+    const hx = cfg.handX + sw + (cfg.recoil || 0), hy = cfg.handY + Math.abs(sw) * 0.35;
+    let dx = hx - cfg.sx, dy = hy - cfg.sy, d = Math.hypot(dx, dy);
+    const maxD = cfg.upper + cfg.fore - 0.3;
+    if (d > maxD) { dx *= maxD / d; dy *= maxD / d; d = maxD; }
+    const hx2 = cfg.sx + dx, hy2 = cfg.sy + dy;
+    const base = Math.atan2(dy, dx);
+    const cosE = Math.min(1, Math.max(-1,
+      (cfg.upper * cfg.upper + d * d - cfg.fore * cfg.fore) / (2 * cfg.upper * d)));
+    const ang = base + (cfg.elbowSign || -1) * Math.acos(cosE);
+    const ex = cfg.sx + Math.cos(ang) * cfg.upper, ey = cfg.sy + Math.sin(ang) * cfg.upper;
+    ctx.lineCap = 'round';
+    // dark outline pass so the limb reads against the hull, then the plate
+    ctx.strokeStyle = '#211d15'; ctx.lineWidth = cfg.w + 1.3;
+    ctx.beginPath(); ctx.moveTo(cfg.sx, cfg.sy); ctx.lineTo(ex, ey); ctx.lineTo(hx2, hy2); ctx.stroke();
+    ctx.strokeStyle = cfg.color; ctx.lineWidth = cfg.w;
+    ctx.beginPath(); ctx.moveTo(cfg.sx, cfg.sy); ctx.lineTo(ex, ey); ctx.stroke();
+    ctx.strokeStyle = shade(cfg.color, -0.18); ctx.lineWidth = cfg.w * 0.85;
+    ctx.beginPath(); ctx.moveTo(ex, ey); ctx.lineTo(hx2, hy2); ctx.stroke();
+    // piston rod alongside the upper arm + brass elbow cap + shoulder pin
+    ctx.strokeStyle = 'rgba(210,200,170,0.5)'; ctx.lineWidth = 0.5;
+    ctx.beginPath(); ctx.moveTo(cfg.sx + 0.7, cfg.sy + 0.7); ctx.lineTo(ex + 0.7, ey - 0.3); ctx.stroke();
+    ctx.fillStyle = '#c9a95e';
+    ctx.beginPath(); ctx.arc(ex, ey, cfg.w * 0.5, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.arc(cfg.sx, cfg.sy, cfg.w * 0.55, 0, TAU); ctx.fill();
+    ctx.lineCap = 'butt';
+    return [hx2, hy2, sw];
+  }
   I.dreadnought = (ctx, t, o) => {
     const m = Math.cos(o.hdg) < 0 ? -1 : 1;
     const step = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) : 0;
@@ -5982,42 +6016,55 @@
     ctx.fillStyle = '#7a2a22';
     ctx.beginPath(); ctx.moveTo(-4.6, -24.6); ctx.lineTo(-0.6, -23.6); ctx.lineTo(-4.6, -21.6); ctx.closePath(); ctx.fill();
     ctx.fillStyle = 'rgba(125,255,214,0.9)'; ctx.beginPath(); ctx.arc(-3.4, -23.2, 0.6, 0, TAU); ctx.fill();
-    // ARTICULATED arms: each hangs from its brass shoulder pin and swings
-    // counter to the stride; the cannon kicks back on the muzzle flash
-    const armF = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56) + Math.PI) * 0.14 : 0;
-    const armA = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) * 0.14 : 0;
-    // fore arm: strut + chamfered autocannon housing
-    ctx.save();
-    ctx.translate(6.6, -18); ctx.rotate(armF); ctx.translate(-6.6 - (o.firing ? 1.3 : 0), 18);
-    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(6.6, -18); ctx.lineTo(11.2, -16.6); ctx.stroke();
-    ctx.fillStyle = shade(IRON, 0.05);
-    ctx.beginPath();
-    ctx.moveTo(8.8, -15.2); ctx.lineTo(10.4, -16.8); ctx.lineTo(14, -16.8); ctx.lineTo(14, -10); ctx.lineTo(8.8, -10);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
-    ctx.fillStyle = '#15191f';
-    for (let i = 0; i < 2; i++) ctx.fillRect(14, -15.6 + i * 2.6, 3.6, 1.4); // twin barrels
-    if (o.firing) { ctx.fillStyle = 'rgba(255,230,150,0.95)'; ctx.beginPath(); ctx.arc(18.6, -14, 2.3, 0, TAU); ctx.fill(); }
-    ctx.restore();
-    // aft arm: strut + power fist, purity seal riding the housing
-    ctx.save();
-    ctx.translate(-6.6, -18); ctx.rotate(armA); ctx.translate(6.6, 18);
-    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.2;
-    ctx.beginPath(); ctx.moveTo(-6.6, -18); ctx.lineTo(-11.2, -16.6); ctx.stroke();
-    ctx.fillStyle = shade(IRON, 0.05);
-    ctx.beginPath();
-    ctx.moveTo(-8.8, -15.2); ctx.lineTo(-10.4, -16.8); ctx.lineTo(-14, -16.8); ctx.lineTo(-14, -10); ctx.lineTo(-8.8, -10);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; ctx.stroke();
-    ctx.fillStyle = TRIM; // fist knuckles
-    for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-12.8 + i * 1.5, -9.6, 0.6, 0, TAU); ctx.fill(); }
-    ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-11.6, -12.8, 1.2, 2.2); // purity seal
-    ctx.fillStyle = '#7a2a22'; ctx.fillRect(-11.6, -13.4, 1.2, 0.8);
-    ctx.restore();
-    // shoulder pins over everything
-    ctx.fillStyle = '#c9a95e';
-    ctx.beginPath(); ctx.arc(6.6, -18, 0.85, 0, TAU); ctx.arc(-6.6, -18, 0.85, 0, TAU); ctx.fill();
+    // classic box-dread arms: BIG housings hanging from chunky outboard
+    // shoulder mounts, pendulum-swinging with the stride — mount, hinge pin,
+    // elbow band and weapon are one connected assembly, no floating parts
+    const armPh = (o.dist || 0) * (Math.PI * 2 / 56);
+    for (const s of [1, -1]) {
+      const sw = o.moving ? Math.sin(armPh + (s > 0 ? Math.PI : 0)) * 0.13 : 0;
+      const px = s * 9.6, py = -17.4;
+      // shoulder mount bolted over the cowl corner
+      ctx.fillStyle = shade(IRON, 0.2);
+      rr(ctx, s > 0 ? 6.8 : -11.6, -19.8, 4.8, 3.2, 1); ctx.fill();
+      ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.7;
+      rr(ctx, s > 0 ? 6.8 : -11.6, -19.8, 4.8, 3.2, 1); ctx.stroke();
+      // the hanging housing, rotating around the hinge
+      ctx.save();
+      ctx.translate(px, py);
+      ctx.rotate(sw);
+      if (s > 0 && o.firing) ctx.translate(-1.3, 0); // recoil
+      const hg = ctx.createLinearGradient(0, 0, 0, 8.6);
+      hg.addColorStop(0, shade(IRON, 0.14)); hg.addColorStop(1, shade(IRON, -0.18));
+      ctx.fillStyle = hg;
+      rr(ctx, -2.8, -0.4, 5.6, 9, 1.2); ctx.fill();
+      ctx.strokeStyle = TRIM; ctx.lineWidth = 0.7; rr(ctx, -2.8, -0.4, 5.6, 9, 1.2); ctx.stroke();
+      // elbow band + actuator piston down the housing face
+      ctx.fillStyle = '#c9a95e'; ctx.fillRect(-2.8, 2.8, 5.6, 1);
+      ctx.strokeStyle = 'rgba(210,200,170,0.5)'; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(-1.6, 0.4); ctx.lineTo(-1.6, 2.6); ctx.stroke();
+      if (s > 0) {
+        // twin autocannon barrels out the business end
+        ctx.fillStyle = '#15191f';
+        ctx.fillRect(2.8, 4.2, 4, 1.3); ctx.fillRect(2.8, 6.2, 4, 1.3);
+        ctx.fillStyle = '#33383e'; ctx.fillRect(2.2, 3.8, 1.4, 4.2); // barrel clamp
+        if (o.firing) {
+          ctx.fillStyle = 'rgba(255,230,150,0.95)';
+          ctx.beginPath(); ctx.arc(8.2, 5.8, 2.2, 0, TAU); ctx.fill();
+        }
+      } else {
+        // power-fist knuckles + purity seal
+        ctx.fillStyle = TRIM;
+        for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.arc(-1.6 + i * 1.6, 9.2, 0.65, 0, TAU); ctx.fill(); }
+        ctx.fillStyle = '#d8d2c0'; ctx.fillRect(-1, 4.6, 1.2, 2.4);
+        ctx.fillStyle = '#7a2a22'; ctx.fillRect(-1, 4, 1.2, 0.8);
+      }
+      ctx.restore();
+      // the brass hinge pin over the joint
+      ctx.fillStyle = '#c9a95e';
+      ctx.beginPath(); ctx.arc(px, py, 1, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#211d15'; ctx.lineWidth = 0.4;
+      ctx.beginPath(); ctx.arc(px, py, 1, 0, TAU); ctx.stroke();
+    }
     // power cable looping from the hull into the cannon arm
     ctx.strokeStyle = '#33302a'; ctx.lineWidth = 0.9;
     ctx.beginPath(); ctx.moveTo(6.8, -11.4); ctx.quadraticCurveTo(8.6, -9.2, 10.6, -10.4); ctx.stroke();
@@ -6118,46 +6165,44 @@
     ctx.strokeStyle = '#8a8271'; ctx.lineWidth = 0.6; rr(ctx, -2.9, -31.8, 5.8, 4.2, 1.4); ctx.stroke();
     ctx.fillStyle = 'rgba(125,255,214,1)';
     ctx.fillRect(-1.9, -30.6, 1.4, 1.2); ctx.fillRect(0.6, -30.6, 1.4, 1.2);
-    // ARTICULATED arms hung from brass carapace pins: the cannon swings
-    // counter to the stride and kicks back as it fires; the claw arm swings
-    // opposite, blades scissoring slightly with the motion
-    const armF = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56) + Math.PI) * 0.1 : 0;
-    const armA = o.moving ? Math.sin((o.dist || 0) * (Math.PI * 2 / 56)) * 0.1 : 0;
-    // power hoses (body-side, slack absorbs the swing)
-    ctx.strokeStyle = '#33302a'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(6.8, -16); ctx.quadraticCurveTo(10.6, -17.4, 11.4, -20.9); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(-6.8, -16.4); ctx.quadraticCurveTo(-10, -16.8, -10.6, -19.8); ctx.stroke();
-    // fore arm: strut + the tri-barrel autocannon, recoiling on the flash
-    ctx.save();
-    ctx.translate(7.6, -27.2); ctx.rotate(armF); ctx.translate(-7.6 - (o.firing ? 1.6 : 0), 27.2);
-    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.3;
-    ctx.beginPath(); ctx.moveTo(7.6, -27.2); ctx.lineTo(11, -25.6); ctx.stroke();
-    ctx.fillStyle = '#33383e'; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6; rr(ctx, 7, -25.6, 10.4, 4.8, 1.2); ctx.stroke();
+    // TRUE arms off the carapace pins: upper arm, brass elbow, forearm —
+    // the cannon hangs at keep height and recoils; the claw arm swings
+    // opposite with its blades scissoring
+    ctx.strokeStyle = '#33302a'; ctx.lineWidth = 1; // slack power hoses
+    ctx.beginPath(); ctx.moveTo(6.8, -16); ctx.quadraticCurveTo(10.6, -17.4, 12, -20.4); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-6.8, -16.4); ctx.quadraticCurveTo(-10, -16.8, -11.2, -19.4); ctx.stroke();
+    const [thx, thy] = mechArm(ctx, o, {
+      sx: 7.4, sy: -26.8, handX: 13.6, handY: -19.6, upper: 5.6, fore: 5.8,
+      w: 2.8, swing: 2, phaseOff: Math.PI, elbowSign: -1,
+      color: shade(IRON, 0.16), recoil: o.firing ? -1.6 : 0,
+    });
+    // the tri-barrel autocannon at the hand
+    ctx.fillStyle = '#33383e';
+    ctx.beginPath();
+    ctx.moveTo(thx - 1.8, thy - 2.5); ctx.lineTo(thx + 4.4, thy - 2.5); ctx.lineTo(thx + 5.8, thy - 1.2);
+    ctx.lineTo(thx + 5.8, thy + 2.5); ctx.lineTo(thx - 1.8, thy + 2.5);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.6; ctx.stroke();
     ctx.strokeStyle = '#5a616a'; ctx.lineWidth = 0.5;
-    ctx.beginPath(); ctx.moveTo(9.2, -25.4); ctx.lineTo(9.2, -21.2); ctx.moveTo(11.6, -25.4); ctx.lineTo(11.6, -21.2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(thx + 0.4, thy - 2.3); ctx.lineTo(thx + 0.4, thy + 2.3); ctx.stroke();
     ctx.fillStyle = '#15191f';
-    for (let i = 0; i < 3; i++) ctx.fillRect(17.2, -25 + i * 1.5, 4.6, 1);
+    for (let i = 0; i < 3; i++) ctx.fillRect(thx + 5.8, thy - 1.9 + i * 1.5, 4.4, 1);
     if (o.firing) {
       ctx.fillStyle = 'rgba(255,230,150,0.95)';
-      ctx.beginPath(); ctx.arc(22.8, -23.4 + (Math.sin(t * 40) > 0 ? 0 : 1.6), 2.6, 0, TAU); ctx.fill();
+      ctx.beginPath(); ctx.arc(thx + 11.4, thy + (Math.sin(t * 40) > 0 ? -0.8 : 0.8), 2.6, 0, TAU); ctx.fill();
     }
-    ctx.restore();
-    // aft arm: strut + drill-claw housing, blades scissoring with the swing
-    ctx.save();
-    ctx.translate(-7.6, -27.2); ctx.rotate(armA); ctx.translate(7.6, 27.2);
-    ctx.strokeStyle = '#78705e'; ctx.lineWidth = 1.3;
-    ctx.beginPath(); ctx.moveTo(-7.6, -27.2); ctx.lineTo(-10.4, -22.6); ctx.stroke();
-    ctx.fillStyle = shade(IRON, -0.15); rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.fill();
-    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.5; rr(ctx, -12.2, -22.6, 4.2, 6.6, 1.1); ctx.stroke();
-    const scis = armA * 8; // the blades breathe open with the arm swing
+    const [clx, cly, csw] = mechArm(ctx, o, {
+      sx: -7.4, sy: -26.8, handX: -12.8, handY: -18.6, upper: 5.6, fore: 5.8,
+      w: 2.8, swing: 2, elbowSign: 1, color: shade(IRON, 0.06),
+    });
+    // the drill claw at the hand, blades breathing with the swing
+    ctx.fillStyle = shade(IRON, -0.1);
+    rr(ctx, clx - 2.2, cly - 2.6, 4.6, 5.2, 1.1); ctx.fill();
+    ctx.strokeStyle = TRIM; ctx.lineWidth = 0.5; rr(ctx, clx - 2.2, cly - 2.6, 4.6, 5.2, 1.1); ctx.stroke();
+    const scis = csw * 0.9;
     ctx.fillStyle = '#9aa2ae';
-    ctx.beginPath(); ctx.moveTo(-10, -16.2); ctx.lineTo(-12.8 - scis, -11.4); ctx.lineTo(-7.8, -14.4); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(-9.6, -16); ctx.lineTo(-6.2 + scis, -11.7); ctx.lineTo(-7, -15); ctx.closePath(); ctx.fill();
-    ctx.restore();
-    // brass carapace pins over the arm roots
-    ctx.fillStyle = '#c9a95e';
-    ctx.beginPath(); ctx.arc(7.6, -27.2, 0.9, 0, TAU); ctx.arc(-7.6, -27.2, 0.9, 0, TAU); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(clx, cly + 2.2); ctx.lineTo(clx - 2.6 - scis, cly + 7.4); ctx.lineTo(clx + 1.6, cly + 3.2); ctx.closePath(); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(clx + 0.4, cly + 2.4); ctx.lineTo(clx + 3.4 + scis, cly + 6.8); ctx.lineTo(clx + 2.2, cly + 2.6); ctx.closePath(); ctx.fill();
     ctx.restore();
   };
   I.engineer = (ctx, t, o) => isoTrooper(ctx, t, o, {
