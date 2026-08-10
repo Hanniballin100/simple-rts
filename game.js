@@ -919,7 +919,21 @@ function updateAbilities(dt) {
       t.bornT = state.time;
       Particles.boom(b.x, b.y, 2);
       eva(b.owner === PLAYER ? 'The Titan walks' : 'WARNING: enemy Titan detected');
-    } else if (b.owner !== PLAYER && canForge(b)) forgeTitan(b); // the AI needs no button
+    } else if (canForge(b)) {
+      forgeTitan(b); // feeding the Foundry IS the order — no button required
+    } else if (b.owner === PLAYER && !b.forging && b.forge &&
+               b.forge.dread && findEntity(b.forge.dread) && b.forge.priest && findEntity(b.forge.priest)) {
+      // both components wait inside but something else is missing — SAY WHAT
+      if (!b.forgeNagT || state.time - b.forgeNagT > 20) {
+        b.forgeNagT = state.time;
+        const why = relicCount(b.owner) < TITAN_DEF.relics
+          ? `The Foundry needs ${TITAN_DEF.relics} relics — ${relicCount(b.owner)} banked`
+          : state.minerals[b.owner] < TITAN_DEF.cost
+            ? `The Foundry awaits funds — $${TITAN_DEF.cost}`
+            : 'Only one Titan may walk';
+        eva(why);
+      }
+    }
   }
   for (const owner of OWNERS) {
     // structure income: zero-point cores etc. pay out every 10 seconds
@@ -4617,17 +4631,34 @@ function refreshPanel() {
         btn.onclick = () => evacuate(first);
         addAction(btn);
       }
-      // Titan Foundry: forge when a Dreadnought and a Tech Priest wait inside
+      // Titan Foundry: forging starts on its own once fed + funded + relic'd;
+      // the panel shows status, and Eject frees waiting components
       if (first.type === 'titanworks') {
         const f = first.forge || {};
         const haveD = !!(f.dread && findEntity(f.dread)), haveP = !!(f.priest && findEntity(f.priest));
         const btn = document.createElement('button');
-        btn.textContent = first.forging
-          ? `Forging… ${Math.max(0, Math.ceil(first.forging - state.time))}s`
-          : canForge(first) ? `Forge Titan ($${TITAN_DEF.cost})`
-          : `Needs${haveD ? '' : ' Dreadnought'}${haveP ? '' : ' Tech Priest'}${relicCount(PLAYER) < TITAN_DEF.relics ? ` ${relicCount(PLAYER)}/${TITAN_DEF.relics} relics` : ''}` || 'Forge Titan';
-        btn.disabled = !canForge(first);
-        btn.onclick = () => { forgeTitan(first); refreshPanel(); };
+        if (first.forging) {
+          btn.textContent = `Forging… ${Math.max(0, Math.ceil(first.forging - state.time))}s`;
+          btn.disabled = true;
+        } else if (haveD || haveP) {
+          btn.textContent = `Eject components (${(haveD ? 1 : 0) + (haveP ? 1 : 0)})`;
+          btn.onclick = () => {
+            for (const id of [f.dread, f.priest]) {
+              const u = id && findEntity(id);
+              if (u && u.hp > 0) {
+                u.garrisoned = false;
+                u.x = first.x + (Math.random() - 0.5) * 30;
+                u.y = first.y + first.h / 2 + 20;
+                u.order = { type: 'idle' };
+              }
+            }
+            first.forge = null;
+            refreshPanel();
+          };
+        } else {
+          btn.textContent = `Walk in 1 Dreadnought + 1 Tech Priest (${relicCount(PLAYER)}/${TITAN_DEF.relics} relics)`;
+          btn.disabled = true;
+        }
         addAction(btn);
       }
       return;
