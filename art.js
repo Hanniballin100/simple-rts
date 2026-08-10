@@ -2742,6 +2742,34 @@
         ctx.beginPath(); ctx.arc(0, 0, gr * 0.35, 0, TAU); ctx.fill();
         ctx.restore();
       }
+      // brass trim along the roof deck edge — the Works joins the language
+      ctx.strokeStyle = 'rgba(201,169,94,0.7)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-28, -37); ctx.lineTo(16, -37); ctx.stroke();
+      // the forge hammer: a piston ram slamming its anvil block on the deck
+      billboard(ctx, 20, -18, () => {
+        const cyc = o.on ? (t * 1.6) % 1 : 0.3;
+        const ram = cyc < 0.7 ? cyc / 0.7 * -9 : -9 + (cyc - 0.7) / 0.3 * 9; // slow lift, fast drop
+        ctx.strokeStyle = '#8a7a52'; ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.moveTo(-4, 0); ctx.lineTo(-4, -14); ctx.moveTo(4, 0); ctx.lineTo(4, -14); ctx.stroke();
+        ctx.fillStyle = '#c9a95e'; ctx.fillRect(-5, -15.4, 10, 1.8); // crosshead
+        ctx.fillStyle = '#5a5548';
+        rr(ctx, -2.6, -13.4 - ram, 5.2, 4.4, 0.8); ctx.fill();       // the ram
+        ctx.fillStyle = '#3f3c33'; rr(ctx, -3.4, -2.4, 6.8, 2.6, 0.6); ctx.fill(); // anvil
+        if (o.on && cyc > 0.94) { // strike flash
+          ctx.fillStyle = 'rgba(255,190,90,0.85)';
+          ctx.beginPath(); ctx.arc(0, -3, 2.6, 0, TAU); ctx.fill();
+        }
+      });
+      // drill-bit rack leaning on the NE wall
+      ctx.strokeStyle = '#9aa2ae'; ctx.lineWidth = 1.6;
+      for (let i = 0; i < 3; i++) {
+        ctx.beginPath(); ctx.moveTo(30 - i * 5, 12 - i * 4); ctx.lineTo(38 - i * 5, 2 - i * 4); ctx.stroke();
+      }
+      // smokestack off the far corner, puffing while the line runs
+      ctx.fillStyle = '#3f3c33'; ctx.fillRect(-24 - 14, -30 - 14, 5, 12);
+      if (o.on && Math.random() < 0.3 && window.Particles) {
+        Particles.spawn({ kind: 'smoke', x: o.wx - 22, y: o.wy - 24, vx: 2, vz: 26, r: 2.4, grow: 7, life: 1, maxLife: 1 });
+      }
       // mine-mouth door on the SW wall + ore cart rail out of it
       doorway(ctx, -30, -24, 60, 48, 14, 'sw', { w: 14, h: 11, col: '#1d1813' });
       ctx.strokeStyle = '#4a4238';
@@ -3580,33 +3608,57 @@
     });
   };
   B.geyser = (ctx, t, o) => {
+    // the Geyser Cannon: a stone vent CONE with brass pressure collars, the
+    // engine's flak gun riding its rim (turretLift), steam sighing out the
+    // throat between eruptions
     pad(ctx, o);
     ctx.fillStyle = 'rgba(0,0,0,0.3)';
     ctx.beginPath(); ctx.ellipse(2, 3, 15, 13, 0, 0, TAU); ctx.fill();
     ctx.fillStyle = '#665c4e';
     ctx.beginPath(); ctx.arc(0, 0, 14, 0, TAU); ctx.fill();
-    ctx.fillStyle = '#74695a';
-    ctx.beginPath(); ctx.arc(-2, -2, 10, 0, TAU); ctx.fill();
-    // rim stones
-    ctx.fillStyle = '#544b3f';
+    ctx.fillStyle = '#544b3f'; // rim boulders
     for (let i = 0; i < 7; i++) {
       const a = i * 0.9;
       ctx.beginPath();
-      ctx.ellipse(Math.cos(a) * 11.5, Math.sin(a) * 11.5, 2.8, 1.8, a, 0, TAU);
+      ctx.ellipse(Math.cos(a) * 12.5, Math.sin(a) * 12.5, 2.8, 1.8, a, 0, TAU);
       ctx.fill();
     }
-    // shimmering water
-    const shim = 0.5 + 0.5 * Math.sin(t * 3.4);
-    const g = ctx.createRadialGradient(-1, -1, 1, 0, 0, 7);
-    g.addColorStop(0, `rgba(120,190,215,${0.65 + shim * 0.3})`);
-    g.addColorStop(1, 'rgba(45,90,110,0.85)');
-    ctx.fillStyle = g;
-    ctx.beginPath(); ctx.arc(0, 0, 7, 0, TAU); ctx.fill();
-    ctx.strokeStyle = `rgba(200,240,250,${0.3 + shim * 0.3})`;
-    ctx.lineWidth = 0.8;
-    ctx.beginPath(); ctx.arc(0, 0, 4 + shim * 2, 0, TAU); ctx.stroke();
-    if (o.on && Math.random() < 0.45 && window.Particles) {
-      Particles.spawn({ kind: 'smoke', x: o.wx, y: o.wy, vx: (Math.random() - 0.5) * 6, vy: -24, r: 2, grow: 6, life: 0.7, maxLife: 0.7 });
+    billboard(ctx, 0, 4, () => {
+      const H = 23;
+      // the cone: mineral-crusted stone, tapering to the throat
+      const g = ctx.createLinearGradient(0, -H, 0, 0);
+      g.addColorStop(0, '#7f7563'); g.addColorStop(1, '#544b3f');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-11, 0); ctx.lineTo(-5, -H); ctx.lineTo(5, -H); ctx.lineTo(11, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#352f26'; ctx.lineWidth = 0.8; ctx.stroke();
+      // brass pressure collars ringing the cone
+      ctx.strokeStyle = '#c9a95e'; ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(-8.9, -7); ctx.lineTo(8.9, -7); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-6.8, -14); ctx.lineTo(6.8, -14); ctx.stroke();
+      // mineral streaks weeping down the flanks
+      ctx.strokeStyle = 'rgba(160,215,225,0.4)'; ctx.lineWidth = 0.7;
+      ctx.beginPath();
+      ctx.moveTo(-3.4, -H + 1); ctx.lineTo(-6.4, -3);
+      ctx.moveTo(3.8, -H + 1); ctx.lineTo(6.6, -5);
+      ctx.stroke();
+      // pressure gauge, needle trembling before the sigh
+      const shim = 0.5 + 0.5 * Math.sin(t * 3.4);
+      ctx.fillStyle = '#c9a95e';
+      ctx.beginPath(); ctx.arc(7.6, -9.6, 1.9, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#352f26'; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(7.6, -9.6);
+      ctx.lineTo(7.6 + Math.cos(-1 + shim * 1.6) * 1.5, -9.6 + Math.sin(-1 + shim * 1.6) * 1.5);
+      ctx.stroke();
+      // the throat, glowing faint teal, breathing a water shimmer
+      ctx.fillStyle = '#1d1813';
+      ctx.beginPath(); ctx.ellipse(0, -H, 5, 1.8, 0, 0, TAU); ctx.fill();
+      ctx.fillStyle = `rgba(120,215,208,${(0.3 + shim * 0.45).toFixed(2)})`;
+      ctx.beginPath(); ctx.ellipse(0, -H, 3.2, 1.1, 0, 0, TAU); ctx.fill();
+    });
+    if (o.on && Math.random() < 0.4 && window.Particles) {
+      Particles.spawn({ kind: 'smoke', x: o.wx, y: o.wy, vx: (Math.random() - 0.5) * 6, vz: 30, r: 2, grow: 6, life: 0.8, maxLife: 0.8 });
     }
   };
   B.tractor = (ctx, t, o) => {
@@ -4935,6 +4987,33 @@
     ctx.strokeStyle = o.color;
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(0, 0, 21, 16, 0, 2.6, 4.2); ctx.stroke();
+    // the extraction derrick: a brass A-frame over the pocket, its scoop
+    // dipping to the crystal on a slow winch cycle, crates filling beside it
+    billboard(ctx, 14, -6, () => {
+      const H = 19;
+      ctx.strokeStyle = '#c9a95e'; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(-5, 0); ctx.lineTo(0, -H);
+      ctx.moveTo(5, 1); ctx.lineTo(0, -H);
+      ctx.stroke();
+      ctx.strokeStyle = '#8a7a52'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-2.6, -H * 0.5); ctx.lineTo(2.6, -H * 0.48); ctx.stroke();
+      // jib arm reaching out over the pocket
+      ctx.strokeStyle = '#c9a95e'; ctx.lineWidth = 1.3;
+      ctx.beginPath(); ctx.moveTo(0, -H); ctx.lineTo(-13, -H + 3); ctx.stroke();
+      // winch cable + scoop, dipping into the crystal
+      const dip = (Math.sin(t * 0.9) * 0.5 + 0.5) * 9;
+      ctx.strokeStyle = '#4a4238'; ctx.lineWidth = 0.7;
+      ctx.beginPath(); ctx.moveTo(-13, -H + 3); ctx.lineTo(-13, -H + 8 + dip); ctx.stroke();
+      ctx.fillStyle = '#5a5548';
+      rr(ctx, -15, -H + 8 + dip, 4, 3, 0.8); ctx.fill();
+      ctx.fillStyle = `rgba(125,255,214,${(0.4 + (dip / 9) * 0.5).toFixed(2)})`;
+      ctx.fillRect(-14.4, -H + 9 + dip, 2.8, 1.2); // glowing haul in the scoop
+    });
+    // full ore crates stacked at the rim
+    isoBox(ctx, 16, 8, 7, 6, 4, '#5c5136', { noShadow: true });
+    ctx.fillStyle = '#7dffd6';
+    ctx.beginPath(); ctx.arc(14.5, 6.5, 1.6, 0, TAU); ctx.arc(12.6, 8.2, 1.2, 0, TAU); ctx.fill();
   };
   B.datacenter = (ctx, t, o) => {
     // Globalist server farm: a sealed hall bristling with blinking racks and a
@@ -8251,7 +8330,7 @@
     },
     // screen-px height at which the engine's generic turret (and beam
     // origin) sits for towers whose art raises a platform
-    turretLift: { watchtower: 28, stalagmite: 26, tractor: 27 },
+    turretLift: { watchtower: 28, stalagmite: 26, tractor: 27, geyser: 26 },
     // iso unit sprites: upright billboards that handle their own heading
     hasIso: type => !!I[type],
     drawIso(type, ctx, t, opts) { I[type](ctx, t, opts); },
