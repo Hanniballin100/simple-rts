@@ -6819,8 +6819,16 @@
       // F-35's swept leading edge and forward-raked tips
       { poly: [[6, -2.8], [-2, -13.5], [-6.5, -12.8], [-4.5, -2.8], [-4.5, 2.8], [-6.5, 12.8], [-2, 13.5], [6, 2.8]],
         base: 1.8, h: 1.1, body: '#5a6470',
-        detail: (c) => { c.strokeStyle = 'rgba(0,0,0,0.2)'; c.lineWidth = 0.4;
-          for (const s of [-1, 1]) { c.beginPath(); c.moveTo(2, s * 3.6); c.lineTo(-3.5, s * 11.5); c.stroke(); } } },
+        detail: (c, t2) => {
+          c.strokeStyle = 'rgba(0,0,0,0.2)'; c.lineWidth = 0.4;
+          for (const s of [-1, 1]) { c.beginPath(); c.moveTo(2, s * 3.6); c.lineTo(-3.5, s * 11.5); c.stroke(); }
+          // blinking wingtip formation lights (red port, green starboard)
+          const bl = Math.sin(t2 * 8) > 0.4;
+          c.fillStyle = bl ? '#ff6a6a' : 'rgba(255,106,106,0.25)';
+          c.beginPath(); c.arc(-3.2, -12.8, 0.7, 0, TAU); c.fill();
+          c.fillStyle = bl ? '#7dff9f' : 'rgba(125,255,159,0.25)';
+          c.beginPath(); c.arc(-3.2, 12.8, 0.7, 0, TAU); c.fill();
+        } },
       // stabilators tucked close behind the wing
       { poly: [[-7.5, -2.4], [-11.5, -7.8], [-14, -6.8], [-11.5, -2.4]], base: 1.6, h: 0.9, body: '#454e59' },
       { poly: [[-7.5, 2.4], [-11.5, 7.8], [-14, 6.8], [-11.5, 2.4]], base: 1.6, h: 0.9, body: '#454e59' },
@@ -6837,12 +6845,29 @@
           g2.addColorStop(0, 'rgba(130,175,220,0.8)'); g2.addColorStop(1, 'rgba(200,205,150,0.65)');
           c.fillStyle = g2; rr(c, 6, -1.2, 4.5, 2.4, 1.2); c.fill();
           c.strokeStyle = 'rgba(20,28,36,0.6)'; c.lineWidth = 0.35; rr(c, 6, -1.2, 4.5, 2.4, 1.2); c.stroke();
-          // chine seams down the nose, engine nozzle at the tail
+          // chine seams down the nose, DSI intake cheeks bulging at the root
           c.strokeStyle = 'rgba(0,0,0,0.28)'; c.lineWidth = 0.4;
           c.beginPath(); c.moveTo(15.5, -0.6); c.lineTo(10.5, -1.7); c.moveTo(15.5, 0.6); c.lineTo(10.5, 1.7); c.stroke();
-          c.fillStyle = '#272d35'; c.beginPath(); c.arc(-13.6, 0, 1.4, 0, TAU); c.fill();
+          c.fillStyle = '#454e59';
+          c.beginPath(); c.ellipse(4.5, -2.3, 2.6, 0.95, -0.12, 0, TAU); c.fill();
+          c.beginPath(); c.ellipse(4.5, 2.3, 2.6, 0.95, 0.12, 0, TAU); c.fill();
+          c.strokeStyle = 'rgba(0,0,0,0.25)'; c.lineWidth = 0.35;
+          c.beginPath(); c.ellipse(4.5, -2.3, 2.6, 0.95, -0.12, 0, TAU); c.stroke();
+          c.beginPath(); c.ellipse(4.5, 2.3, 2.6, 0.95, 0.12, 0, TAU); c.stroke();
+          // feathered engine nozzle, flaring white-hot when the guns are live
+          c.fillStyle = '#272d35'; c.beginPath(); c.arc(-13.6, 0, 1.5, 0, TAU); c.fill();
           c.strokeStyle = '#5c6672'; c.lineWidth = 0.4; c.stroke();
-          if (o2.firing) { c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(17.5, 0, 1.9, 0, TAU); c.fill(); }
+          c.strokeStyle = 'rgba(120,140,160,0.5)';
+          for (let i = 0; i < 4; i++) {
+            const a2 = i / 4 * TAU + 0.4;
+            c.beginPath(); c.moveTo(-13.6 + Math.cos(a2) * 0.7, Math.sin(a2) * 0.7);
+            c.lineTo(-13.6 + Math.cos(a2) * 1.5, Math.sin(a2) * 1.5); c.stroke();
+          }
+          if (o2.firing) {
+            c.fillStyle = 'rgba(160,220,255,0.95)'; c.beginPath(); c.arc(17.5, 0, 1.9, 0, TAU); c.fill();
+            c.fillStyle = 'rgba(190,225,255,0.7)'; // afterburner cone
+            c.beginPath(); c.moveTo(-14.6, -1.1); c.lineTo(-19.5, 0); c.lineTo(-14.6, 1.1); c.closePath(); c.fill();
+          }
         } },
     ],
     rigLift: 2,
@@ -7262,38 +7287,82 @@
   // ---------- apex ground heavies ----------
   // the Combine of Correction: rust-red harvester hull, a spinning header
   // reel out front that reaps the unbelievers, one heavy cannon over the cab
+  // Combine of Correction, de-blocked: chamfered rust plates over a dark
+  // under-frame, a rounded grain tank, hydraulic arms down to a WIDE toothed
+  // header reel that churns crop dust, ladder, stack — and the cannon
   I.combine = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 40,
     under: (c, t2, o2) => {
       treads(c, t2, o2, 34, 6, 12);
-      // the header reel: a wide toothed drum turning ahead of the bow
-      c.fillStyle = '#7a3f32';
-      rr(c, 15, -12, 6, 24, 2); c.fill();
-      c.strokeStyle = '#3f2018'; c.lineWidth = 1;
-      for (let i = 0; i < 6; i++) {
-        const p = ((o2.moving || o2.firing ? t2 * 26 : t2 * 5) + i * 4) % 24;
-        c.beginPath(); c.moveTo(15, -12 + p); c.lineTo(21, -12 + p); c.stroke();
+      // the header: full-width toothed reel on hydraulic arms
+      const spin = (o2.moving || o2.firing ? t2 * 26 : t2 * 5);
+      c.strokeStyle = '#3f2018'; c.lineWidth = 1.6; // hydraulic arms
+      c.beginPath(); c.moveTo(13, -8); c.lineTo(17, -11); c.moveTo(13, 8); c.lineTo(17, 11); c.stroke();
+      c.fillStyle = '#6d3a2e';
+      rr(c, 15.5, -13.5, 6.5, 27, 2.4); c.fill();
+      c.strokeStyle = '#3f2018'; c.lineWidth = 0.7; rr(c, 15.5, -13.5, 6.5, 27, 2.4); c.stroke();
+      c.strokeStyle = '#8a6a4a'; c.lineWidth = 1; // rotating reel slats
+      for (let i = 0; i < 7; i++) {
+        const p = (spin + i * 4) % 27;
+        c.beginPath(); c.moveTo(16, -13.5 + p); c.lineTo(21.4, -13.5 + p); c.stroke();
+      }
+      c.fillStyle = '#c9c2ae'; // the cutter teeth, a row of triangles at the lip
+      for (let i = 0; i < 9; i++) {
+        const ty2 = -12.5 + i * 3;
+        c.beginPath(); c.moveTo(22, ty2); c.lineTo(24.2, ty2 + 1.5); c.lineTo(22, ty2 + 3); c.closePath(); c.fill();
+      }
+      if (o2.moving) { // crop dust boiling off the reel
+        c.fillStyle = `rgba(150,128,96,${(0.25 + 0.15 * Math.sin(t2 * 7)).toFixed(2)})`;
+        c.beginPath(); c.ellipse(19, -14 - (spin % 3), 3, 1.6, 0.4, 0, TAU); c.fill();
+        c.beginPath(); c.ellipse(19.5, 14 + (spin % 2.3), 2.6, 1.4, -0.4, 0, TAU); c.fill();
       }
     },
     tiers: [
-      { poly: [[15, -5], [15, 5], [11, 10], [-17, 10], [-18, 0], [-17, -10], [11, -10]], h: 8, body: '#8a4a3a',
+      { // main body: chamfered rust plates, waisted at the tail
+        poly: [[15, -5.5], [15, 5.5], [12, 9.5], [-13, 9.5], [-17, 5.5], [-17, -5.5], [-13, -9.5], [12, -9.5]],
+        h: 8, body: '#8a4a3a',
         detail: (c) => {
-          c.fillStyle = shade('#8a4a3a', 0.1); rr(c, -14, -8, 27, 16, 2); c.fill();
-          c.strokeStyle = shade('#8a4a3a', -0.4); c.lineWidth = 0.8;
-          for (let i = -11; i <= 11; i += 6) { c.beginPath(); c.moveTo(i, -8); c.lineTo(i, 8); c.stroke(); }
-          c.fillStyle = '#2c2f36'; c.beginPath(); c.arc(-14, -5, 2, 0, TAU); c.fill(); // diesel stack
+          c.fillStyle = '#4a2c22'; rr(c, -15.5, -8, 29, 16, 1.5); c.fill(); // under-frame shadow deck
+          const g = c.createLinearGradient(0, -8, 0, 8);
+          g.addColorStop(0, shade('#8a4a3a', 0.18)); g.addColorStop(1, shade('#8a4a3a', -0.14));
+          c.fillStyle = g;
+          rr(c, -14, -7.4, 27, 14.8, 2); c.fill();
+          c.strokeStyle = shade('#8a4a3a', -0.45); c.lineWidth = 0.6; // panel seams
+          c.beginPath(); c.moveTo(-6, -7.4); c.lineTo(-6, 7.4); c.moveTo(4, -7.4); c.lineTo(4, 7.4); c.stroke();
+          c.strokeStyle = '#c9c2ae'; c.lineWidth = 0.5; // steel trim lip
+          c.beginPath(); c.moveTo(-14, -7.2); c.lineTo(13, -7.2); c.stroke();
+          c.fillStyle = '#33302a'; // side louvers
+          for (let i = 0; i < 3; i++) c.fillRect(-12 + i * 2.6, 5.4, 1.6, 2.2);
+          c.strokeStyle = '#3f2018'; c.lineWidth = 0.7; // boarding ladder at the tail
+          c.beginPath(); c.moveTo(-15.4, -2); c.lineTo(-15.4, 2);
+          for (const ly of [-1.4, 0, 1.4]) { c.moveTo(-16.6, ly); c.lineTo(-15.4, ly); }
+          c.stroke();
         },
       },
-      { // grain tank + raised cab
-        poly: [[10, -4], [10, 4], [2, 4], [2, -4]], h: 4.5, body: shade('#8a4a3a', 0.16),
+      { // rounded grain tank amidships + glassed cab forward
+        poly: [[10.5, -4.5], [10.5, 4.5], [7.5, 5.5], [-3, 5], [-6, 0], [-3, -5], [7.5, -5.5]],
+        h: 4.5, body: shade('#8a4a3a', 0.16),
         detail: (c) => {
-          c.fillStyle = '#1a1e24'; rr(c, 3, -3.4, 6.4, 6.8, 1); c.fill();
-          c.fillStyle = 'rgba(130,160,195,0.32)'; rr(c, 7.2, -3, 1.8, 6, 0.6); c.fill();
+          const g = c.createRadialGradient(-1, -2, 1, 0, 0, 8);
+          g.addColorStop(0, shade('#8a4a3a', 0.34)); g.addColorStop(1, shade('#8a4a3a', 0.06));
+          c.fillStyle = g; // domed grain tank
+          c.beginPath(); c.ellipse(-1, 0, 5.4, 4.6, 0, 0, TAU); c.fill();
+          c.strokeStyle = shade('#8a4a3a', -0.35); c.lineWidth = 0.5;
+          c.beginPath(); c.ellipse(-1, 0, 5.4, 4.6, 0, 0, TAU); c.stroke();
+          c.fillStyle = '#7dffd6'; c.globalAlpha = 0.25; // grain glow at the rim
+          c.beginPath(); c.ellipse(-1, 0, 3, 2.4, 0, 0, TAU); c.fill();
+          c.globalAlpha = 1;
+          c.fillStyle = '#1a1e24'; rr(c, 4.4, -3.6, 5.6, 7.2, 1.2); c.fill(); // cab
+          c.fillStyle = 'rgba(130,160,195,0.4)'; rr(c, 7.6, -3, 1.9, 6, 0.6); c.fill(); // glass
+          c.strokeStyle = '#c9c2ae'; c.lineWidth = 0.4; rr(c, 4.4, -3.6, 5.6, 7.2, 1.2); c.stroke();
         },
       },
     ],
     above: (c, t2, o2) => {
-      // ONE heavy cannon over the cab — the correction arm
+      // diesel stack + the correction cannon over the cab
+      c.fillStyle = '#2c2f36'; c.fillRect(-8.5, -7.5, 2, 5.5);
+      c.fillStyle = 'rgba(120,110,100,0.3)';
+      c.beginPath(); c.arc(-7.5 + Math.sin(t2 * 2), -9.5 - (t2 * 3 % 2), 1.2, 0, TAU); c.fill();
       isoDome(c, -2, 3.6, '#7a4436');
       isoBarrel(c, o2, 2, 12, 2.2, '#2b3138');
       if (o2.firing) { c.fillStyle = 'rgba(255,220,140,0.9)'; c.beginPath(); c.arc(0, -5, 2.6, 0, TAU); c.fill(); }
@@ -7327,28 +7396,71 @@
       c.fillStyle = 'rgba(125,255,214,0.7)'; c.beginPath(); c.arc(0, -2, 1.8, 0, TAU); c.fill(); // vril lamp
     },
   });
+  // Scrap Missile Truck: a rust-and-primer flatbed with ONE big janky
+  // cruise missile on a welded launch rail — mismatched panels, sandbags,
+  // a crooked exhaust and a shark mouth somebody painted on the nose
   I.cruisetruck = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 28,
-    under: (c, t, o) => wheels(c, t, o, [[-10, -7.6], [-10, 7.6], [-3, -7.6], [-3, 7.6], [10, -7.6], [10, 7.6]], 5, 2.8),
+    under: (c, t2, o2) => wheels(c, t2, o2, [[-10, -7.6], [-10, 7.6], [-3, -7.6], [-3, 7.6], [10, -7.6], [10, 7.6]], 5, 2.8),
     tiers: [
       { poly: [[14, -3], [14, 3], [11, 6], [-14, 5.5], [-14, -5.5], [11, -6]], h: 5, body: '#5c5347',
         detail: (c) => {
-          c.fillStyle = '#6d6248'; rr(c, 7, -5.6, 7, 11.2, 1.5); c.fill(); // cab
+          // mismatched patch panels: rust, primer red, bare steel
+          c.fillStyle = '#6d4a38'; rr(c, -9, -5.2, 6, 4.6, 0.6); c.fill();
+          c.fillStyle = '#7a7468'; rr(c, -2, 1.2, 5, 4, 0.6); c.fill();
+          c.fillStyle = '#4a463c'; rr(c, -13.4, -1.6, 3.6, 3.6, 0.6); c.fill();
+          c.strokeStyle = 'rgba(30,25,20,0.5)'; c.lineWidth = 0.5; // weld seams
+          c.beginPath(); c.moveTo(-3, -5.6); c.lineTo(-3, 5.6); c.moveTo(4, -5.8); c.lineTo(4, 5.8); c.stroke();
+          // cab with a spare tire lashed to the roof + crooked exhaust
+          c.fillStyle = '#6d6248'; rr(c, 7, -5.6, 7, 11.2, 1.5); c.fill();
           c.fillStyle = '#1c2026'; c.fillRect(12.2, -4.4, 1.8, 8.8);
+          c.fillStyle = '#26231d'; c.beginPath(); c.arc(9.6, -3.2, 2.2, 0, TAU); c.fill();
+          c.fillStyle = '#3f3c33'; c.beginPath(); c.arc(9.6, -3.2, 0.9, 0, TAU); c.fill();
+          c.fillStyle = '#33302a'; c.fillRect(6.4, 4.6, 1.4, 3.4); // exhaust stack, leaning
+          // sandbags along the rail + oil stain
+          c.fillStyle = '#8a7a5e';
+          for (let i = 0; i < 4; i++) { c.beginPath(); c.ellipse(-11 + i * 2.4, 5, 1.5, 1, 0.3, 0, TAU); c.fill(); }
+          c.fillStyle = 'rgba(20,16,12,0.35)';
+          c.beginPath(); c.ellipse(-7, 2, 3, 1.6, 0.5, 0, TAU); c.fill();
         },
       },
     ],
-    above: (c, t, o) => {
-      // an angled rack of scrap-built cruise missiles on the bed
+    above: (c, t2, o2) => {
+      // the welded launch rail, angled up over the tail
       c.save();
-      c.translate(-2, -0.5);
-      c.rotate(-0.5);
-      for (const oy of [-3.5, 0, 3.5]) {
-        c.fillStyle = '#8a8271'; rr(c, -8, oy - 1.4, 16, 2.8, 1.2); c.fill();
-        c.fillStyle = '#b04a3a'; c.beginPath(); c.moveTo(8, oy - 1.4); c.lineTo(11, oy); c.lineTo(8, oy + 1.4); c.closePath(); c.fill();
+      c.translate(-3, 0);
+      c.rotate(-0.42);
+      c.strokeStyle = '#4a463c'; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(-9, 2.6); c.lineTo(9, 2.6); c.stroke(); // rail
+      c.strokeStyle = '#33302a'; c.lineWidth = 0.8; // rail trusses
+      for (let i = -7; i <= 7; i += 3.5) { c.beginPath(); c.moveTo(i, 2.6); c.lineTo(i + 1.5, 4.2); c.stroke(); }
+      // THE missile: fat, patched, taped fins, painted mouth
+      const g = c.createLinearGradient(0, -3.4, 0, 0.6);
+      g.addColorStop(0, '#9a938a'); g.addColorStop(1, '#6d675e');
+      c.fillStyle = g;
+      rr(c, -9.5, -1.6, 17.5, 3.8, 1.9); c.fill();
+      c.strokeStyle = '#33302a'; c.lineWidth = 0.5; rr(c, -9.5, -1.6, 17.5, 3.8, 1.9); c.stroke();
+      c.fillStyle = '#b04a3a'; // nose cone
+      c.beginPath(); c.moveTo(8, -1.6); c.lineTo(11.6, 0.3); c.lineTo(8, 2.2); c.closePath(); c.fill();
+      c.fillStyle = '#e8e2d2'; // the shark mouth
+      c.beginPath(); c.moveTo(7.6, 0.9); c.lineTo(9.8, 0.5); c.lineTo(8.2, 1.5); c.closePath(); c.fill();
+      c.fillStyle = '#6d4a38'; rr(c, -2, -1.5, 3.4, 1.6, 0.4); c.fill(); // rust patch
+      c.strokeStyle = '#8a8271'; c.lineWidth = 0.5; // duct-tape bands
+      c.beginPath(); c.moveTo(2.8, -1.7); c.lineTo(2.8, 2.3); c.moveTo(-5.6, -1.7); c.lineTo(-5.6, 2.3); c.stroke();
+      c.fillStyle = '#4a463c'; // taped-on tail fins
+      c.beginPath(); c.moveTo(-9.5, -1.4); c.lineTo(-12.6, -3.6); c.lineTo(-9.5, 0.2); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(-9.5, 2.2); c.lineTo(-12.2, 3.9); c.lineTo(-9.5, 0.6); c.closePath(); c.fill();
+      if (o2.firing) { // rail flash + backblast off the tail
+        c.fillStyle = 'rgba(255,220,140,0.95)';
+        c.beginPath(); c.arc(-12.4, 0.4, 3.2, 0, TAU); c.fill();
+        c.fillStyle = 'rgba(255,170,80,0.5)';
+        c.beginPath(); c.arc(-16, 1.2, 4.6, 0, TAU); c.fill();
       }
       c.restore();
-      if (o.firing) { c.fillStyle = 'rgba(255,220,140,0.9)'; c.beginPath(); c.arc(-11, -0.5, 3, 0, TAU); c.fill(); }
+      // cable spool + generator crate beside the rail mount
+      c.fillStyle = '#5c5136'; rr(c, 1.5, -5.2, 3.4, 3, 0.6); c.fill();
+      c.strokeStyle = '#8a7a52'; c.lineWidth = 0.5;
+      c.beginPath(); c.arc(3.2, -3.7, 1, 0, TAU); c.stroke();
     },
   });
 
@@ -7729,6 +7841,14 @@
           c.fillStyle = shade('#5e6047', -0.3); rr(c, -14.4, -3.4, 3, 6.8, 0.6); c.fill();
           c.strokeStyle = shade('#5e6047', -0.5); c.lineWidth = 0.4;
           for (const x of [-13.7, -12.8, -11.9]) { c.beginPath(); c.moveTo(x, -3); c.lineTo(x, 3); c.stroke(); }
+          // tow cable slung across the glacis + headlight clusters
+          c.strokeStyle = '#3a3e2c'; c.lineWidth = 0.7;
+          c.beginPath(); c.moveTo(8.5, -4.4); c.quadraticCurveTo(12, 0, 8.5, 4.4); c.stroke();
+          c.fillStyle = '#d8d2b8';
+          c.fillRect(14.6, -3.2, 1, 1.2); c.fillRect(14.6, 2, 1, 1.2);
+          // stowage: jerry cans + duffels lashed to the rear corners
+          c.fillStyle = '#4d5340'; rr(c, -12.6, -5, 2.4, 1.8, 0.4); c.fill();
+          c.fillStyle = '#6a5c40'; rr(c, -12.2, 3.4, 3, 1.7, 0.7); c.fill();
         },
       },
     ],
@@ -7765,6 +7885,11 @@
     ctx.beginPath(); ctx.moveTo(8.5, -0.9); ctx.lineTo(21, -0.9); ctx.stroke();
     ctx.fillStyle = '#4d5340'; ctx.fillRect(13, -1.35, 2.8, 2.7); // bore evacuator
     ctx.fillStyle = '#3a3f2e'; ctx.fillRect(19.6, -1.2, 1.6, 2.4);   // muzzle ref
+    // antenna whips off the bustle + stowage bags lashed to the rack
+    ctx.strokeStyle = '#2c3024'; ctx.lineWidth = 0.4;
+    ctx.beginPath(); ctx.moveTo(-8.6, -3.8); ctx.lineTo(-11.8, -6.8); ctx.moveTo(-8.6, 3.8); ctx.lineTo(-11.2, 6.4); ctx.stroke();
+    ctx.fillStyle = '#5c5a42';
+    ctx.beginPath(); ctx.ellipse(-8.4, -1.6, 1.5, 1, 0.3, 0, TAU); ctx.ellipse(-8.4, 1.8, 1.3, 0.9, -0.2, 0, TAU); ctx.fill();
     if (o.firing) { ctx.fillStyle = 'rgba(255,225,150,0.95)'; ctx.beginPath(); ctx.arc(22.6, 0, 2.8, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
@@ -7781,10 +7906,18 @@
           c.beginPath(); c.moveTo(6, -4.6); c.lineTo(12, -2), c.lineTo(12, 2); c.lineTo(6, 4.6); c.closePath(); c.fill();
           c.strokeStyle = shade('#4f5a44', -0.45); c.lineWidth = 0.5;
           c.beginPath(); c.moveTo(8, 0); c.lineTo(-11, 0); c.stroke(); // spine seam
-          // firing ports along the flanks
+          // firing ports along the flanks, set into ERA tile rows
+          c.strokeStyle = shade('#4f5a44', -0.38); c.lineWidth = 0.4;
+          for (const s of [-1, 1]) for (let x = -10; x <= 2; x += 2.4) {
+            c.strokeRect(x, s * 5 - 0.9, 2.1, 1.8);
+          }
           c.fillStyle = '#20241a';
           for (const s of [-1, 1]) for (const x of [-8, -4, 0]) { rr(c, x, s * 4.6 - 0.7, 1.6, 1.4, 0.4); c.fill(); }
           c.fillStyle = shade('#4f5a44', -0.28); rr(c, -12.4, -3.4, 2, 6.8, 0.6); c.fill(); // rear ramp
+          // whip antenna + wing mirrors off the driver's corner
+          c.strokeStyle = '#2c3024'; c.lineWidth = 0.4;
+          c.beginPath(); c.moveTo(-11, -4.4); c.lineTo(-13.6, -7.4); c.stroke();
+          c.fillStyle = '#c9c2ae'; c.fillRect(10.6, -4.2, 0.8, 1); c.fillRect(10.6, 3.2, 0.8, 1);
         },
       },
     ],
@@ -8019,31 +8152,89 @@
   I.magma = (ctx, t, o) => isoVehicle(ctx, t, o, mortarCfg('#5c5347', '#7a4a30'));
   // the Excavation Rig is the old Drill Tank hull; the auger spins while digging
   I.excavationrig = (ctx, t, o) => I.drill(ctx, t, { ...o, moving: o.moving || o.digging });
-  // Quake Drill Truck: a six-wheel rig with a derrick drill amidships that
-  // plants into the ground when deployed (outriggers down, drill lowered)
+  // Quake Drill Truck: AoE2-trebuchet rules made visible. PACKED it's a
+  // six-wheel rig with the lattice derrick folded flat along the bed;
+  // DEPLOYED the outriggers jack out on skid pads, the derrick stands erect
+  // over the tail, and the drill column is visibly driven into the earth
+  // with a churned dust collar around the bore.
   I.quaketruck = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 27,
     under: (c, t2, o2) => {
       wheels(c, t2, o2, [[-9, -7.4], [-9, 7.4], [1, -7.4], [1, 7.4], [8, -7.4], [8, 7.4]], 5.4, 3);
-      if (o2.deployed) { // outrigger feet
+      if (o2.deployed) {
+        // outrigger beams angled out to broad skid pads
+        c.strokeStyle = '#5c5136'; c.lineWidth = 1.8;
+        c.beginPath();
+        for (const [bx, by, px2, py2] of [[-7, -6, -12, -10.5], [-7, 6, -12, 10.5], [7, -6, 12, -10.5], [7, 6, 12, 10.5]]) {
+          c.moveTo(bx, by); c.lineTo(px2, py2);
+        }
+        c.stroke();
         c.fillStyle = '#3f3c33';
-        for (const [ox, oy] of [[-11, -9], [-11, 9], [9, -9], [9, 9]]) { c.fillRect(ox - 1.5, oy - 1.5, 3, 3); }
+        for (const [px2, py2] of [[-12, -10.5], [-12, 10.5], [12, -10.5], [12, 10.5]]) {
+          c.fillRect(px2 - 2.2, py2 - 1.4, 4.4, 2.8);
+        }
+        // the churned dust collar around the bore, pulsing while it drills
+        const churn = 0.35 + 0.25 * Math.sin(t2 * 5);
+        c.strokeStyle = `rgba(150,128,96,${churn.toFixed(2)})`;
+        c.lineWidth = 2.2;
+        c.beginPath(); c.ellipse(-6, 0, 6.5, 4.6, 0, 0, TAU); c.stroke();
+        c.fillStyle = 'rgba(90,78,58,0.6)';
+        c.beginPath(); c.ellipse(-6, 0, 4.4, 3, 0, 0, TAU); c.fill();
       }
     },
     tiers: [
       { poly: [[13, -3.2], [13, 3.2], [10, 6.2], [-13, 6], [-13, -6], [10, -6.2]], h: 4.4, body: '#6a5c48',
-        detail: (c) => {
+        detail: (c, t2, o2) => {
           c.fillStyle = shade('#6a5c48', 0.14); rr(c, 5, -5.4, 7.4, 10.8, 1.2); c.fill(); // cab
-          c.fillStyle = '#1c2026'; c.fillRect(11.2, -4, 1.6, 8);
+          c.fillStyle = '#1c2026'; c.fillRect(11.2, -4, 1.6, 8); // windshield
+          c.strokeStyle = 'rgba(201,169,94,0.65)'; c.lineWidth = 0.7; // brass bed rails
+          c.beginPath(); c.moveTo(-12.4, -5.2); c.lineTo(3.6, -5.2); c.moveTo(-12.4, 5.2); c.lineTo(3.6, 5.2); c.stroke();
+          if (!o2.deployed) {
+            // the derrick FOLDED flat along the bed: lattice boom + stowed bit
+            c.fillStyle = '#5c5136'; rr(c, -12, -2.2, 14.5, 4.4, 1); c.fill();
+            c.strokeStyle = '#8a7a52'; c.lineWidth = 0.8;
+            for (let i = 0; i < 5; i++) {
+              c.beginPath(); c.moveTo(-11 + i * 2.9, -2); c.lineTo(-9.6 + i * 2.9, 2); c.stroke();
+            }
+            c.fillStyle = '#9aa2ae'; // drill bit lashed at the tail
+            c.beginPath(); c.moveTo(-12.4, -1.6); c.lineTo(-15.6, 0); c.lineTo(-12.4, 1.6); c.closePath(); c.fill();
+            c.strokeStyle = '#26231d'; c.lineWidth = 0.5; c.stroke();
+          }
         } },
-      { // the derrick: an A-frame with the drill column, lowered when deployed
+      { // the drill house on the bed — the derrick rises from here when planted
         poly: [[1, -4], [1, 4], [-10, 4], [-10, -4]], h: 3.6, body: '#5c5136',
         detail: (c, t2, o2) => {
-          c.strokeStyle = '#8a7a52'; c.lineWidth = 1.2;
-          c.beginPath(); c.moveTo(-8, -3); c.lineTo(-4.5, -9); c.moveTo(-1, -3); c.lineTo(-4.5, -9); c.stroke();
-          c.fillStyle = o2.deployed ? '#9aa2ae' : '#6d727a';
-          c.beginPath(); c.moveTo(-5.6, -9); c.lineTo(-3.4, -9); c.lineTo(-4.5, o2.deployed ? 3 : -3); c.closePath(); c.fill();
-          if (o2.firing) { c.fillStyle = 'rgba(166,142,104,0.9)'; c.beginPath(); c.arc(-4.5, 3, 3, 0, TAU); c.fill(); }
+          if (!o2.deployed) {
+            // packed: just the house roof with tie-down straps
+            c.strokeStyle = '#3f3c33'; c.lineWidth = 0.7;
+            c.beginPath(); c.moveTo(-8, -3.6); c.lineTo(-8, 3.6); c.moveTo(-3, -3.6); c.lineTo(-3, 3.6); c.stroke();
+            return;
+          }
+          // DEPLOYED: erect lattice A-frame + kingpost over the bore
+          c.strokeStyle = '#8a7a52'; c.lineWidth = 1.4;
+          c.beginPath();
+          c.moveTo(-8.6, -3.4); c.lineTo(-4.5, -12);
+          c.moveTo(-0.6, -3.4); c.lineTo(-4.5, -12);
+          c.moveTo(-8.6, 3.4); c.lineTo(-4.5, -12);
+          c.moveTo(-0.6, 3.4); c.lineTo(-4.5, -12);
+          c.stroke();
+          c.strokeStyle = '#6d6041'; c.lineWidth = 0.6; // lattice cross-bracing
+          c.beginPath();
+          c.moveTo(-7.2, -6); c.lineTo(-2, -6);
+          c.moveTo(-6.2, -8.8); c.lineTo(-2.9, -8.8);
+          c.stroke();
+          // the drill column: kingpost down THROUGH the bed into the earth,
+          // rotating collar bands while the quake charge winds up
+          c.fillStyle = '#9aa2ae'; c.fillRect(-5.4, -12, 1.8, 15.4);
+          c.fillStyle = '#5a616a';
+          const spin2 = (t2 * 9) % 3;
+          for (let i = 0; i < 4; i++) c.fillRect(-5.6, -10 + i * 3.4 + spin2, 2.2, 1);
+          c.fillStyle = '#c9a95e'; // brass drive collar at the bed line
+          rr(c, -6.2, -1.4, 3.4, 2.8, 0.8); c.fill();
+          if (o2.firing) {
+            c.fillStyle = 'rgba(166,142,104,0.9)';
+            c.beginPath(); c.arc(-4.5, 3.2, 3.4, 0, TAU); c.fill();
+          }
         } },
     ],
   });

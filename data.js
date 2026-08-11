@@ -436,7 +436,9 @@ const UNIT_TYPES = {
   // globalist rotorcraft roll out of the Motor Pool alongside the SUVs
   drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'factory', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
   // glass-cannon gunship: cheap, vicious, and it does not take a punch
-  apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 21, atkRange: 150, cooldown: 0.5,  sight: 270, cost: 130, r: 11, buildTime: 9,  flying: true, targets: 'both', shape: 'tri' },
+  // glass-cannon gunship, now firing VISIBLE Hydra rockets — and walked back
+  // from its reign of terror: slower volleys, softer warheads, pricier
+  apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 16, atkRange: 150, cooldown: 0.65, sight: 270, cost: 150, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', rocketArt: true },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
   fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri' },
   // Shahed: a purchasable loitering munition — flies at its target and dives
@@ -447,7 +449,7 @@ const UNIT_TYPES = {
   // vision plus a mark that makes your army hit it 30% harder. The drone lives
   // and can be re-tasked to the next target (see the 'probe' order).
   probedrone: { name: 'Probe Drone',    role: 'scout',  builtAt: 'airpad', hp: 75,  speed: 145, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 320, cost: 60,  r: 8,  buildTime: 5,  flying: true, shape: 'blimp', tracker: true },
-  saucer:   { name: 'Flying Saucer', flyH: 32,   role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
+  saucer:   { name: 'Flying Saucer', flyH: 32, drawScale: 1.4,   role: 'combat', builtAt: 'airpad', hp: 180, speed: 115, dmg: 14, atkRange: 140, cooldown: 0.7,  sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'saucer', req: 'tech' },
   drake:    { name: 'Sky Drake', flyH: 32,        role: 'combat', builtAt: 'airpad', hp: 160, speed: 105, dmg: 16, atkRange: 90,  cooldown: 0.8,  sight: 260, cost: 170, r: 11, buildTime: 11, flying: true, shape: 'tri', pad: true, maxAmmo: 8, plane: true, turn: 2.8, req: 'tech' },
   // Resistance Chemtrail Biplane: a rickety crop-duster biplane that lays a
   // lingering chemtrail (toxin) as it strafes
@@ -470,7 +472,9 @@ const UNIT_TYPES = {
   // Globalist stealth fighter: lives on the airfield, scrambles at hostile
   // air with eight rails, and can strafe ground targets in a pinch — weakly.
   // Invisible until it opens fire, briefly lit, then gone again.
-  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, dmgVsGround: 9, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2, stealth: true },
+  // stealth coating dropped (the Deep State kept the classified paint):
+  // it flies loud and proud now, pure interceptor
+  f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, dmgVsGround: 9, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2 },
   // lumbering death circle: wide slow pylon turn, battery rakes up to
   // multiTarget enemies in range at once; flies from its own single-plane hangar
   gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.2, weapon: 'gunship', runOut: 240, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
@@ -478,7 +482,7 @@ const UNIT_TYPES = {
   // Grey Abductor Saucer: hovers over a ground unit and locks a tractor beam —
   // hold it long enough and the victim is hauled up and away (removed, +minerals).
   // Heavies (hp over abductMax) are too heavy to lift; the beam just drains them.
-  abductor:   { name: 'Abductor Saucer', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 200, speed: 100, dmg: 7, atkRange: 95, cooldown: 0.5, sight: 300, cost: 200, r: 12, buildTime: 13, flying: true, shape: 'saucer', weapon: 'abduct', abductTime: 3, abductMax: 300, abductBounty: 20 },
+  abductor:   { name: 'Abductor Saucer', flyH: 30, drawScale: 1.35, role: 'combat', builtAt: 'airpad', hp: 200, speed: 100, dmg: 7, atkRange: 95, cooldown: 0.5, sight: 300, cost: 200, r: 12, buildTime: 13, flying: true, shape: 'saucer', weapon: 'abduct', abductTime: 3, abductMax: 300, abductBounty: 20 },
   // ---------- apex heavies (AC-130 tier, all tech-gated) ----------
   // Flat: the Combine of Correction — an armor-plated harvester that reaps
   // what it's pointed at. ONE heavy cannon on the cab (no broadside battery),
@@ -493,7 +497,7 @@ const UNIT_TYPES = {
   // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
   // lance vaporizes ONE ground target at a time; its bound Tic Tac escort
   // (slow to regrow once shot down) is all that screens the sky above it.
-  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 110, atkRange: 200, cooldown: 3.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', lance: true, brood: { type: 'tictac', count: 3, regen: 45 }, req: 'tech' },
+  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.65, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 110, atkRange: 200, cooldown: 3.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', lance: true, brood: { type: 'tictac', count: 3, regen: 45 }, req: 'tech' },
   // Draco Royal: the winged apex of the caste — rains fire, and its presence
   // emboldens the whole brood (buffAura). Bought with loosh: the blood-throne's
   // champion. drawScale keeps its bespoke rig imposing.

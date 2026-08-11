@@ -1433,7 +1433,12 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   const d = Math.hypot(tx - u.x, ty - u.y);
   if (d <= stopDist) return true;
   // a planted siege engine must pack its drill before it can roll
-  if (u.deployed) { u.deployed = false; u.deployingUntil = state.time + 1.2; return false; }
+  if (u.deployed) {
+    u.deployed = false;
+    u.deployingUntil = state.time + 1.2;
+    Particles.pulse(u.x, u.y, 24, [150, 128, 96]); // the drill wrenches free
+    return false;
+  }
   if (u.deployingUntil > state.time && UNIT_TYPES[u.type].deployable) return false;
   u.wdWant = true; // actively trying to move — eligible for the wedge-breaker
   const t = UNIT_TYPES[u.type];
@@ -1955,7 +1960,11 @@ function tryAttack(u, target, dt) {
       moveToward(u, target.x, target.y, dt, range - 4, target.kind === 'building' ? target.id : null);
       return;
     }
-    if (!u.deployed) { u.deployed = true; u.deployingUntil = state.time + 2; }
+    if (!u.deployed) {
+      u.deployed = true;
+      u.deployingUntil = state.time + 2;
+      Particles.pulse(u.x, u.y, 28, [150, 128, 96]); // outriggers slam down
+    }
   } else if (d > range) {
     // a Lantern Guard fires its vril bolts on the way in — everyone else
     // just closes to weapon range and stops
