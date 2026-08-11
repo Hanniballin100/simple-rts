@@ -864,6 +864,13 @@ const BUILDING_MODS = {
     airpad:     { cost: 110, hp: 380, buildTime: 14, req: 'tech' }, // the sky must be proven fake first
     tech:       { cost: 240, hp: 420 },
     mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
+    // OFF THE GRID BY DOCTRINE. The compound's guns run on diesel, car
+    // batteries and distrust — never the mains. Mechanically this is the
+    // compensation for the worst power ceiling in the game (55 + 6x70 = 475,
+    // against a Globalist 970): their defences cannot be browned out, so a
+    // base that overspends on production still shoots back.
+    pillbox:      { power: 0 },
+    laserpointer: { power: 0 },
   },
   resistance: { // guerrilla salvage: cheapest structures in the game
     hq:         { hp: 800,  power: 55 },
@@ -872,7 +879,11 @@ const BUILDING_MODS = {
     factory:    { cost: 115, hp: 400, buildTime: 13 },
     airpad:     { cost: 90,  hp: 350, buildTime: 12 }, // the Drone Shop: no proof-of-sky required
     tech:       { cost: 220, hp: 400 },
-    watchtower: { cost: 65 },
+    // same doctrine, harder: a cell that plugs its guns into the mains is a
+    // cell that can be switched off. Scrounged generators only (see the flat
+    // note above — both off-grid factions pay for it with a low power cap)
+    watchtower: { cost: 65, power: 0 },
+    aanest:     { power: 0 },
     mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
     superweapon: { cost: 380, hp: 480 }, // cheaper and weaker, on brand
   },

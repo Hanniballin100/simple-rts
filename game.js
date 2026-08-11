@@ -4036,7 +4036,6 @@ function aiPickSpot(owner, type) {
 
 function aiDesiredStructure(owner, counts, power) {
   const f = facOf(owner);
-  if (power.used + 30 > power.cap && !atStructCap(owner, 'powerplant')) return 'powerplant';
   // walk the build order; each repeat of a type raises its desired count.
   // income factions (no miners) weave in extra power structures — those ARE
   // their economy
@@ -4084,18 +4083,33 @@ function aiDesiredStructure(owner, counts, power) {
   // finished base never goes fully static while it still has minerals to spend
   order.push('powerplant', f.tower, f.aaTower, 'factory', 'powerplant', f.tower, f.aaTower, 'barracks');
   const want = {};
+  let pick = null;
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
     if ((counts[t] || 0) < want[t] && !atStructCap(owner, t)) {
       // a gated structure (flat-family airpads) sends the AI for its prereq first
       const rq = bstats(owner, t).req;
-      if (rq && !(counts[rq] > 0)) {
-        return atStructCap(owner, rq) ? null : rq;
-      }
-      return t;
+      pick = (rq && !(counts[rq] > 0)) ? (atStructCap(owner, rq) ? null : rq) : t;
+      break;
     }
   }
-  return null;
+  if (!pick) return null;
+
+  // ---------- can the grid actually carry it? ----------
+  // The old check reserved a FLAT 30 of headroom before every build. That is
+  // fine for a tower and nowhere near enough for a Research Lab at -80: the AI
+  // would raise it, brown out, and then sit through the counter-attack with
+  // silent towers and half-speed production. Reserve what THIS building draws.
+  const draw = Math.max(0, -(bstats(owner, pick).power || 0));
+  if (pick !== 'powerplant' && power.used + draw > power.cap) {
+    // another plant is the answer if one is allowed...
+    if (!atStructCap(owner, 'powerplant')) return 'powerplant';
+    // ...and if the grid is maxed out, build NOTHING rather than knowingly
+    // browning out the base. The minerals go to units instead, and the think
+    // tick reconsiders every second as power frees up.
+    return null;
+  }
+  return pick;
 }
 
 // ---------- the AI's think phases (one think tick runs them in order) ----------
