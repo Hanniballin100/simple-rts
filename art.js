@@ -7426,35 +7426,36 @@
       },
     ],
     above: (c, t2, o2) => {
-      // the welded launch rail, angled up over the tail
+      // the welded launch rail, angled up over the tail — the whole round
+      // stays ON the bed, tail fins inside the rear rail posts
       c.save();
-      c.translate(-3, 0);
-      c.rotate(-0.42);
+      c.translate(-1, 0);
+      c.rotate(-0.34);
       c.strokeStyle = '#4a463c'; c.lineWidth = 1.6;
-      c.beginPath(); c.moveTo(-9, 2.6); c.lineTo(9, 2.6); c.stroke(); // rail
+      c.beginPath(); c.moveTo(-7.5, 2.4); c.lineTo(7.5, 2.4); c.stroke(); // rail
       c.strokeStyle = '#33302a'; c.lineWidth = 0.8; // rail trusses
-      for (let i = -7; i <= 7; i += 3.5) { c.beginPath(); c.moveTo(i, 2.6); c.lineTo(i + 1.5, 4.2); c.stroke(); }
+      for (let i = -6; i <= 6; i += 3) { c.beginPath(); c.moveTo(i, 2.4); c.lineTo(i + 1.3, 3.8); c.stroke(); }
       // THE missile: fat, patched, taped fins, painted mouth
-      const g = c.createLinearGradient(0, -3.4, 0, 0.6);
+      const g = c.createLinearGradient(0, -3.2, 0, 0.6);
       g.addColorStop(0, '#9a938a'); g.addColorStop(1, '#6d675e');
       c.fillStyle = g;
-      rr(c, -9.5, -1.6, 17.5, 3.8, 1.9); c.fill();
-      c.strokeStyle = '#33302a'; c.lineWidth = 0.5; rr(c, -9.5, -1.6, 17.5, 3.8, 1.9); c.stroke();
+      rr(c, -7.2, -1.5, 13.2, 3.6, 1.8); c.fill();
+      c.strokeStyle = '#33302a'; c.lineWidth = 0.5; rr(c, -7.2, -1.5, 13.2, 3.6, 1.8); c.stroke();
       c.fillStyle = '#b04a3a'; // nose cone
-      c.beginPath(); c.moveTo(8, -1.6); c.lineTo(11.6, 0.3); c.lineTo(8, 2.2); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(6, -1.5); c.lineTo(9, 0.3); c.lineTo(6, 2.1); c.closePath(); c.fill();
       c.fillStyle = '#e8e2d2'; // the shark mouth
-      c.beginPath(); c.moveTo(7.6, 0.9); c.lineTo(9.8, 0.5); c.lineTo(8.2, 1.5); c.closePath(); c.fill();
-      c.fillStyle = '#6d4a38'; rr(c, -2, -1.5, 3.4, 1.6, 0.4); c.fill(); // rust patch
+      c.beginPath(); c.moveTo(5.7, 0.8); c.lineTo(7.6, 0.5); c.lineTo(6.2, 1.4); c.closePath(); c.fill();
+      c.fillStyle = '#6d4a38'; rr(c, -1.6, -1.4, 3, 1.5, 0.4); c.fill(); // rust patch
       c.strokeStyle = '#8a8271'; c.lineWidth = 0.5; // duct-tape bands
-      c.beginPath(); c.moveTo(2.8, -1.7); c.lineTo(2.8, 2.3); c.moveTo(-5.6, -1.7); c.lineTo(-5.6, 2.3); c.stroke();
-      c.fillStyle = '#4a463c'; // taped-on tail fins
-      c.beginPath(); c.moveTo(-9.5, -1.4); c.lineTo(-12.6, -3.6); c.lineTo(-9.5, 0.2); c.closePath(); c.fill();
-      c.beginPath(); c.moveTo(-9.5, 2.2); c.lineTo(-12.2, 3.9); c.lineTo(-9.5, 0.6); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(2.2, -1.6); c.lineTo(2.2, 2.2); c.moveTo(-4.4, -1.6); c.lineTo(-4.4, 2.2); c.stroke();
+      c.fillStyle = '#4a463c'; // taped-on tail fins, tucked inside the rail
+      c.beginPath(); c.moveTo(-7.2, -1.3); c.lineTo(-9.4, -2.9); c.lineTo(-7.2, 0.2); c.closePath(); c.fill();
+      c.beginPath(); c.moveTo(-7.2, 2); c.lineTo(-9.2, 3.3); c.lineTo(-7.2, 0.5); c.closePath(); c.fill();
       if (o2.firing) { // rail flash + backblast off the tail
         c.fillStyle = 'rgba(255,220,140,0.95)';
-        c.beginPath(); c.arc(-12.4, 0.4, 3.2, 0, TAU); c.fill();
+        c.beginPath(); c.arc(-9.6, 0.4, 2.8, 0, TAU); c.fill();
         c.fillStyle = 'rgba(255,170,80,0.5)';
-        c.beginPath(); c.arc(-16, 1.2, 4.6, 0, TAU); c.fill();
+        c.beginPath(); c.arc(-12.4, 1, 4, 0, TAU); c.fill();
       }
       c.restore();
       // cable spool + generator crate beside the rail mount
@@ -7818,24 +7819,26 @@
   // raked glacis wedge at the bow and flat skirted flanks, not an oval
   I.abrams = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 32,
-    under: (c, t, o) => treads(c, t, o, 30, 4.6, 8.6),
+    // tracks tucked UNDER the hull like the real M1 — skirts cover the top
+    // run, only the lower road-wheel line peeks out beneath the hull edge
+    under: (c, t, o) => treads(c, t, o, 30, 3.4, 5.6),
     tiers: [
-      { // LOW slim hull riding between exposed tracks — long, not bulky
-        poly: [[16, -3.4], [16, 3.4], [12.5, 5.3], [-15, 5.3], [-15, -5.3], [12.5, -5.3]],
+      { // wide low hull whose skirts overhang the track envelope
+        poly: [[16, -4.4], [16, 4.4], [12.5, 7], [-15, 7], [-15, -7], [12.5, -7]],
         h: 3.4, body: '#5e6047',
         detail: (c) => {
           // the long raked glacis — the M1's signature wedge nose
           const g = c.createLinearGradient(8, 0, 16, 0);
           g.addColorStop(0, shade('#5e6047', 0.02)); g.addColorStop(1, shade('#5e6047', 0.28));
           c.fillStyle = g;
-          c.beginPath(); c.moveTo(7, -5.1); c.lineTo(15.6, -3.2); c.lineTo(15.6, 3.2); c.lineTo(7, 5.1); c.closePath(); c.fill();
+          c.beginPath(); c.moveTo(7, -6.7); c.lineTo(15.6, -4.2); c.lineTo(15.6, 4.2); c.lineTo(7, 6.7); c.closePath(); c.fill();
           c.strokeStyle = shade('#5e6047', -0.4); c.lineWidth = 0.5;
-          c.beginPath(); c.moveTo(7, -5.1); c.lineTo(15.6, -3.2); c.moveTo(7, 5.1); c.lineTo(15.6, -3.2 + 6.4); c.stroke();
-          // thin side-skirt strip with panel seams
+          c.beginPath(); c.moveTo(7, -6.7); c.lineTo(15.6, -4.2); c.moveTo(7, 6.7); c.lineTo(15.6, 4.2); c.stroke();
+          // deep side skirts with panel seams, riding out over the tracks
           c.strokeStyle = shade('#5e6047', -0.45); c.lineWidth = 0.45;
           for (const s of [-1, 1]) {
-            c.beginPath(); c.moveTo(-13, s * 3.9); c.lineTo(6, s * 3.9); c.stroke();
-            for (let x = -12; x <= 5; x += 4.2) { c.beginPath(); c.moveTo(x, s * 3.9); c.lineTo(x, s * 5.1); c.stroke(); }
+            c.beginPath(); c.moveTo(-13, s * 5.2); c.lineTo(6, s * 5.2); c.stroke();
+            for (let x = -12; x <= 5; x += 4.2) { c.beginPath(); c.moveTo(x, s * 5.2); c.lineTo(x, s * 6.8); c.stroke(); }
           }
           // rear engine deck grilles
           c.fillStyle = shade('#5e6047', -0.3); rr(c, -14.4, -3.4, 3, 6.8, 0.6); c.fill();
@@ -7843,12 +7846,12 @@
           for (const x of [-13.7, -12.8, -11.9]) { c.beginPath(); c.moveTo(x, -3); c.lineTo(x, 3); c.stroke(); }
           // tow cable slung across the glacis + headlight clusters
           c.strokeStyle = '#3a3e2c'; c.lineWidth = 0.7;
-          c.beginPath(); c.moveTo(8.5, -4.4); c.quadraticCurveTo(12, 0, 8.5, 4.4); c.stroke();
+          c.beginPath(); c.moveTo(8.5, -5.6); c.quadraticCurveTo(12.5, 0, 8.5, 5.6); c.stroke();
           c.fillStyle = '#d8d2b8';
-          c.fillRect(14.6, -3.2, 1, 1.2); c.fillRect(14.6, 2, 1, 1.2);
+          c.fillRect(14.6, -4.1, 1, 1.2); c.fillRect(14.6, 2.9, 1, 1.2);
           // stowage: jerry cans + duffels lashed to the rear corners
-          c.fillStyle = '#4d5340'; rr(c, -12.6, -5, 2.4, 1.8, 0.4); c.fill();
-          c.fillStyle = '#6a5c40'; rr(c, -12.2, 3.4, 3, 1.7, 0.7); c.fill();
+          c.fillStyle = '#4d5340'; rr(c, -12.6, -6.4, 2.4, 1.8, 0.4); c.fill();
+          c.fillStyle = '#6a5c40'; rr(c, -12.2, 4.6, 3, 1.7, 0.7); c.fill();
         },
       },
     ],
@@ -7897,27 +7900,28 @@
   // for the PMC team riding inside
   I.bradley = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 26,
-    under: (c, t, o) => treads(c, t, o, 24, 4.5, 8.4),
+    // tracks under the sponsons like the real M2 — the tall hull overhangs
+    under: (c, t, o) => treads(c, t, o, 24, 3.2, 5.2),
     tiers: [
-      { poly: [[13, -2.8], [13, 2.8], [9, 6], [-12, 5.6], [-13, 0], [-12, -5.6], [9, -6]],
+      { poly: [[13, -3.6], [13, 3.6], [9, 7], [-12, 6.6], [-13, 0], [-12, -6.6], [9, -7]],
         h: 6.4, body: '#4f5a44',
         detail: (c) => {
           c.fillStyle = shade('#4f5a44', 0.16); // steep glacis wedge
-          c.beginPath(); c.moveTo(6, -4.6); c.lineTo(12, -2), c.lineTo(12, 2); c.lineTo(6, 4.6); c.closePath(); c.fill();
+          c.beginPath(); c.moveTo(6, -5.7); c.lineTo(12, -2.7), c.lineTo(12, 2.7); c.lineTo(6, 5.7); c.closePath(); c.fill();
           c.strokeStyle = shade('#4f5a44', -0.45); c.lineWidth = 0.5;
           c.beginPath(); c.moveTo(8, 0); c.lineTo(-11, 0); c.stroke(); // spine seam
           // firing ports along the flanks, set into ERA tile rows
           c.strokeStyle = shade('#4f5a44', -0.38); c.lineWidth = 0.4;
           for (const s of [-1, 1]) for (let x = -10; x <= 2; x += 2.4) {
-            c.strokeRect(x, s * 5 - 0.9, 2.1, 1.8);
+            c.strokeRect(x, s * 6 - 0.9, 2.1, 1.8);
           }
           c.fillStyle = '#20241a';
-          for (const s of [-1, 1]) for (const x of [-8, -4, 0]) { rr(c, x, s * 4.6 - 0.7, 1.6, 1.4, 0.4); c.fill(); }
+          for (const s of [-1, 1]) for (const x of [-8, -4, 0]) { rr(c, x, s * 5.5 - 0.7, 1.6, 1.4, 0.4); c.fill(); }
           c.fillStyle = shade('#4f5a44', -0.28); rr(c, -12.4, -3.4, 2, 6.8, 0.6); c.fill(); // rear ramp
           // whip antenna + wing mirrors off the driver's corner
           c.strokeStyle = '#2c3024'; c.lineWidth = 0.4;
-          c.beginPath(); c.moveTo(-11, -4.4); c.lineTo(-13.6, -7.4); c.stroke();
-          c.fillStyle = '#c9c2ae'; c.fillRect(10.6, -4.2, 0.8, 1); c.fillRect(10.6, 3.2, 0.8, 1);
+          c.beginPath(); c.moveTo(-11, -5.4); c.lineTo(-13.6, -8.2); c.stroke();
+          c.fillStyle = '#c9c2ae'; c.fillRect(10.6, -5, 0.8, 1); c.fillRect(10.6, 4, 0.8, 1);
         },
       },
     ],
