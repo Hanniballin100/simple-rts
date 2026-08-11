@@ -2956,9 +2956,13 @@ function workerSelfDefense(u, stats, dt) {
 }
 
 // transport riders: pinned to the vehicle, firing their own weapons out of the
-// ports/bed at whatever the ride drives past
+// ports/bed at whatever the ride drives past. A carrier with `portRange` is a
+// proper firing-port bunker rather than a bed with passengers in it — braced
+// and elevated, its riders reach further than they ever could on foot, which
+// is the whole case for pushing the School Bus at a defended line.
 function updateCargoRiders(u, dt) {
   u.cargo = u.cargo.filter(id => { const p = findEntity(id); return p && p.hp > 0; });
+  const reach = UNIT_TYPES[u.type].portRange || 0;
   for (const id of u.cargo) {
     const p = findEntity(id);
     p.x = u.x; p.y = u.y;
@@ -2966,7 +2970,7 @@ function updateCargoRiders(u, dt) {
     const pt = UNIT_TYPES[p.type];
     if (!pt.dmg || p.cooldown > 0) continue;
     const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-      !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + entityRadius(e));
+      !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + reach + entityRadius(e));
     if (foe) { p.facing = Math.atan2(foe.y - u.y, foe.x - u.x); fireAt(p, foe, pt); }
   }
 }
@@ -5012,7 +5016,11 @@ function unitBlurb(type) {
     if (t.bldgBonus > 1) b.push(`${t.bldgBonus}× vs buildings`);
     else if (t.bldgBonus) b.push('feeble vs buildings');
     if (t.lance) b.push('one narrow annihilating blast at a time');
-  } else if (t.role === 'combat' && !t.repair && !t.tracker && !t.kamikaze && !t.captures) b.push('unarmed');
+  } else if (t.role === 'combat' && !t.repair && !t.tracker && !t.kamikaze && !t.captures) {
+    // a gunless carrier isn't "unarmed", it's EMPTY — say the thing the player
+    // has to do about it, the way the pillbox blurb does
+    b.push(t.cargoCap ? 'no gun of its own — rolling steel until you load it' : 'unarmed');
+  }
   if (t.petrify) b.push('its gaze petrifies the victim to stone');
   if (t.leech) b.push('heals off the damage it deals');
   if (t.buffAura) b.push('aura: nearby friendlies deal +25% damage');
@@ -5052,6 +5060,7 @@ function unitBlurb(type) {
   if (t.jams) b.push('its hits scramble aircraft avionics');
   if (t.pad) b.push(`lives on the airfield: ${t.maxAmmo} shots per sortie, lands to rearm`);
   if (t.cargoCap) b.push(`carries ${t.cargoCap} light infantry who fire from inside (right-click to board)${t.bailOut ? ' — riders bail out, hurt but alive, if it dies' : ' — riders die with the vehicle'}`);
+  if (t.portRange) b.push(`firing ports: riders shoot +${t.portRange} further from the slits than on foot`);
   if (isCrusher(t)) b.push('crushes light infantry under its hull');
   if (t.limit) b.push(`max ${t.limit}`);
   if (t.loosh) b.push(`also costs ${t.loosh} LOOSH`);

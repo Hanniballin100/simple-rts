@@ -490,7 +490,10 @@ const UNIT_TYPES = {
   // the armored School Bus: welded plate over yellow steel. Six believers
   // ride inside firing their own weapons out the windows, and the wreck
   // spills them out alive (bailOut) when it finally dies. No gun of its own.
-  schoolbus:  { name: 'School Bus Bunker', role: 'combat', builtAt: 'factory', hp: 400, speed: 68, dmg: 0, atkRange: 0,  cooldown: 1,    sight: 220, cost: 190, r: 14, buildTime: 11, shape: 'square', armor: 0.3, cargoCap: 6, bailOut: true },
+  // no gun of its own — every shot comes from the six believers inside, who
+  // shoot FURTHER from the slits than they ever could on foot (portRange).
+  // Thick, slow and crush-proof: a rolling pillbox you push forward, not a taxi.
+  schoolbus:  { name: 'School Bus Bunker', role: 'combat', builtAt: 'factory', hp: 600, speed: 60, dmg: 0, atkRange: 0,  cooldown: 1,    sight: 220, cost: 230, r: 14, buildTime: 13, shape: 'square', armor: 0.45, cargoCap: 6, portRange: 45, bailOut: true },
   // the all-purpose Toyota: cheap, fast, shoots at everything — and dents
   // nothing armored (the RPG Partisan is the anti-vehicle answer)
   // rides four in the OPEN bed: loaded partisans are visible, fire their own
