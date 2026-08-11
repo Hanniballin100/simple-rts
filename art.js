@@ -2873,33 +2873,96 @@
     });
   };
   // ================= Revival Tent =================
-  // a big striped canvas marquee: the Conviction generator (billboarded
-  // upright, like the silo and windmill)
+  // A canvas meeting, not a garden gazebo. It gets NO concrete pad — a tent
+  // pitched on poured slab was the single thing making the old one read wrong —
+  // just trodden dirt, stakes and guy lines. Big striped canopy filling its
+  // whole footprint, scalloped valance, tied-back door, and a hand-lettered
+  // board out front, because this faction never says anything quietly.
   B.revivaltent = (ctx, t, o) => {
-    pad(ctx, o);
-    billboard(ctx, 0, 6, () => {
-      const W = 24, H = 22;
-      // canvas walls
-      ctx.fillStyle = '#b9a97e';
-      ctx.beginPath(); ctx.moveTo(-W, 0); ctx.lineTo(-W * 0.78, -H * 0.55); ctx.lineTo(W * 0.78, -H * 0.55); ctx.lineTo(W, 0); ctx.closePath(); ctx.fill();
-      // striped big-top roof converging on the ridgepole
-      const ry = -H * 0.55;
-      ctx.fillStyle = '#a33d33';
-      ctx.beginPath(); ctx.moveTo(-W * 0.78, ry); ctx.lineTo(0, -H); ctx.lineTo(W * 0.78, ry); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = '#d8d2c2';
-      for (let i = -3; i <= 3; i += 2) {
-        ctx.beginPath();
-        ctx.moveTo(i * W * 0.19, ry); ctx.lineTo((i + 1) * W * 0.19, ry); ctx.lineTo(0, -H); ctx.closePath(); ctx.fill();
+    const W = o.w * 0.46, H = o.h * 0.62;
+    // ---- trodden ground: bare earth ring where the congregation stands ----
+    ctx.fillStyle = '#4a4230';
+    ctx.beginPath(); ctx.ellipse(0, 2, W * 1.06, W * 0.55, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(92,82,58,0.55)';
+    ctx.beginPath(); ctx.ellipse(-1, 1, W * 0.82, W * 0.42, 0, 0, TAU); ctx.fill();
+    // stakes ringing the pitch, with their guy lines running up to the eaves
+    ctx.strokeStyle = 'rgba(206,192,150,0.5)'; ctx.lineWidth = 0.7;
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * TAU + 0.4;
+      const sx = Math.cos(a) * W * 0.98, sy = Math.sin(a) * W * 0.5 + 2;
+      ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(Math.cos(a) * W * 0.42, Math.sin(a) * W * 0.22 - H * 0.34); ctx.stroke();
+      ctx.fillStyle = '#6b5f45';
+      ctx.fillRect(sx - 0.6, sy - 1.6, 1.2, 2.6);
+    }
+
+    billboard(ctx, 0, 4, () => {
+      // ---- canvas walls, sagging slightly between the poles ----
+      ctx.fillStyle = '#cbbc92';
+      ctx.beginPath();
+      ctx.moveTo(-W, 0); ctx.lineTo(-W * 0.9, -H * 0.42);
+      ctx.lineTo(W * 0.9, -H * 0.42); ctx.lineTo(W, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(0,0,0,0.13)';                 // shaded lower third
+      ctx.fillRect(-W, -H * 0.13, W * 2, H * 0.13);
+
+      // ---- big-top canopy: alternating red and cream gores off the peak ----
+      const ey = -H * 0.42, peak = -H * 1.06;
+      const gore = (x0, x1, col) => {
+        ctx.fillStyle = col;
+        ctx.beginPath(); ctx.moveTo(x0, ey); ctx.lineTo(x1, ey); ctx.lineTo(0, peak); ctx.closePath(); ctx.fill();
+      };
+      const N = 8;
+      for (let i = 0; i < N; i++) {
+        const x0 = -W * 1.04 + (i / N) * W * 2.08, x1 = -W * 1.04 + ((i + 1) / N) * W * 2.08;
+        gore(x0, x1, i % 2 ? '#a83e33' : '#ded4b8');
       }
-      // dark tent mouth
-      ctx.fillStyle = '#4a4234';
-      ctx.beginPath(); ctx.moveTo(-5, 0); ctx.lineTo(0, -9); ctx.lineTo(5, 0); ctx.closePath(); ctx.fill();
-      // guy ropes
-      ctx.strokeStyle = 'rgba(120,110,85,0.7)'; ctx.lineWidth = 0.7;
-      ctx.beginPath(); ctx.moveTo(-W * 0.9, -H * 0.5); ctx.lineTo(-W - 6, 2); ctx.moveTo(W * 0.9, -H * 0.5); ctx.lineTo(W + 6, 2); ctx.stroke();
-      // the cross on the ridgepole
-      ctx.strokeStyle = '#e8e2d2'; ctx.lineWidth = 1.4;
-      ctx.beginPath(); ctx.moveTo(0, -H - 7); ctx.lineTo(0, -H - 1); ctx.moveTo(-2.2, -H - 5); ctx.lineTo(2.2, -H - 5); ctx.stroke();
+      // eave line + scalloped valance hanging off it
+      ctx.strokeStyle = 'rgba(90,72,48,0.55)'; ctx.lineWidth = 0.8;
+      ctx.beginPath(); ctx.moveTo(-W * 1.04, ey); ctx.lineTo(W * 1.04, ey); ctx.stroke();
+      ctx.fillStyle = '#ded4b8';
+      for (let i = 0; i < 9; i++) {
+        const sx = -W * 1.0 + (i / 8) * W * 2.0;
+        ctx.beginPath(); ctx.arc(sx, ey + 0.5, W * 0.13, 0, Math.PI); ctx.fill();
+      }
+
+      // ---- the door: flaps tied back on a lit interior ----
+      ctx.fillStyle = '#2f2a20';
+      ctx.beginPath();
+      ctx.moveTo(-W * 0.2, 0); ctx.lineTo(-W * 0.15, -H * 0.34);
+      ctx.lineTo(W * 0.15, -H * 0.34); ctx.lineTo(W * 0.2, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = 'rgba(255,206,120,0.30)';           // lamplight spilling out
+      ctx.beginPath();
+      ctx.moveTo(-W * 0.13, 0); ctx.lineTo(-W * 0.1, -H * 0.26);
+      ctx.lineTo(W * 0.1, -H * 0.26); ctx.lineTo(W * 0.13, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#ded4b8';                           // flaps furled either side
+      ctx.beginPath(); ctx.moveTo(-W * 0.2, 0); ctx.lineTo(-W * 0.34, 0); ctx.lineTo(-W * 0.26, -H * 0.3); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(W * 0.2, 0); ctx.lineTo(W * 0.34, 0); ctx.lineTo(W * 0.26, -H * 0.3); ctx.closePath(); ctx.fill();
+
+      // ---- the ridgepole, its pennant, and a cross on top ----
+      ctx.fillStyle = '#8a7b5c'; ctx.fillRect(-0.7, peak, 1.4, -H * 0.2);
+      const flut = Math.sin(t * 2.2) * 1.4;
+      ctx.fillStyle = '#a83e33';
+      ctx.beginPath();
+      ctx.moveTo(0.6, peak - H * 0.17); ctx.lineTo(W * 0.42 + flut, peak - H * 0.12);
+      ctx.lineTo(0.6, peak - H * 0.06); ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = '#f0e8d2'; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(0, peak - H * 0.2); ctx.lineTo(0, peak - H * 0.34);
+      ctx.moveTo(-2.4, peak - H * 0.29); ctx.lineTo(2.4, peak - H * 0.29);
+      ctx.stroke();
+
+      // ---- the sign board out front, hand-lettered ----
+      ctx.fillStyle = '#6b5f45';
+      ctx.fillRect(-W * 0.86, -1, 1, -H * 0.13);
+      ctx.fillRect(-W * 0.6, -1, 1, -H * 0.13);
+      ctx.fillStyle = '#e6dcc0';
+      ctx.fillRect(-W * 0.9, -H * 0.24, W * 0.36, H * 0.12);
+      ctx.strokeStyle = '#8a7b5c'; ctx.lineWidth = 0.5;
+      ctx.strokeRect(-W * 0.9, -H * 0.24, W * 0.36, H * 0.12);
+      ctx.fillStyle = '#7a2a22';                           // three scrawled lines of text
+      for (let i = 0; i < 3; i++) ctx.fillRect(-W * 0.86, -H * 0.215 + i * H * 0.032, W * 0.28 - (i % 2) * W * 0.07, H * 0.016);
     });
   };
   B.tower5g = (ctx, t, o) => {

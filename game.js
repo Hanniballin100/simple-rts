@@ -28,6 +28,7 @@ const state = {
   eco: {},         // owner -> structure-income tick timer
   infiltrator: {}, // owner -> reptilian sleeper worker id
   conviction: {},  // owner -> flat-earth faith meter (0..100)
+  despairT: {},    // owner -> seconds since the last desertion (low conviction)
   digSites: [],    // hollow relic sites: {id,x,y,relic,progress,taken}
   relics: {},      // owner -> [relic keys banked]
   armorBank: {},   // owner -> {guard,dread}: salvaged suits discounting ascension
@@ -98,8 +99,11 @@ function effectiveConviction(owner, x, y) {
 // The sim ticks conviction from `net`; the sidebar EXPLAINS it from the same
 // object. One source of truth, so the readout can never drift from the rule it
 // is describing. Returns raw numbers only — the HUD does the wording.
-const CONVICTION_DECAY = 0.15;   // doubt, per second, always
-const CONVICTION_TIER2 = 60;     // Documentary Drops start flipping tier-2 units
+const CONVICTION_DECAY = 0.12;   // doubt, per second, always
+const CONVICTION_AMP = 1.5;      // a tent with the Prophet inside it, not x2
+const CONVICTION_REVELATION = 75; // the meter can be SPENT from here up
+const CONVICTION_DESPAIR = 20;   // below this the faithful start walking away
+const CONVICTION_TENT_LOSS = 20; // razing a Revival Tent takes this off the meter
 function convictionLedger(owner) {
   const prophet = state.units.find(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].sermon);
   const preaching = !!prophet && !prophet.transit && !prophet.garrisoned && !prophet.burrowed &&
@@ -111,7 +115,7 @@ function convictionLedger(owner) {
     if (!bt.convictionRate) continue;
     const hot = preaching && dist(b, prophet) <= Math.max(bt.w, bt.h) * 0.9 + 30;
     tents++; if (hot) amped++;
-    tentGen += bt.convictionRate * (hot ? 2 : 1);
+    tentGen += bt.convictionRate * (hot ? CONVICTION_AMP : 1);
   }
   let crowd = 0, sermonGen = 0;
   if (preaching) {
@@ -126,8 +130,6 @@ function convictionLedger(owner) {
   return { prophet, preaching, tents, amped, tentGen, crowd, sermonGen,
            decay: CONVICTION_DECAY, net: tentGen + sermonGen - CONVICTION_DECAY };
 }
-// Documentary Drops accelerate with Conviction: 180s cold, 100s at full heat
-const docDropPeriod = owner => 180 - convictionOf(owner) * 0.8;
 // is this entity standing inside a forest blob? (Deer Stand's whole career)
 function inForest(e) {
   for (const o of terrainNear(e.x, e.y)) {
@@ -991,6 +993,45 @@ function canRepair(b) {
 const repairRateOf = b => b.maxHp * REPAIR_RATE;
 const repairCostPerSec = b => repairValueOf(b) * REPAIR_COST * REPAIR_RATE;
 
+// ---------- THE REVELATION: spend the meter, take their army ----------
+// Conviction's problem was that it was only ever READ — a passive multiplier
+// you could not act on. This is the verb. Everything banked goes at once, and
+// the radius is the payoff for having held out for more than the 75 minimum.
+const revelationReady = owner => isFlat(owner) && convictionOf(owner) >= CONVICTION_REVELATION;
+const revelationRadius = cv => 150 + (cv - CONVICTION_REVELATION) * 6; // 150 at 75, 300 at 100
+function castRevelation(owner, x, y) {
+  if (!revelationReady(owner)) return false;
+  const cv = convictionOf(owner);
+  const r = revelationRadius(cv);
+  // elites never turn — same bar the old Documentary Drops used
+  const converts = state.units.filter(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 &&
+    !u.garrisoned && u.type !== 'phantom' && unitTier(u.type) <= 2 && dist(u, { x, y }) <= r);
+  state.conviction[owner] = 0;   // spent to the last drop, believer
+  state.despairT[owner] = 0;     // and the crash does not instantly cost you people
+  for (const u of converts) {
+    const wasPlayers = u.owner === PLAYER;
+    u.owner = owner; u.disguised = false; u.carrying = 0; u.order = { type: 'idle' };
+    Particles.pulse(u.x, u.y, 26, [255, 226, 140]);
+    if (wasPlayers && owner !== PLAYER) eva('They are taking our people');
+  }
+  state.zones.push({ kind: 'revelation', x, y, r, until: state.time + 1.6, caster: owner });
+  Particles.pulse(x, y, r, [255, 215, 120]);
+  if (owner === PLAYER) {
+    sfx('boom');
+    eva(converts.length ? `${converts.length} have seen the truth` : 'The truth fell on deaf ears');
+  }
+  return true;
+}
+
+// ---------- THE FIRMAMENT: the dome, made briefly non-negotiable ----------
+function castFirmament(owner, x, y) {
+  const pk = FACTIONS[state.factions[owner]].powers.sig;
+  state.zones.push({ kind: 'firmament', x, y, r: pk.r, until: state.time + pk.dur,
+                     caster: owner, dps: pk.dps });
+  state.sig[owner].cd = pk.cd;
+  if (owner === PLAYER) { sfx('laser'); eva('The firmament holds'); }
+}
+
 function castWeather(owner, x, y) {
   state.zones.push({ x, y, r: 150, until: state.time + 15, caster: owner, kind: 'rain' });
   state.sig[owner].cd = FACTIONS[state.factions[owner]].powers.sig.cd;
@@ -1070,23 +1111,6 @@ function castRecall(owner, x, y) {
   });
   state.sig[owner].cd = S.cd;
   if (owner === PLAYER) eva(`Recall complete — ${picks.length} home`);
-}
-
-function documentaryDrop(owner) {
-  // conviction gates the catch: tier 1 flips anytime, tier 2 once the meter
-  // runs hot, tier 3 (elite kit — PMCs, Abrams, the tech shelf) never turns
-  const maxTier = convictionOf(owner) >= 60 ? 2 : 1;
-  const pool = state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned &&
-    u.type !== 'phantom' && unitTier(u.type) <= maxTier);
-  if (!pool.length) return;
-  const u = pool[Math.floor(Math.random() * pool.length)];
-  const wasPlayers = u.owner === PLAYER;
-  u.owner = owner;
-  u.disguised = false;
-  u.order = { type: 'idle' };
-  u.carrying = 0;
-  if (owner === PLAYER) eva('They have seen the truth');
-  else if (wasPlayers) eva('We have lost someone to their propaganda');
 }
 
 // ---------- what the smuggling run is worth ----------
@@ -1259,9 +1283,29 @@ function updateAbilities(dt) {
     } else if (fkey === 'flat') {
       const cv = convictionLedger(owner);
       state.conviction[owner] = clamp(convictionOf(owner) + cv.net * dt, 0, 100);
-      if (sig.timer >= docDropPeriod(owner)) {
-        sig.timer = 0;
-        documentaryDrop(owner);
+      // ---------- despair: the movement bleeds members ----------
+      // Low conviction used to mean nothing at all — no bonus, no penalty, and
+      // therefore no reason to look at the meter until you wanted 75. Now the
+      // bottom of the gauge is a live threat: a compound that has stopped
+      // believing starts losing the people in it, one at a time.
+      if (convictionOf(owner) < CONVICTION_DESPAIR) {
+        state.despairT[owner] = (state.despairT[owner] || 0) + dt;
+        if (state.despairT[owner] >= 12) {
+          state.despairT[owner] = 0;
+          const faithful = state.units.filter(u => u.owner === owner && u.hp > 0 && !u.garrisoned &&
+            UNIT_TYPES[u.type].builtAt === 'barracks' && !UNIT_TYPES[u.type].sermon);
+          if (faithful.length > 2) {   // the last two true believers never leave
+            const quitter = faithful[Math.floor(Math.random() * faithful.length)];
+            const poacher = nearest(quitter, state.units, u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0);
+            quitter.owner = poacher ? poacher.owner : NEUTRAL;
+            quitter.order = { type: 'idle' };
+            quitter.disguised = false;
+            Particles.pulse(quitter.x, quitter.y, 24, [150, 150, 160]);
+            if (owner === PLAYER) eva('Someone has stopped believing');
+          }
+        }
+      } else {
+        state.despairT[owner] = 0;
       }
     } else if (fkey === 'resistance' && sig.timer >= 120) {
       sig.timer -= 120;
@@ -2166,12 +2210,39 @@ function updateProjectiles(dt) {
       p.hgt = p.kind === 'bomb' ? (1 - f) * (FLY_H + 6) : Math.sin(Math.PI * f) * p.arc;
     }
   }
+  // ---------- the Firmament eats what crosses it ----------
+  // A solid sky stops things thrown through it. Shells and missiles from
+  // OUTSIDE the caster's side burn up on the dome; the caster's own fire is
+  // unaffected, so it shields a position rather than sealing it.
+  for (const z of state.zones) {
+    if (z.kind !== 'firmament') continue;
+    for (const p of state.projectiles) {
+      if (p.done || p.owner === z.caster) continue;
+      const px = p.x !== undefined ? p.x : p.sx, py = p.y !== undefined ? p.y : p.sy;
+      if (Math.hypot(px - z.x, py - z.y) > z.r) continue;
+      p.done = true;
+      Particles.pulse(px, py, 16, [169, 195, 204]);
+    }
+  }
   state.projectiles = state.projectiles.filter(p => !p.done);
 }
 
 function updateZones(dt) {
   for (const z of state.zones) {
-    if (z.kind === 'storm') {
+    if (z.kind === 'firmament') {
+      // aircraft caught under the dome grind along the underside of it
+      z.tick = (z.tick || 0) - dt;
+      if (z.tick <= 0) {
+        z.tick = 0.25;
+        for (const u of state.units) {
+          if (u.owner === z.caster || u.owner === NEUTRAL || u.hp <= 0) continue;
+          if (!UNIT_TYPES[u.type].flying || dist(z, u) > z.r) continue;
+          dealDamage(null, u, z.dps * 0.25, {});
+          u.slowUntil = state.time + 0.4;
+          if (Math.random() < 0.3) Particles.pulse(u.x, u.y - (u.alt || 0), 12, [169, 195, 204]);
+        }
+      }
+    } else if (z.kind === 'storm') {
       z.tick = (z.tick || 0.1) - dt;
       if (z.tick <= 0) {
         z.tick = 0.55;
@@ -4359,12 +4430,36 @@ function aiDeepStateFronts(owner, counts, reserve) {
 }
 
 // the flat compound hires its ONE Prophet once a Revival Tent stands, and
-// mans its pillboxes with militia so the concrete isn't just scenery
+// mans its pillboxes with militia so the concrete isn't just scenery.
+// Runs BEFORE the army mix and RESERVES the Prophet's fee, the same trick the
+// Mechanicum rites use: at 280 he is dearer than anything else the compound
+// buys, so left to compete with the unit mix he simply never got hired, the
+// meter never left the desertion band, and the faction's whole economy was
+// dead weight. Returns the updated reserve.
 function aiFlatCompound(owner, f, counts, reserve) {
   if (counts.revivaltent) {
     const hasProphet = state.units.some(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].sermon) ||
       state.buildings.some(b => b.owner === owner && b.hp > 0 && b.queue.some(j => UNIT_TYPES[j.type].sermon));
-    if (!hasProphet && state.minerals[owner] >= UNIT_TYPES.prophet.cost + reserve) trainUnit(owner, 'prophet');
+    if (!hasProphet) {
+      if (state.minerals[owner] >= UNIT_TYPES.prophet.cost + reserve) trainUnit(owner, 'prophet');
+      else reserve += UNIT_TYPES.prophet.cost; // save toward him; the army waits
+    }
+  }
+  // ---------- and then it has to actually STATION him ----------
+  // Hiring the Prophet does nothing on its own: he only preaches standing
+  // still. Left to the general wave logic he wandered off with the army, never
+  // preached, and the AI's meter sat in the desertion band all game. Walk him
+  // to a tent and leave him there — his weaken aura still covers the base.
+  const preacher = state.units.find(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].sermon && !u.garrisoned);
+  if (preacher) {
+    const pulpit = nearest(preacher, state.buildings, b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).convictionRate);
+    if (pulpit) {
+      if (dist(preacher, pulpit) > 26) {
+        if (preacher.order.type !== 'move') orderMove(preacher, pulpit.x, pulpit.y + 14);
+      } else if (preacher.order.type !== 'idle') {
+        preacher.order = { type: 'idle' };   // arrived: hold still and preach
+      }
+    }
   }
   for (const b of state.buildings) {
     if (b.owner !== owner || b.hp <= 0 || !b.done || !b.garrison) continue;
@@ -4570,11 +4665,13 @@ function updateAI(owner, dt) {
   // the Mechanicum ladder IS the Hollow army, so the rites run BEFORE the army
   // mix and reserve their fees out from under it
   if (isHollow(owner)) reserve = aiHollowRites(owner, counts, reserve);
+  // the compound's Prophet is dearer than any unit, so his fee is reserved
+  // before the army mix gets a look at the bank
+  if (state.factions[owner] === 'flat') reserve = aiFlatCompound(owner, f, counts, reserve);
   aiTrainArmy(owner, f, counts, army, reserve);
 
   // faction business nobody else transacts
   if (state.factions[owner] === 'deep') aiDeepStateFronts(owner, counts, reserve);
-  if (state.factions[owner] === 'flat') aiFlatCompound(owner, f, counts, reserve);
 
   // wall in the base once it's established and flush
   if (ai.time > 100 && state.minerals[owner] > 300) aiFortify(owner, ai, hq);
@@ -5174,6 +5271,18 @@ function buildSidebar() {
     cameoButtons[k].btn.title = k === 'p:passive' ? f.powers.passive.desc : f.powers.sig.desc;
   }
   cameoButtons['p:passive'].costEl.textContent = 'PASSIVE';
+  // the flat compound gets a third button: the thing Conviction is FOR
+  if (f.powers.revelation) {
+    makeCameo(gridPowers, 'p:rev', f.powers.revelation.name, 0, revelationClick);
+    cameoButtons['p:rev'].btn.classList.add('power');
+    cameoButtons['p:rev'].btn.title = f.powers.revelation.desc;
+  }
+}
+
+function revelationClick() {
+  if (!revelationReady(PLAYER)) { eva('Not enough Conviction'); return; }
+  abilityTargeting = 'revelation';
+  refreshPanel();
 }
 
 function sigClick() {
@@ -5205,19 +5314,19 @@ function refreshConviction() {
 
   elConvFill.style.width = cv.toFixed(1) + '%';
   elConvFill.classList.toggle('falling', falling);
-  elConvFill.classList.toggle('hot', cv >= CONVICTION_TIER2);
-  elConvTier.classList.toggle('passed', cv >= CONVICTION_TIER2);
+  elConvFill.classList.toggle('hot', cv >= CONVICTION_REVELATION);
+  elConvTier.classList.toggle('passed', cv >= CONVICTION_REVELATION);
 
   const arrow = rising ? '▲' : falling ? '▼' : '–';
   elConvText.textContent = `✊ ${Math.round(cv)}  ${arrow}${led.net >= 0 ? '+' : ''}${led.net.toFixed(2)}/s`;
 
   // what it is worth THIS SECOND, in the currencies the player already reads
   const dmg = Math.round(cv * 0.25);                       // 0.0025/point, as a %
-  const drop = Math.ceil(docDropPeriod(PLAYER));
-  const bits = [`<b>+${dmg}%</b> damage`, `drops every <b>${drop}s</b>`];
-  bits.push(cv >= CONVICTION_TIER2
-    ? '<b>tier 2</b> flipping'
-    : `tier 2 at <b>${CONVICTION_TIER2}</b> (${Math.ceil(CONVICTION_TIER2 - cv)} to go)`);
+  const bits = [`<b>+${dmg}%</b> damage`];
+  bits.push(cv >= CONVICTION_REVELATION
+    ? `<b>REVELATION READY</b> (r${Math.round(revelationRadius(cv))})`
+    : `Revelation at <b>${CONVICTION_REVELATION}</b> (${Math.ceil(CONVICTION_REVELATION - cv)} to go)`);
+  if (cv < CONVICTION_DESPAIR) bits.push('<span class="bad">DESERTIONS</span>');
 
   // ...and WHY it is moving, so a stalled meter is diagnosable at a glance
   const why = [];
@@ -5230,11 +5339,12 @@ function refreshConviction() {
 
   elConvWhy.innerHTML = bits.join(' · ') + '<br>' + why.join(' · ');
   elConvWrap.title = 'CONVICTION — the Flat Earth faith meter.\n' +
-    'Revival Tents stoke it (doubled with the Prophet standing inside one).\n' +
+    `Revival Tents stoke it (x${CONVICTION_AMP} with the Prophet standing inside one).\n` +
     'The Prophet preaches wherever he holds still, faster with infantry around him.\n' +
-    'It bleeds 0.15/s on its own, so a compound that stops preaching cools.\n' +
-    'Pays: up to +25% believer damage, Documentary Drops from 180s down to 100s,\n' +
-    `and at ${CONVICTION_TIER2} the drops start flipping tier-2 units instead of only tier-1.`;
+    `It bleeds ${CONVICTION_DECAY}/s on its own, so a compound that stops preaching cools,\n` +
+    `and razing a Revival Tent costs its owner ${CONVICTION_TENT_LOSS} outright.\n` +
+    `Pays: up to +25% believer damage, and at ${CONVICTION_REVELATION} you can spend the\n` +
+    `whole meter on THE REVELATION. Below ${CONVICTION_DESPAIR} the faithful start deserting.`;
 }
 
 function refreshSidebar() {
@@ -5254,14 +5364,22 @@ function refreshSidebar() {
   for (const [key, ui] of Object.entries(cameoButtons)) {
     const [kind, type] = [key[0], key.slice(2)];
     if (kind === 'p') {
+      if (type === 'rev') {
+        // Conviction IS the cooldown: the bar fills toward 75, then it is armed
+        const cv = convictionOf(PLAYER);
+        const ready = revelationReady(PLAYER);
+        ui.btn.classList.toggle('castable', ready);
+        ui.prog.style.height = clamp(cv / CONVICTION_REVELATION * 100, 0, 100) + '%';
+        ui.costEl.textContent = ready ? `READY r${Math.round(revelationRadius(cv))}` : `✊ ${Math.round(cv)}/${CONVICTION_REVELATION}`;
+        continue;
+      }
       if (type !== 'sig') continue;
       const pk = facOf(PLAYER).powers.sig;
       const sig = state.sig[PLAYER];
       // toggle with an explicit boolean: remove-then-maybe-add rewrote the
       // class attribute every refresh even when nothing changed
       if (pk.kind === 'auto') {
-        // conviction shortens the flat drop cycle — show the LIVE period
-        const period = isFlat(PLAYER) ? docDropPeriod(PLAYER) : pk.period;
+        const period = pk.period;
         ui.btn.classList.toggle('castable', false);
         ui.prog.style.height = clamp(sig.timer / period * 100, 0, 100) + '%';
         ui.costEl.textContent = Math.ceil(Math.max(0, period - sig.timer)) + 's';
@@ -5449,7 +5567,11 @@ function panelTargetingMode(addAction) {
   }
   if (abilityTargeting) {
     elSelInfo.textContent =
-      abilityTargeting === 'zone' ? 'Weather Modification — click a target area, Esc to cancel'
+      abilityTargeting === 'revelation'
+        ? `The Revelation — click where the truth lands (radius ${Math.round(revelationRadius(convictionOf(PLAYER)))}, spends all ${Math.round(convictionOf(PLAYER))} Conviction), Esc to cancel`
+      : abilityTargeting === 'zone' ? (isFlat(PLAYER)
+        ? 'The Firmament — click the patch of sky to make solid, Esc to cancel'
+        : 'Weather Modification — click a target area, Esc to cancel')
       : abilityTargeting === 'recall'
         ? `Vril Recall — click a patch of ground (${recallTargets(PLAYER, mouse.x, mouse.y).length}/${recallDef(PLAYER).max} in the circle), Esc to cancel`
         : 'Cloning Vats — click one of your infantry, Esc to cancel';
@@ -6695,7 +6817,39 @@ function drawZones() {
     const kind = z.kind || 'rain';
     const zx = isoX(z.x, z.y), zy = isoY(z.x, z.y);
     const rx = z.r * Math.SQRT2, ry = rx / 2;
-    if (kind === 'rain' || kind === 'storm') {
+    if (kind === 'firmament') {
+      // a pane of solid sky: cold glass, a hard rim, and a slow shimmer
+      // crawling across it so it reads as a surface rather than a puddle
+      const g = ctx.createRadialGradient(zx, zy, 0, zx, zy, rx);
+      g.addColorStop(0, 'rgba(169,195,204,0.05)');
+      g.addColorStop(0.72, 'rgba(169,195,204,0.14)');
+      g.addColorStop(1, 'rgba(210,235,245,0.30)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(220,240,250,0.75)'; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.stroke();
+      // faceting — the dome is a made thing, not weather
+      ctx.strokeStyle = 'rgba(210,235,245,0.28)'; ctx.lineWidth = 1;
+      for (let i = 0; i < 6; i++) {
+        const a = i * Math.PI / 6 + state.time * 0.12;
+        ctx.beginPath();
+        ctx.moveTo(zx + Math.cos(a) * rx, zy + Math.sin(a) * ry);
+        ctx.lineTo(zx - Math.cos(a) * rx, zy - Math.sin(a) * ry);
+        ctx.stroke();
+      }
+      const sh = (state.time * 0.4) % 1;
+      ctx.strokeStyle = `rgba(255,255,255,${(0.30 * (1 - Math.abs(sh - 0.5) * 2)).toFixed(2)})`;
+      ctx.lineWidth = 3;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx * sh, ry * sh, 0, 0, Math.PI * 2); ctx.stroke();
+    } else if (kind === 'revelation') {
+      // one bright expanding ring — the moment the truth arrives
+      const f = clamp(1 - (z.until - state.time) / 1.6, 0, 1);
+      ctx.strokeStyle = `rgba(255,225,140,${(0.9 * (1 - f)).toFixed(2)})`;
+      ctx.lineWidth = 3 + 5 * (1 - f);
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx * f, ry * f, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = `rgba(255,225,140,${(0.16 * (1 - f)).toFixed(2)})`;
+      ctx.beginPath(); ctx.ellipse(zx, zy, rx * f, ry * f, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (kind === 'rain' || kind === 'storm') {
       ctx.fillStyle = kind === 'storm' ? 'rgba(60,80,130,0.22)' : 'rgba(80,130,190,0.15)';
       ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
       ctx.strokeStyle = 'rgba(120,170,230,0.5)'; ctx.lineWidth = 1.5;
@@ -6882,6 +7036,30 @@ function drawOverlays() {
     ctx.moveTo(rx - 16, ry); ctx.lineTo(rx + 16, ry);
     ctx.moveTo(rx, ry - 10); ctx.lineTo(rx, ry + 10);
     ctx.stroke();
+  }
+
+  // Revelation reticle: same principle as the Recall circle below — you are
+  // spending the ENTIRE meter, so you must be able to count the converts before
+  // you commit, not after
+  if (abilityTargeting === 'revelation') {
+    const cvNow = convictionOf(PLAYER);
+    const r = revelationRadius(cvNow);
+    const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
+    const picks = state.units.filter(u => u.owner !== PLAYER && u.owner !== NEUTRAL && u.hp > 0 &&
+      !u.garrisoned && u.type !== 'phantom' && unitTier(u.type) <= 2 &&
+      !hiddenFrom(u, PLAYER) && dist(u, { x: mouse.x, y: mouse.y }) <= r);
+    ctx.strokeStyle = 'rgba(255,215,120,0.9)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(rx, ry, r * Math.SQRT2, r * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    for (const u of picks) {
+      ctx.beginPath();
+      ctx.ellipse(isoX(u.x, u.y), isoY(u.x, u.y), 13, 7, 0, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center';
+    ctx.fillStyle = picks.length ? '#ffd778' : 'rgba(220,210,190,0.7)';
+    ctx.fillText(`${picks.length} will turn`, rx, ry - r * 0.75 - 6);
+    ctx.textAlign = 'left';
   }
 
   // Vril Recall reticle: the actual circle, with the bodies it would take
@@ -7248,6 +7426,19 @@ function frame(now) {
       }
     }
     state.units = state.units.filter(u => u.hp > 0);
+    // ---------- razing the faith economy ----------
+    // A Revival Tent is not just a generator, it is the movement's morale in
+    // physical form: burning one takes the meter down with it. This is what
+    // gives Conviction a place ON THE MAP — before, no enemy could meaningfully
+    // touch it, so there was nothing to defend and nothing to raid.
+    for (const b of state.buildings) {
+      if (b.hp > 0 || b.convictionBooked || !bstatsOf(b).convictionRate) continue;
+      b.convictionBooked = true;
+      if (!isFlat(b.owner)) continue;
+      state.conviction[b.owner] = clamp(convictionOf(b.owner) - CONVICTION_TENT_LOSS, 0, 100);
+      Particles.pulse(b.x, b.y, 40, [120, 120, 130]);
+      if (b.owner === PLAYER) eva('A house of truth has fallen');
+    }
     const nBld = state.buildings.length;
     state.buildings = state.buildings.filter(b => b.hp > 0);
     if (state.buildings.length !== nBld) markPathDirty(); // rubble opens lanes
@@ -7561,7 +7752,9 @@ canvas.addEventListener('mousedown', e => {
     if (abilityTargeting) {
       const mode = abilityTargeting;
       abilityTargeting = null;
-      if (mode === 'zone') castWeather(PLAYER, p.x, p.y);
+      // 'zone' is the shared targeted-area kind; the faction decides what lands
+      if (mode === 'zone') (isFlat(PLAYER) ? castFirmament : castWeather)(PLAYER, p.x, p.y);
+      if (mode === 'revelation') castRevelation(PLAYER, p.x, p.y);
       if (mode === 'recall') castRecall(PLAYER, p.x, p.y);
       if (mode === 'unit') {
         const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));

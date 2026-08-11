@@ -80,7 +80,11 @@ const FACTIONS = {
     structs: ['hamradio', 'revivaltent', 'wall', 'gate', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
-      sig: { name: 'Documentary Drops', desc: 'Periodically an enemy unit sees the truth and joins you. Conviction speeds the drops and flips bigger fish — but elite units never turn.', kind: 'auto', period: 180 },
+      // The dome is real, and for fourteen seconds everyone else has to agree.
+      // Replaced Documentary Drops, which did the same job as the Revelation.
+      sig: { name: 'The Firmament', desc: 'Target a zone: for 14s the sky over it is SOLID. Enemy aircraft inside grind against the dome (25 dmg/s, badly slowed) and enemy shells and missiles crossing it burn up on contact.', kind: 'zone', cd: 100, r: 250, dur: 14, dps: 25 },
+      // Spends the meter instead of merely reading it — see CONVICTION_REVELATION
+      revelation: { name: 'The Revelation', desc: 'Needs 75 Conviction. Target a zone: every non-elite enemy unit inside sees the truth and joins you on the spot. Spends ALL of your Conviction — the more you had banked, the wider it reaches.' },
     },
     buildingNames: {
       hq: 'Bunker of Truth', powerplant: 'Diesel Shack', barracks: 'Recruitment Tent',
@@ -374,7 +378,7 @@ const UNIT_TYPES = {
   // preaches, feeding the Conviction meter (sermon — faster with a crowd of
   // friendly infantry around him, and a Revival Tent he stands in doubles its
   // output); and killing him only proves him right (martyr: Conviction surge).
-  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 140, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 280, r: 9, buildTime: 12, limit: 1, debuffAura: { r: 160, weaken: 0.45 }, sermon: { rate: 0.5, crowdR: 150, per: 0.1, max: 5 }, martyr: 25 },
+  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 140, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 280, r: 9, buildTime: 12, limit: 1, debuffAura: { r: 160, weaken: 0.45 }, sermon: { rate: 0.18, crowdR: 150, per: 0.04, max: 5 }, martyr: 25 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
@@ -791,7 +795,7 @@ const BUILDING_TYPES = {
   // its canvas shade slowly mends the flock (healAura). The Ham Radio is the
   // local booster: friendly units fighting inside its broadcast radius count
   // as MORE convicted than the meter says (convictionAura.bonus).
-  revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, convictionRate: 0.4, healAura: { r: 150, rate: 4 } },
+  revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, convictionRate: 0.2, healAura: { r: 150, rate: 4 } },
   hamradio:    { name: 'Ham Radio',    hp: 220, w: 36, h: 36, cost: 90,  buildTime: 9,  sight: 260, power: -10, cap: 4, convictionAura: { r: 240, bonus: 25 } },
   // the deployed Front Company. Never built from a menu — an unmarked van
   // establishes it (see UNIT_TYPES.frontco). thief.cut is the share taken from
