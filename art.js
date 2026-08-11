@@ -1,5 +1,5 @@
 // ============================================================
-// art.js â€” unit art library + particle effects
+// art.js — unit art library + particle effects
 // Every draw function renders a unit centered at (0,0) facing +x.
 // The engine translates/rotates/scales and passes { color, moving, firing }.
 // ============================================================
@@ -2447,15 +2447,7 @@
     pad(ctx, o);
     const W = o.w, H = o.h;
     // apron asphalt
-    ctx.fillStyle = '#343b43';
-    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
-    ctx.fill();
-    const sg = ctx.createLinearGradient(0, -H / 2, 0, H / 2);
-    sg.addColorStop(0, 'rgba(255,255,255,0.07)');
-    sg.addColorStop(1, 'rgba(0,0,0,0.14)');
-    ctx.fillStyle = sg;
-    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
-    ctx.fill();
+    airpadGround(ctx, W, H, '#343b43');
     // the runway strip: hangar apron west, threshold far east
     const ry0 = -4, rh = 26;
     ctx.fillStyle = '#454d56';
@@ -2612,17 +2604,9 @@
     if (fac === 'grey') { airpadSaucerPad(ctx, t, o, W, H); return; }
     if (fac === 'reptilian') { airpadRoostSpire(ctx, t, o, W, H); return; }
     // Globalist Air Force Base / Deep State Undisclosed Airstrip: the runway
-    // flat tarmac — airfields hug the ground, no podium
-    ctx.fillStyle = '#3a4148';
-    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
-    ctx.fill();
-    // top-lit sheen + painted safety border
-    const sg = ctx.createLinearGradient(0, -H / 2, 0, H / 2);
-    sg.addColorStop(0, 'rgba(255,255,255,0.07)');
-    sg.addColorStop(1, 'rgba(0,0,0,0.14)');
-    ctx.fillStyle = sg;
-    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4);
-    ctx.fill();
+    // flat tarmac (top-lit sheen included) — airfields hug the ground, no podium
+    airpadGround(ctx, W, H, '#3a4148');
+    // painted safety border
     ctx.strokeStyle = 'rgba(255,210,90,0.45)';
     ctx.lineWidth = 1.2;
     rr(ctx, -W / 2 + 6.5, -H / 2 + 6.5, W - 13, H - 13, 3);
@@ -3453,7 +3437,7 @@
     });
   };
   B.sleepercell = (ctx, t, o) => {
-    // camo-net hideout â€” deliberately low-profile, no pad
+    // camo-net hideout — deliberately low-profile, no pad
     ctx.fillStyle = 'rgba(0,0,0,0.25)';
     rr(ctx, -o.w / 2 + 2, -o.h / 2 + 3, o.w, o.h, 5);
     ctx.fill();

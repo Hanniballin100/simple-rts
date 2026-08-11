@@ -2683,73 +2683,45 @@ function findPadFor(u) {
   return home;
 }
 
-function updateUnit(u, dt) {
-  if (u.garrisoned) return; // stationed inside a structure; it fights for us
-  u.cooldown = Math.max(0, u.cooldown - dt);
-  const o = u.order;
-  const stats = UNIT_TYPES[u.type];
+// ---------- per-frame unit upkeep (the passives that run before the order) ----------
 
-  // --- airborne feel (visual): craft ease onto their flight ceiling instead of
-  // snapping, and bank into turns. u.alt drives the render lift + weapon origins
-  // (see unitAlt); u.roll tips the sprite by how hard it's turning this frame.
-  if (stats.flying) {
-    const tgtAlt = u.landed ? 0 : (stats.flyH || FLY_H);
-    if (u.alt === undefined) u.alt = tgtAlt;
-    u.alt += (tgtAlt - u.alt) * Math.min(1, dt * 2.5);
-    const pf = u._pf === undefined ? (u.facing || 0) : u._pf;
-    const df = ((u.facing - pf + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    u._pf = u.facing || 0;
-    // saucers/blimps hold level; winged & rotor craft roll. Cap the bank.
-    const bankK = (stats.shape === 'saucer' || stats.shape === 'blimp') ? 0.04 : 0.16;
-    const tgtRoll = clamp(df / Math.max(dt, 0.001) * bankK, -0.5, 0.5);
-    if (u.roll === undefined) u.roll = 0;
-    u.roll += (tgtRoll - u.roll) * Math.min(1, dt * 6);
-  }
+// airborne feel (visual): craft ease onto their flight ceiling instead of
+// snapping, and bank into turns. u.alt drives the render lift + weapon origins
+// (see unitAlt); u.roll tips the sprite by how hard it's turning this frame.
+function updateFlightFeel(u, stats, dt) {
+  const tgtAlt = u.landed ? 0 : (stats.flyH || FLY_H);
+  if (u.alt === undefined) u.alt = tgtAlt;
+  u.alt += (tgtAlt - u.alt) * Math.min(1, dt * 2.5);
+  const pf = u._pf === undefined ? (u.facing || 0) : u._pf;
+  const df = ((u.facing - pf + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  u._pf = u.facing || 0;
+  // saucers/blimps hold level; winged & rotor craft roll. Cap the bank.
+  const bankK = (stats.shape === 'saucer' || stats.shape === 'blimp') ? 0.04 : 0.16;
+  const tgtRoll = clamp(df / Math.max(dt, 0.001) * bankK, -0.5, 0.5);
+  if (u.roll === undefined) u.roll = 0;
+  u.roll += (tgtRoll - u.roll) * Math.min(1, dt * 6);
+}
 
-  // stationed aircraft lift off the moment they get a real order
-  if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
+// turreted vehicles: the gun slews toward its aim point (set in tryAttack while
+// a target is engaged) and drifts back to the hull heading otherwise, so the
+// chassis can steer freely while the weapon stays on target
+function updateTurretSlew(u, dt) {
+  if (u.turret === undefined) u.turret = u.facing || 0;
+  const desired = (u.aimT > state.time - 0.4 && u.aimAngle !== undefined) ? u.aimAngle : (u.facing || 0);
+  const d = ((desired - u.turret + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
+  u.turret += clamp(d, -8 * dt, 8 * dt);
+}
 
-  // recovered UFO tech (a held Crash Site): anti-grav alloys knit airframes
-  // back together in flight (the weapon boost lives in fireAt)
-  if (stats.flying && u.hp < u.maxHp && state.airTechOwners && state.airTechOwners.has(u.owner))
-    u.hp = Math.min(u.maxHp, u.hp + 2.5 * dt);
-
-  // petrified: a statue until the stone wears off
-  if (u.petrifiedUntil > state.time) return;
-
-  // deep-state passive: units run silent when they hold still (and aren't
-  // still lit up from a recent shot). Moving or firing drops the cloak; a
-  // detector still sees them. A first shot from cloak lands as an ambush.
-  if (stats.cloakStill) {
-    u.cloaked = !u.transit && !(u.exposedUntil > state.time) &&
-      (state.time - (u.movedT || -99) > (stats.cloakDelay || 1.5));
-  }
-  // the Deer Stand Marksman vanishes among the trees: cloaked while inside a
-  // forest (until a recent shot lights him up), plainly visible outside it
-  if (stats.forestOnly) {
-    u.cloaked = !u.transit && !(u.exposedUntil > state.time) && inForest(u);
-  }
-  if (u.digging && u.order.type !== 'dig') u.digging = false; // auger down
-
-  // turreted vehicles: the gun slews toward its aim point (set in tryAttack
-  // while a target is engaged) and drifts back to the hull heading otherwise,
-  // so the chassis can steer freely while the weapon stays on target
-  if (Art.hasIsoTurret(u.type)) {
-    if (u.turret === undefined) u.turret = u.facing || 0;
-    const desired = (u.aimT > state.time - 0.4 && u.aimAngle !== undefined) ? u.aimAngle : (u.facing || 0);
-    const d = ((desired - u.turret + Math.PI * 3) % (Math.PI * 2)) - Math.PI;
-    u.turret += clamp(d, -8 * dt, 8 * dt);
-  }
-
-  // burrowed: a blind slow crawl — combat orders degrade to movement, and
-  // fireAt below refuses to shoot until the unit surfaces
-  if (u.burrowed && (o.type === 'attack' || o.type === 'attackmove')) {
-    const tgt = o.targetId ? findEntity(o.targetId) : o;
-    u.order = tgt ? { type: 'move', x: tgt.x, y: tgt.y } : { type: 'idle' };
-  }
-
-  // reptilian brood: the mother keeps a bound swarm of hatchlings — spawned
-  // once, then topped back up as they die. The swarm is her weapon.
+// ---------- the brood SCREENS; the master fights from behind it ----------
+// The reptilian mother keeps a bound swarm of hatchlings — spawned once, then
+// topped back up as they die. The swarm is her weapon. A bound escort does not
+// trail its mistress like ducklings: it rides out in FRONT of her, on the side
+// the enemy is on, and it makes contact first while she hangs back and keeps
+// working. Cut loose by her death it scatters and soon expires (no queen, no
+// swarm). She in turn keeps her distance — while any escort still lives she
+// backs away from anything that closes inside BROOD_STANDOFF, so the swarm is
+// what the enemy actually reaches.
+function updateBrood(u, stats, dt) {
   if (stats.brood && !u.transit) {
     const broodType = stats.brood.type || 'hatchling';
     if (!u.broodInit) {
@@ -2767,11 +2739,6 @@ function updateUnit(u, dt) {
       }
     }
   }
-  // ---------- the brood SCREENS; the master fights from behind it ----------
-  // A bound escort does not trail its mistress like ducklings — it rides out in
-  // FRONT of her, on the side the enemy is on, and it makes contact first. She
-  // hangs back and keeps working. Cut loose by her death it scatters and soon
-  // expires (no queen, no swarm).
   if (u.broodOf) {
     const mom = state.units.find(m => m.id === u.broodOf && m.hp > 0);
     if (!mom) {
@@ -2792,7 +2759,7 @@ function updateUnit(u, dt) {
         const ref = threat || u._lastThreat;
         let ax = mom.x, ay = mom.y + BROOD_LEAD;
         if (ref) {
-          const d = Math.hypot(ref.x - mom.x, ref.y - mom.y) || 1;
+          const d = dist(ref, mom) || 1;
           ax = mom.x + (ref.x - mom.x) / d * BROOD_LEAD;
           ay = mom.y + (ref.y - mom.y) / d * BROOD_LEAD;
         }
@@ -2806,9 +2773,6 @@ function updateUnit(u, dt) {
       if (threat) u._lastThreat = { x: threat.x, y: threat.y };
     }
   }
-  // ...and the master keeps her distance. While any of her escort still lives
-  // she backs away from anything that closes inside BROOD_STANDOFF, so the
-  // swarm is what the enemy actually reaches.
   if (stats.brood && !u.transit && !u.garrisoned) {
     const escort = state.units.some(h => h.broodOf === u.id && h.hp > 0);
     if (escort) {
@@ -2821,7 +2785,12 @@ function updateUnit(u, dt) {
       }
     }
   }
+}
 
+// support passives that radiate out of a unit every frame: free swarms, the
+// friendly buff/harden auras, the enemy debuff + desertion aura, and the
+// Barrage Balloon's tether cables shredding anything airborne that strays near
+function updateAuras(u, stats, dt) {
   // broodmother: hatch free swarms on a timer, embolden nearby infantry
   if (stats.spawns && !u.transit) {
     u.spawnT = (u.spawnT || 0) + dt;
@@ -2913,55 +2882,173 @@ function updateUnit(u, dt) {
       }
     }
   }
+}
 
-  // stuck watchdog: a unit with somewhere to be that hasn't covered any
-  // ground in 2.5s is pinned — usually a crowd wedged on a stale dodge
-  // commitment. Forget the steering plan; if that didn't help either, slide
-  // the unit out along the least-blocked direction (escalation, rare).
+// stuck watchdog: a unit with somewhere to be that hasn't covered any ground in
+// 2.5s is pinned — usually a crowd wedged on a stale dodge commitment. Forget
+// the steering plan; if that didn't help either, slide the unit out along the
+// least-blocked direction (escalation, rare).
+function updateStuckWatchdog(u, stats, o, dt) {
   u.wdT = (u.wdT || 0) + dt;
   if (u.wdX === undefined) { u.wdX = u.x; u.wdY = u.y; }
-  if (u.wdT >= 2.5) {
-    // only units that actually TRIED to move count as pinned — a mortar
-    // holding position to fire is standing still on purpose, not wedged.
-    // Measure NET displacement over the window, not accumulated travel: a unit
-    // oscillating in a tight lane racks up travel while going nowhere, and the
-    // old travel-based check let it stay wedged forever.
-    if (u.wdWant && o.type !== 'idle' && o.type !== 'loiter' && !u.landed &&
-        Math.hypot(u.x - u.wdX, u.y - u.wdY) < 5) {
-      delete u.dodge;
-      delete u.veer;
-      delete u.path; // stale route may be the reason we're pinned — re-plan
-      u.wdStrikes = (u.wdStrikes || 0) + 1;
-      if (u.wdStrikes >= 2 && !stats.flying) {
-        // still pinned after a replan: pick the cardinal direction with the
-        // most open ground and shove — breaks base-notch wedges
-        let bestA = null, bestClear = -1;
-        for (let k = 0; k < 8; k++) {
-          const a = (k / 8) * Math.PI * 2;
-          let clear = 0;
-          for (; clear < 60; clear += 10) {
-            const px2 = u.x + Math.cos(a) * (clear + 10), py2 = u.y + Math.sin(a) * (clear + 10);
-            const hit = bldNear(px2, py2).some(b => b.hp > 0 && blocksUnit(b, u.owner) &&
-              Math.abs(px2 - b.x) < b.w / 2 + stats.r && Math.abs(py2 - b.y) < b.h / 2 + stats.r) ||
-              terrainNear(px2, py2).some(t2 => !TERRAIN_TYPES[t2.type].passes && Math.hypot(px2 - t2.x, py2 - t2.y) < t2.r + stats.r);
-            if (hit) break;
-          }
-          if (clear > bestClear) { bestClear = clear; bestA = a; }
+  if (u.wdT < 2.5) return;
+  // only units that actually TRIED to move count as pinned — a mortar holding
+  // position to fire is standing still on purpose, not wedged. Measure NET
+  // displacement over the window, not accumulated travel: a unit oscillating in
+  // a tight lane racks up travel while going nowhere, and the old travel-based
+  // check let it stay wedged forever.
+  if (u.wdWant && o.type !== 'idle' && o.type !== 'loiter' && !u.landed &&
+      Math.hypot(u.x - u.wdX, u.y - u.wdY) < 5) {
+    delete u.dodge;
+    delete u.veer;
+    delete u.path; // stale route may be the reason we're pinned — re-plan
+    u.wdStrikes = (u.wdStrikes || 0) + 1;
+    if (u.wdStrikes >= 2 && !stats.flying) {
+      // still pinned after a replan: pick the cardinal direction with the most
+      // open ground and shove — breaks base-notch wedges
+      let bestA = null, bestClear = -1;
+      for (let k = 0; k < 8; k++) {
+        const a = (k / 8) * Math.PI * 2;
+        let clear = 0;
+        for (; clear < 60; clear += 10) {
+          const px2 = u.x + Math.cos(a) * (clear + 10), py2 = u.y + Math.sin(a) * (clear + 10);
+          const hit = bldNear(px2, py2).some(b => b.hp > 0 && blocksUnit(b, u.owner) &&
+            Math.abs(px2 - b.x) < b.w / 2 + stats.r && Math.abs(py2 - b.y) < b.h / 2 + stats.r) ||
+            terrainNear(px2, py2).some(t2 => !TERRAIN_TYPES[t2.type].passes && Math.hypot(px2 - t2.x, py2 - t2.y) < t2.r + stats.r);
+          if (hit) break;
         }
-        if (bestA !== null && bestClear > 0) {
-          u.x = clamp(u.x + Math.cos(bestA) * Math.min(24, bestClear), 10, WORLD_W - 10);
-          u.y = clamp(u.y + Math.sin(bestA) * Math.min(24, bestClear), 10, WORLD_H - 10);
-        }
-        u.wdStrikes = 0;
+        if (clear > bestClear) { bestClear = clear; bestA = a; }
       }
-    } else {
+      if (bestA !== null && bestClear > 0) {
+        u.x = clamp(u.x + Math.cos(bestA) * Math.min(24, bestClear), 10, WORLD_W - 10);
+        u.y = clamp(u.y + Math.sin(bestA) * Math.min(24, bestClear), 10, WORLD_H - 10);
+      }
       u.wdStrikes = 0;
     }
-    u.wdT = 0;
-    u.wdWant = false;
-    u.wdX = u.x;
-    u.wdY = u.y;
+  } else {
+    u.wdStrikes = 0;
   }
+  u.wdT = 0;
+  u.wdWant = false;
+  u.wdX = u.x;
+  u.wdY = u.y;
+}
+
+// armed rigs defend themselves: pop off at anything in weapon range without
+// ever dropping the order they're on — mine, haul, and shoot back
+function workerSelfDefense(u, stats, dt) {
+  u.defT = (u.defT === undefined ? (u.id % 10) * 0.035 : u.defT) - dt;
+  if (u.defT <= 0) {
+    u.defT = 0.35;
+    const foe = nearest(u, enemiesOf(u.owner), e =>
+      !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.atkRange + entityRadius(e));
+    u.defFoeId = foe ? foe.id : null;
+  }
+  if (u.defFoeId && u.cooldown <= 0) {
+    const foe = findEntity(u.defFoeId);
+    if (foe && foe.hp > 0 && !hiddenFrom(foe, u.owner) && dist(u, foe) <= stats.atkRange + entityRadius(foe)) {
+      u.facing = Math.atan2(foe.y - u.y, foe.x - u.x);
+      fireAt(u, foe, stats);
+    } else {
+      u.defFoeId = null;
+    }
+  }
+}
+
+// transport riders: pinned to the vehicle, firing their own weapons out of the
+// ports/bed at whatever the ride drives past
+function updateCargoRiders(u, dt) {
+  u.cargo = u.cargo.filter(id => { const p = findEntity(id); return p && p.hp > 0; });
+  for (const id of u.cargo) {
+    const p = findEntity(id);
+    p.x = u.x; p.y = u.y;
+    p.cooldown = Math.max(0, p.cooldown - dt);
+    const pt = UNIT_TYPES[p.type];
+    if (!pt.dmg || p.cooldown > 0) continue;
+    const foe = nearestTarget(u, enemiesOf(u.owner), e =>
+      !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + entityRadius(e));
+    if (foe) { p.facing = Math.atan2(foe.y - u.y, foe.x - u.x); fireAt(p, foe, pt); }
+  }
+}
+
+// separation only within the same layer (ground vs ground, air vs air);
+// aircraft parked on a pad hold their slot, and fixed-wing craft are never
+// shoved — they are always moving anyway. Each unit resolves overlap on
+// alternating frames — half the cost, visually identical
+function separateFromNeighbors(u, stats) {
+  if (u.landed || stats.plane) return;
+  if (((u.id + frameNo) & 1) === 0) return;
+  const myFlying = !!stats.flying;
+  const sgx = (u.x / SEP_CELL) | 0, sgy = (u.y / SEP_CELL) | 0;
+  for (let cx2 = sgx - 1; cx2 <= sgx + 1; cx2++) {
+    for (let cy2 = sgy - 1; cy2 <= sgy + 1; cy2++) {
+      const cell = sepGrid.get(cx2 * 4096 + cy2);
+      if (!cell) continue;
+      for (const other of cell) {
+        if (other === u || other.hp <= 0 || other.garrisoned) continue;
+        const ot = UNIT_TYPES[other.type];
+        if (!!ot.flying !== myFlying) continue;
+        // tanks don't yield to enemy footsoldiers (and the footsoldier gets no
+        // shove out from under the tracks) — overlap develops, the crush pass kills
+        if (u.owner !== other.owner &&
+            ((isCrusher(stats) && isCrushable(ot)) || (isCrushable(stats) && isCrusher(ot)))) continue;
+        const d = dist(u, other);
+        const minD = stats.r + ot.r;
+        if (d > 0 && d < minD) {
+          const push = (minD - d) / 2;
+          u.x += (u.x - other.x) / d * push;
+          u.y += (u.y - other.y) / d * push;
+        }
+      }
+    }
+  }
+}
+
+function updateUnit(u, dt) {
+  if (u.garrisoned) return; // stationed inside a structure; it fights for us
+  u.cooldown = Math.max(0, u.cooldown - dt);
+  const o = u.order;
+  const stats = UNIT_TYPES[u.type];
+
+  if (stats.flying) updateFlightFeel(u, stats, dt);
+
+  // stationed aircraft lift off the moment they get a real order
+  if (u.landed && o.type !== 'idle' && o.type !== 'rearm') u.landed = false;
+
+  // recovered UFO tech (a held Crash Site): anti-grav alloys knit airframes
+  // back together in flight (the weapon boost lives in fireAt)
+  if (stats.flying && u.hp < u.maxHp && state.airTechOwners && state.airTechOwners.has(u.owner))
+    u.hp = Math.min(u.maxHp, u.hp + 2.5 * dt);
+
+  // petrified: a statue until the stone wears off
+  if (u.petrifiedUntil > state.time) return;
+
+  // deep-state passive: units run silent when they hold still (and aren't
+  // still lit up from a recent shot). Moving or firing drops the cloak; a
+  // detector still sees them. A first shot from cloak lands as an ambush.
+  if (stats.cloakStill) {
+    u.cloaked = !u.transit && !(u.exposedUntil > state.time) &&
+      (state.time - (u.movedT || -99) > (stats.cloakDelay || 1.5));
+  }
+  // the Deer Stand Marksman vanishes among the trees: cloaked while inside a
+  // forest (until a recent shot lights him up), plainly visible outside it
+  if (stats.forestOnly) {
+    u.cloaked = !u.transit && !(u.exposedUntil > state.time) && inForest(u);
+  }
+  if (u.digging && u.order.type !== 'dig') u.digging = false; // auger down
+
+  if (Art.hasIsoTurret(u.type)) updateTurretSlew(u, dt);
+
+  // burrowed: a blind slow crawl — combat orders degrade to movement, and
+  // fireAt below refuses to shoot until the unit surfaces
+  if (u.burrowed && (o.type === 'attack' || o.type === 'attackmove')) {
+    const tgt = o.targetId ? findEntity(o.targetId) : o;
+    u.order = tgt ? { type: 'move', x: tgt.x, y: tgt.y } : { type: 'idle' };
+  }
+
+  updateBrood(u, stats, dt);
+  updateAuras(u, stats, dt);
+  updateStuckWatchdog(u, stats, o, dt);
 
   // out of ammo: break off and return to the airfield (unless already parked —
   // a landed craft must fall through to the idle case, where it reloads)
@@ -2970,42 +3057,9 @@ function updateUnit(u, dt) {
     return;
   }
 
-  // armed rigs defend themselves: pop off at anything in weapon range without
-  // ever dropping the order they're on — mine, haul, and shoot back
-  if (stats.role === 'worker' && stats.dmg && o.type !== 'attack' && o.type !== 'tunnel') {
-    u.defT = (u.defT === undefined ? (u.id % 10) * 0.035 : u.defT) - dt;
-    if (u.defT <= 0) {
-      u.defT = 0.35;
-      const foe = nearest(u, enemiesOf(u.owner), e =>
-        !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.atkRange + entityRadius(e));
-      u.defFoeId = foe ? foe.id : null;
-    }
-    if (u.defFoeId && u.cooldown <= 0) {
-      const foe = findEntity(u.defFoeId);
-      if (foe && foe.hp > 0 && !hiddenFrom(foe, u.owner) && dist(u, foe) <= stats.atkRange + entityRadius(foe)) {
-        u.facing = Math.atan2(foe.y - u.y, foe.x - u.x);
-        fireAt(u, foe, stats);
-      } else {
-        u.defFoeId = null;
-      }
-    }
-  }
-
-  // transport riders: pinned to the vehicle, firing their own weapons out of
-  // the ports/bed at whatever the ride drives past
-  if (u.cargo && u.cargo.length) {
-    u.cargo = u.cargo.filter(id => { const p = findEntity(id); return p && p.hp > 0; });
-    for (const id of u.cargo) {
-      const p = findEntity(id);
-      p.x = u.x; p.y = u.y;
-      p.cooldown = Math.max(0, p.cooldown - dt);
-      const pt = UNIT_TYPES[p.type];
-      if (!pt.dmg || p.cooldown > 0) continue;
-      const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-        !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + entityRadius(e));
-      if (foe) { p.facing = Math.atan2(foe.y - u.y, foe.x - u.x); fireAt(p, foe, pt); }
-    }
-  }
+  if (stats.role === 'worker' && stats.dmg && o.type !== 'attack' && o.type !== 'tunnel')
+    workerSelfDefense(u, stats, dt);
+  if (u.cargo && u.cargo.length) updateCargoRiders(u, dt);
 
   switch (o.type) {
     case 'idle':
@@ -3258,7 +3312,6 @@ function updateUnit(u, dt) {
     case 'establish': {
       // park and become the building. It can go anywhere — deep in their
       // territory is the point — but not on top of something else.
-      const bt = bstats(u.owner, stats.establishes);
       if (placementBlocked(u.owner, stats.establishes, u.x, u.y)) {
         if (u.owner === PLAYER) eva('No room to open here');
         u.order = { type: 'idle' }; break;
@@ -3469,36 +3522,7 @@ function updateUnit(u, dt) {
     }
   }
 
-  // separation only within the same layer (ground vs ground, air vs air);
-  // aircraft parked on a pad hold their slot, and fixed-wing craft are never
-  // shoved — they are always moving anyway. Each unit resolves overlap on
-  // alternating frames — half the cost, visually identical
-  if (u.landed || stats.plane) return;
-  if (((u.id + frameNo) & 1) === 0) return;
-  const myFlying = !!stats.flying;
-  const sgx = (u.x / SEP_CELL) | 0, sgy = (u.y / SEP_CELL) | 0;
-  for (let cx2 = sgx - 1; cx2 <= sgx + 1; cx2++) {
-    for (let cy2 = sgy - 1; cy2 <= sgy + 1; cy2++) {
-      const cell = sepGrid.get(cx2 * 4096 + cy2);
-      if (!cell) continue;
-      for (const other of cell) {
-        if (other === u || other.hp <= 0 || other.garrisoned) continue;
-        const ot = UNIT_TYPES[other.type];
-        if (!!ot.flying !== myFlying) continue;
-        // tanks don't yield to enemy footsoldiers (and the footsoldier gets no
-        // shove out from under the tracks) — overlap develops, the crush pass kills
-        if (u.owner !== other.owner &&
-            ((isCrusher(stats) && isCrushable(ot)) || (isCrushable(stats) && isCrusher(ot)))) continue;
-        const d = dist(u, other);
-        const minD = stats.r + UNIT_TYPES[other.type].r;
-        if (d > 0 && d < minD) {
-          const push = (minD - d) / 2;
-          u.x += (u.x - other.x) / d * push;
-          u.y += (u.y - other.y) / d * push;
-        }
-      }
-    }
-  }
+  separateFromNeighbors(u, stats);
 }
 
 // spatial hash for the separation pass — the old all-pairs sweep was O(n²)
@@ -3625,75 +3649,8 @@ function updateBuilding(b, dt) {
     return;
   }
 
-  // captured hospital / fuel depot: mends the owner's nearby units in a radius
-  // (a neutral, unclaimed one does nothing — it works only once garrisoned); a
-  // depot also tops off passing aircraft so they needn't fly home to rearm
-  if (bt.healAura && b.done && b.owner !== NEUTRAL) {
-    b.healT = (b.healT || 0) - dt;
-    if (b.healT <= 0) {
-      b.healT = 0.5;
-      for (const u of state.units) {
-        if (u.owner !== b.owner || u.hp <= 0 || u.garrisoned || dist(u, b) > bt.healAura.r) continue;
-        if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + bt.healAura.rate * 0.5);
-        if (bt.rearm && UNIT_TYPES[u.type].maxAmmo) u.ammo = UNIT_TYPES[u.type].maxAmmo;
-      }
-    }
-  }
-  // captured Research Lab / Monument: an aura that emboldens the owner's units
-  // (buffedUntil is read in the damage step for +25%)
-  if (bt.buffAura && b.done && b.owner !== NEUTRAL) {
-    b.auraT = (b.auraT || 0) - dt;
-    if (b.auraT <= 0) {
-      b.auraT = 0.4;
-      for (const u of state.units)
-        if (u.owner === b.owner && u.hp > 0 && !u.garrisoned && dist(u, b) <= bt.buffAura.r) u.buffedUntil = state.time + 0.6;
-    }
-  }
-  // captured 5G Mast: an aura that weakens enemy units nearby (−45% damage)
-  if (bt.debuffAura && b.done && b.owner !== NEUTRAL) {
-    b.debT = (b.debT || 0) - dt;
-    if (b.debT <= 0) {
-      b.debT = 0.4;
-      for (const e of state.units)
-        if (e.owner !== b.owner && e.owner !== NEUTRAL && e.hp > 0 && !e.garrisoned && dist(e, b) <= bt.debuffAura.r) e.weakenedUntil = state.time + 0.6;
-    }
-  }
-  // captured Black Site: staffs a DETACHMENT, it does not print an army. Each
-  // site keeps up to `max` of its unit alive and replaces losses; hold it all
-  // game and you get a standing squad, not thirty free Men in Black. Units are
-  // tagged with the site that made them, so two captured sites field two
-  // detachments rather than sharing one cap.
-  if (bt.spawns && b.done && b.owner !== NEUTRAL) {
-    const cap = bt.spawns.max || Infinity;
-    const mine = cap === Infinity ? 0 : state.units.reduce((n, u) =>
-      n + (u.hp > 0 && u.spawnedBy === b.id && u.owner === b.owner ? 1 : 0), 0);
-    if (mine >= cap) {
-      b.spawnT = 0; // at strength: the clock only runs once there's a gap to fill
-    } else {
-      b.spawnT = (b.spawnT || 0) + dt;
-      if (b.spawnT >= bt.spawns.every) {
-        b.spawnT = 0;
-        const u = makeUnit(b.owner, bt.spawns.type, b.x + (Math.random() - 0.5) * 20, b.y + b.h / 2 + 22);
-        u.spawnedBy = b.id;
-        if (b.owner === PLAYER) eva('Reinforcements salvaged');
-      }
-    }
-  }
-  // captured TV Station: manufactures consent — flips a random enemy combat unit
-  // to the owner every so often
-  if (bt.convert && b.done && b.owner !== NEUTRAL) {
-    b.convT = (b.convT || 0) + dt;
-    if (b.convT >= bt.convert.every) {
-      b.convT = 0;
-      const pool = state.units.filter(u => u.owner !== b.owner && u.owner !== NEUTRAL && u.hp > 0 && !u.garrisoned &&
-        u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' && dist(u, b) <= bt.convert.r);
-      if (pool.length) {
-        const v = pool[Math.floor(Math.random() * pool.length)];
-        v.owner = b.owner; v.disguised = false; v.order = { type: 'idle' };
-        Particles.pulse(v.x, v.y, 30, [150, 200, 255]);
-      }
-    }
-  }
+  // landmark auras only work once the site is actually claimed
+  if (b.done && b.owner !== NEUTRAL) updateCapturedAuras(b, bt, dt);
 
   // repair pad: mends the owner's vehicles and aircraft sitting on it
   if (bt.repairRate && b.done && !power.low) {
@@ -3767,133 +3724,215 @@ function updateBuilding(b, dt) {
   }
 
   // towers shoot (unless the grid is down)
-  if (bt.dmg && !power.low) {
-    b.cooldown = Math.max(0, b.cooldown - dt);
-    const wkind = bt.weapon || 'gun';
+  if (bt.dmg && !power.low) fireTower(b, bt, dt);
 
-    if (wkind === 'pulse') {
-      // radiation field: hurts EVERY enemy ground unit in radius
-      if (b.cooldown <= 0) {
-        const victims = state.units.filter(u => u.owner !== b.owner && u.hp > 0 && !hiddenFrom(u, b.owner) &&
-          !UNIT_TYPES[u.type].flying && dist(b, u) <= bt.atkRange + UNIT_TYPES[u.type].r);
-        if (victims.length) {
-          b.cooldown = bt.cooldown;
-          for (const v of victims) dealDamage(b, v, bt.dmg, bt);
-          Particles.pulse(b.x, b.y, bt.atkRange, [140, 208, 255]);
-          if (tileState(b.x, b.y) === 2) sfx('laser');
-        }
-      }
-    } else if (wkind === 'chain') {
-      // arcs to up to 2 extra targets at 60% falloff per hop
-      if (b.cooldown <= 0) {
-        const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
-        if (foe) {
-          b.cooldown = bt.cooldown;
-          b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
-          const hit = new Set();
-          let prev = b, cur = foe, dmg = bt.dmg;
-          for (let hop = 0; hop < 3 && cur; hop++) {
-            Particles.bolt(prev.x, prev.y, cur.x, cur.y, [201, 167, 255]);
-            dealDamage(b, cur, dmg, bt);
-            hit.add(cur.id);
-            dmg *= 0.6;
-            prev = cur;
-            cur = nearest(prev, state.units, un => un.owner !== b.owner && un.hp > 0 && !hiddenFrom(un, b.owner) &&
-              !UNIT_TYPES[un.type].flying && !hit.has(un.id) && dist(prev, un) <= 85);
-          }
-          if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) sfx('laser');
-        }
-      }
-    } else if (wkind === 'missile') {
-      // patriot battery: launches a visible homing missile. Sticky target:
-      // keep pounding the same craft while it's valid instead of flitting to
-      // whatever drifted 2px closer this shot.
-      if (b.cooldown <= 0) {
-        let foe = b.foeId ? state.units.find(un => un.id === b.foeId) : null;
-        if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
-            dist(b, foe) > bt.atkRange + entityRadius(foe)) {
-          foe = nearestTarget(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
-            !hiddenFrom(un, b.owner) && !un.garrisoned && canTarget(bt, un) &&
-            dist(b, un) <= bt.atkRange + entityRadius(un));
-        }
-        b.foeId = foe ? foe.id : null;
-        if (foe) {
-          b.cooldown = bt.cooldown;
-          b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
-          state.projectiles.push({
-            kind: 'missile', x: b.x, y: b.y, targetId: foe.id,
-            owner: b.owner, stats: bt, angle: b.turret, speed: 320, life: 4,
-          });
-          if (tileState(b.x, b.y) === 2) sfx('shot');
-        }
-      }
-    } else if (wkind === 'beam') {
-      // continuous lock: drains and slows one aircraft
-      let tgt = b.beamId ? state.units.find(un => un.id === b.beamId && un.hp > 0) : null;
-      if (!tgt || hiddenFrom(tgt, b.owner) || !canTarget(bt, tgt) || dist(b, tgt) > bt.atkRange + entityRadius(tgt) + 12) {
-        tgt = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 && !hiddenFrom(un, b.owner) &&
-          canTarget(bt, un) && dist(b, un) <= bt.atkRange + entityRadius(un));
-      }
-      if (tgt) {
-        // the lock holds the craft down and drains it. It no longer hauls the
-        // victim away — a five-second timer that deleted an aircraft outright
-        // was either irrelevant or unanswerable, with nothing in between.
-        b.beamId = tgt.id;
-        b.turret = Math.atan2(tgt.y - b.y, tgt.x - b.x);
-        if (b.cooldown <= 0) {
-          b.cooldown = bt.cooldown;
-          dealDamage(b, tgt, bt.dmg, bt);
-          tgt.slowUntil = state.time + 0.25;   // pinned in the beam, as before
-        }
-      } else {
-        b.beamId = null;
-        b.beamHold = 0;
-      }
-    } else if (bt.weapon === 'quake' && b.cooldown <= 0) {
-      // Seismic Imitator: a piston slam sends a visible crack racing along
-      // the ground into its target (same wave the Quake Truck fires)
-      let foe = b.foeId ? findEntity(b.foeId) : null;
-      if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
-          dist(b, foe) > bt.atkRange + entityRadius(foe)) {
-        foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
-      }
-      b.foeId = foe ? foe.id : null;
-      if (foe) {
-        state.zones.push({
-          kind: 'wave', x: b.x, y: b.y + b.h / 2, tx: foe.x, ty: foe.y, r: 12, speed: 460,
-          until: state.time + 4, caster: b.owner, dmg: bt.dmg,
-          bldgBonus: 1.2, splash: 34, stun: 0.45,
-        });
-        b.cooldown = bt.cooldown;
-        b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
-        if (tileState(b.x, b.y) === 2) sfx('boom');
-      }
-    } else if (b.cooldown <= 0) {
-      // sticky target: a tower keeps shooting what it's shooting while that
-      // target stays valid — fresh bodies appearing nearby (a squad piling out
-      // of a transport) no longer instantly pull every shot off the vehicle
-      let foe = b.foeId ? findEntity(b.foeId) : null;
-      if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
-          dist(b, foe) > bt.atkRange + entityRadius(foe)) {
-        foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
-      }
-      b.foeId = foe ? foe.id : null;
-      if (foe) {
-        dealDamage(b, foe, bt.dmg, bt);
-        b.cooldown = bt.cooldown;
-        b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
-        // muzzle flash + tracer leave from the turret's actual barrel height
-        Particles.shot(b.x + Math.cos(b.turret) * 10, b.y + Math.sin(b.turret) * 10,
-          foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]],
-          (Art.turretLift[b.type] || 8) + 2,
-          foe.kind === 'unit' ? unitAlt(foe) : 0);
-        if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) {
-          sfx(state.factions[b.owner] === 'glob' ? 'laser' : 'shot');
-        }
+  advanceProduction(b, power, dt);
+}
+
+// ---------- what a claimed landmark does for whoever holds it ----------
+// None of this runs for a neutral, unclaimed site — a landmark is inert until
+// somebody garrisons it. The caller gates on `b.done && b.owner !== NEUTRAL`.
+function updateCapturedAuras(b, bt, dt) {
+  // hospital / fuel depot: mends the owner's nearby units in a radius; a depot
+  // also tops off passing aircraft so they needn't fly home to rearm
+  if (bt.healAura) {
+    b.healT = (b.healT || 0) - dt;
+    if (b.healT <= 0) {
+      b.healT = 0.5;
+      for (const u of state.units) {
+        if (u.owner !== b.owner || u.hp <= 0 || u.garrisoned || dist(u, b) > bt.healAura.r) continue;
+        if (u.hp < u.maxHp) u.hp = Math.min(u.maxHp, u.hp + bt.healAura.rate * 0.5);
+        if (bt.rearm && UNIT_TYPES[u.type].maxAmmo) u.ammo = UNIT_TYPES[u.type].maxAmmo;
       }
     }
   }
+  // Research Lab / Monument: emboldens the owner's units (buffedUntil is read
+  // in the damage step for +25%)
+  if (bt.buffAura) {
+    b.auraT = (b.auraT || 0) - dt;
+    if (b.auraT <= 0) {
+      b.auraT = 0.4;
+      for (const u of state.units)
+        if (u.owner === b.owner && u.hp > 0 && !u.garrisoned && dist(u, b) <= bt.buffAura.r) u.buffedUntil = state.time + 0.6;
+    }
+  }
+  // 5G Mast: weakens enemy units nearby (−45% damage)
+  if (bt.debuffAura) {
+    b.debT = (b.debT || 0) - dt;
+    if (b.debT <= 0) {
+      b.debT = 0.4;
+      for (const e of state.units)
+        if (e.owner !== b.owner && e.owner !== NEUTRAL && e.hp > 0 && !e.garrisoned && dist(e, b) <= bt.debuffAura.r) e.weakenedUntil = state.time + 0.6;
+    }
+  }
+  // Black Site: staffs a DETACHMENT, it does not print an army. Each site keeps
+  // up to `max` of its unit alive and replaces losses; hold it all game and you
+  // get a standing squad, not thirty free Men in Black. Units are tagged with
+  // the site that made them, so two captured sites field two detachments rather
+  // than sharing one cap.
+  if (bt.spawns) {
+    const cap = bt.spawns.max || Infinity;
+    const mine = cap === Infinity ? 0 : state.units.reduce((n, u) =>
+      n + (u.hp > 0 && u.spawnedBy === b.id && u.owner === b.owner ? 1 : 0), 0);
+    if (mine >= cap) {
+      b.spawnT = 0; // at strength: the clock only runs once there's a gap to fill
+    } else {
+      b.spawnT = (b.spawnT || 0) + dt;
+      if (b.spawnT >= bt.spawns.every) {
+        b.spawnT = 0;
+        const u = makeUnit(b.owner, bt.spawns.type, b.x + (Math.random() - 0.5) * 20, b.y + b.h / 2 + 22);
+        u.spawnedBy = b.id;
+        if (b.owner === PLAYER) eva('Reinforcements salvaged');
+      }
+    }
+  }
+  // TV Station: manufactures consent — flips a random enemy combat unit to the
+  // owner every so often
+  if (bt.convert) {
+    b.convT = (b.convT || 0) + dt;
+    if (b.convT >= bt.convert.every) {
+      b.convT = 0;
+      const pool = state.units.filter(u => u.owner !== b.owner && u.owner !== NEUTRAL && u.hp > 0 && !u.garrisoned &&
+        u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' && dist(u, b) <= bt.convert.r);
+      if (pool.length) {
+        const v = pool[Math.floor(Math.random() * pool.length)];
+        v.owner = b.owner; v.disguised = false; v.order = { type: 'idle' };
+        Particles.pulse(v.x, v.y, 30, [150, 200, 255]);
+      }
+    }
+  }
+}
 
+// a defensive structure's weapon, dispatched on its weapon kind
+function fireTower(b, bt, dt) {
+  b.cooldown = Math.max(0, b.cooldown - dt);
+  const wkind = bt.weapon || 'gun';
+
+  if (wkind === 'pulse') {
+    // radiation field: hurts EVERY enemy ground unit in radius
+    if (b.cooldown <= 0) {
+      const victims = state.units.filter(u => u.owner !== b.owner && u.hp > 0 && !hiddenFrom(u, b.owner) &&
+        !UNIT_TYPES[u.type].flying && dist(b, u) <= bt.atkRange + UNIT_TYPES[u.type].r);
+      if (victims.length) {
+        b.cooldown = bt.cooldown;
+        for (const v of victims) dealDamage(b, v, bt.dmg, bt);
+        Particles.pulse(b.x, b.y, bt.atkRange, [140, 208, 255]);
+        if (tileState(b.x, b.y) === 2) sfx('laser');
+      }
+    }
+  } else if (wkind === 'chain') {
+    // arcs to up to 2 extra targets at 60% falloff per hop
+    if (b.cooldown <= 0) {
+      const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+      if (foe) {
+        b.cooldown = bt.cooldown;
+        b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+        const hit = new Set();
+        let prev = b, cur = foe, dmg = bt.dmg;
+        for (let hop = 0; hop < 3 && cur; hop++) {
+          Particles.bolt(prev.x, prev.y, cur.x, cur.y, [201, 167, 255]);
+          dealDamage(b, cur, dmg, bt);
+          hit.add(cur.id);
+          dmg *= 0.6;
+          prev = cur;
+          cur = nearest(prev, state.units, un => un.owner !== b.owner && un.hp > 0 && !hiddenFrom(un, b.owner) &&
+            !UNIT_TYPES[un.type].flying && !hit.has(un.id) && dist(prev, un) <= 85);
+        }
+        if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) sfx('laser');
+      }
+    }
+  } else if (wkind === 'missile') {
+    // patriot battery: launches a visible homing missile. Sticky target:
+    // keep pounding the same craft while it's valid instead of flitting to
+    // whatever drifted 2px closer this shot.
+    if (b.cooldown <= 0) {
+      let foe = b.foeId ? state.units.find(un => un.id === b.foeId) : null;
+      if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
+          dist(b, foe) > bt.atkRange + entityRadius(foe)) {
+        foe = nearestTarget(b, state.units, un => un.owner !== b.owner && un.hp > 0 &&
+          !hiddenFrom(un, b.owner) && !un.garrisoned && canTarget(bt, un) &&
+          dist(b, un) <= bt.atkRange + entityRadius(un));
+      }
+      b.foeId = foe ? foe.id : null;
+      if (foe) {
+        b.cooldown = bt.cooldown;
+        b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+        state.projectiles.push({
+          kind: 'missile', x: b.x, y: b.y, targetId: foe.id,
+          owner: b.owner, stats: bt, angle: b.turret, speed: 320, life: 4,
+        });
+        if (tileState(b.x, b.y) === 2) sfx('shot');
+      }
+    }
+  } else if (wkind === 'beam') {
+    // continuous lock: drains and slows one aircraft
+    let tgt = b.beamId ? state.units.find(un => un.id === b.beamId && un.hp > 0) : null;
+    if (!tgt || hiddenFrom(tgt, b.owner) || !canTarget(bt, tgt) || dist(b, tgt) > bt.atkRange + entityRadius(tgt) + 12) {
+      tgt = nearest(b, state.units, un => un.owner !== b.owner && un.hp > 0 && !hiddenFrom(un, b.owner) &&
+        canTarget(bt, un) && dist(b, un) <= bt.atkRange + entityRadius(un));
+    }
+    if (tgt) {
+      // the lock holds the craft down and drains it. It no longer hauls the
+      // victim away — a five-second timer that deleted an aircraft outright
+      // was either irrelevant or unanswerable, with nothing in between.
+      b.beamId = tgt.id;
+      b.turret = Math.atan2(tgt.y - b.y, tgt.x - b.x);
+      if (b.cooldown <= 0) {
+        b.cooldown = bt.cooldown;
+        dealDamage(b, tgt, bt.dmg, bt);
+        tgt.slowUntil = state.time + 0.25;   // pinned in the beam, as before
+      }
+    } else {
+      b.beamId = null;
+      b.beamHold = 0;
+    }
+  } else if (bt.weapon === 'quake' && b.cooldown <= 0) {
+    // Seismic Imitator: a piston slam sends a visible crack racing along
+    // the ground into its target (same wave the Quake Truck fires)
+    let foe = b.foeId ? findEntity(b.foeId) : null;
+    if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
+        dist(b, foe) > bt.atkRange + entityRadius(foe)) {
+      foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+    }
+    b.foeId = foe ? foe.id : null;
+    if (foe) {
+      state.zones.push({
+        kind: 'wave', x: b.x, y: b.y + b.h / 2, tx: foe.x, ty: foe.y, r: 12, speed: 460,
+        until: state.time + 4, caster: b.owner, dmg: bt.dmg,
+        bldgBonus: 1.2, splash: 34, stun: 0.45,
+      });
+      b.cooldown = bt.cooldown;
+      b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+      if (tileState(b.x, b.y) === 2) sfx('boom');
+    }
+  } else if (b.cooldown <= 0) {
+    // sticky target: a tower keeps shooting what it's shooting while that
+    // target stays valid — fresh bodies appearing nearby (a squad piling out
+    // of a transport) no longer instantly pull every shot off the vehicle
+    let foe = b.foeId ? findEntity(b.foeId) : null;
+    if (!foe || foe.hp <= 0 || foe.garrisoned || hiddenFrom(foe, b.owner) || !canTarget(bt, foe) ||
+        dist(b, foe) > bt.atkRange + entityRadius(foe)) {
+      foe = nearestTarget(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) && canTarget(bt, e) && dist(b, e) <= bt.atkRange + entityRadius(e));
+    }
+    b.foeId = foe ? foe.id : null;
+    if (foe) {
+      dealDamage(b, foe, bt.dmg, bt);
+      b.cooldown = bt.cooldown;
+      b.turret = Math.atan2(foe.y - b.y, foe.x - b.x);
+      // muzzle flash + tracer leave from the turret's actual barrel height
+      Particles.shot(b.x + Math.cos(b.turret) * 10, b.y + Math.sin(b.turret) * 10,
+        foe.x, foe.y, WEAPON_STYLE[state.factions[b.owner]],
+        (Art.turretLift[b.type] || 8) + 2,
+        foe.kind === 'unit' ? unitAlt(foe) : 0);
+      if (tileState(b.x, b.y) === 2 || tileState(foe.x, foe.y) === 2) {
+        sfx(state.factions[b.owner] === 'glob' ? 'laser' : 'shot');
+      }
+    }
+  }
+}
+
+// production queue: one job at a time, at half speed during a brownout
+function advanceProduction(b, power, dt) {
   if (b.queue.length === 0) return;
   const job = b.queue[0];
   job.t += dt * (power.low ? 0.5 : 1);
@@ -4047,202 +4086,140 @@ function aiDesiredStructure(owner, counts, power) {
   return null;
 }
 
-function updateAI(owner, dt) {
-  const ai = ais[owner];
-  ai.time += dt;
-  tickConstruction(owner, dt);
-  ai.thinkTimer -= dt;
-  if (ai.thinkTimer > 0) return;
-  ai.thinkTimer = 1.0;
+// ---------- the AI's think phases (one think tick runs them in order) ----------
 
-  const f = facOf(owner);
-  const myUnits = state.units.filter(u => u.owner === owner && u.hp > 0);
-  const workers = myUnits.filter(u => UNIT_TYPES[u.type].role === 'worker');
-  const army = myUnits.filter(u => UNIT_TYPES[u.type].role === 'combat');
-  const hq = state.buildings.find(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
-  if (!hq) return;
-
-  const counts = {};
-  for (const b of state.buildings) {
-    if (b.owner === owner && b.hp > 0) counts[b.type] = (counts[b.type] || 0) + 1;
-  }
-  const power = powerOf(owner);
-
-  // place finished construction
-  const c = state.construction[owner];
-  if (c && c.ready) {
-    const spot = aiPickSpot(owner, c.type);
-    if (spot) tryPlace(owner, spot.x, spot.y);
-  }
-
-  // fire a charged superweapon at the fattest enemy target cluster
-  const sw = state.buildings.find(b => b.owner === owner && b.hp > 0 && superReady(b) && !isOffline(b));
-  if (sw) {
-    const tgt = nearest(sw, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL &&
-      b.hp > 0 && b.type !== 'sleepercell' && !bstatsOf(b).noBlock))
-      || nearest(sw, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned && !hiddenFrom(u, owner)));
-    if (tgt) fireSuperweapon(sw, tgt.x, tgt.y);
-  }
-
-  // idle workers mine
-  for (const w of workers) {
-    if (w.order.type === 'idle') {
-      const patch = nearest(w, state.patches, p => p.amount > 0);
-      if (patch) orderHarvest(w, patch);
-    }
-  }
-
-  // forward economy: once established, drop a Refinery next to a rich field that
-  // sits far from every current drop-off, so haulers stop crossing the map. The
-  // spot is stashed for aiPickSpot; the refinery anchors a new forward base.
+// forward economy: once established, drop a Refinery next to a rich field that
+// sits far from every current drop-off, so haulers stop crossing the map. The
+// spot is stashed for aiPickSpot; the refinery anchors a new forward base.
+function aiForwardRefinery(owner, ai, f, counts) {
   const refReq = bstats(owner, 'refinery').req;
-  if (f.worker && (f.structs || []).includes('refinery') && !state.construction[owner] && ai.time > 75 &&
+  if (!(f.worker && (f.structs || []).includes('refinery') && !state.construction[owner] && ai.time > 75 &&
       (!refReq || counts[refReq]) &&
-      (counts['refinery'] || 0) < (bstats(owner, 'refinery').cap || 4)) {
-    const drops = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && (b.type === 'hq' || bstatsOf(b).dropoff));
-    let bestP = null, bestScore = -Infinity;
-    for (const p of state.patches) {
-      if (p.amount < 350) continue;
-      const dHome = Math.min(...drops.map(b => dist(b, p)));
-      if (dHome < 520) continue;                 // already served from home
-      const score = p.amount - dHome * 0.3;      // rich, but not absurdly far
-      if (score > bestScore) { bestScore = score; bestP = p; }
-    }
-    if (bestP && state.minerals[owner] >= bstats(owner, 'refinery').cost + 60) {
-      startConstruction(owner, 'refinery');
-      ai._refSpot = { x: bestP.x, y: bestP.y };
-    }
+      (counts['refinery'] || 0) < (bstats(owner, 'refinery').cap || 4))) return;
+  const drops = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && (b.type === 'hq' || bstatsOf(b).dropoff));
+  let bestP = null, bestScore = -Infinity;
+  for (const p of state.patches) {
+    if (p.amount < 350) continue;
+    const dHome = Math.min(...drops.map(b => dist(b, p)));
+    if (dHome < 520) continue;                 // already served from home
+    const score = p.amount - dHome * 0.3;      // rich, but not absurdly far
+    if (score > bestScore) { bestScore = score; bestP = p; }
   }
-
-  // ---------- patch up the base ----------
-  // Every faction repairs. The AI mends what MATTERS first (the HQ, then
-  // production, then defenses) and never touches walls — it would trickle its
-  // whole bank into a fence line. It also refuses to repair while a fight is
-  // happening on top of the structure: paying to out-heal an active attack is
-  // how an AI goes broke and still loses the building.
-  {
-    const REPAIR_PRIORITY = { hq: 4, factory: 3, barracks: 3, airpad: 3, tech: 3, refinery: 2, powerplant: 2 };
-    let job = null, bestScore = -Infinity;
-    for (const b of state.buildings) {
-      if (b.owner !== owner || !canRepair(b)) continue;
-      if (bstatsOf(b).wallKind || bstatsOf(b).noBlock) continue;      // not the fence, not the mines
-      const frac = b.hp / b.maxHp;
-      if (frac > 0.92) continue;                                      // a scratch can wait
-      if (b.repairing) { job = b; break; }                            // already on it — leave it alone
-      const threatened = state.units.some(e => e.owner !== owner && e.owner !== NEUTRAL && e.hp > 0 &&
-        !hiddenFrom(e, owner) && UNIT_TYPES[e.type].dmg && dist(e, b) < 260);
-      if (threatened) continue;
-      const score = (REPAIR_PRIORITY[b.type] || 1) * (1 - frac);
-      if (score > bestScore) { bestScore = score; job = b; }
-    }
-    // one structure at a time, and only with a real cushion in the bank, so
-    // repairs never starve the build order or the army
-    if (job && !job.repairing && state.minerals[owner] > 180) job.repairing = true;
-    // ...and drop the job before the bank hits zero. A human can choose to
-    // spend their last mineral on a wall; an AI that does it stops producing.
-    if (state.minerals[owner] < 70) {
-      for (const b of state.buildings) if (b.owner === owner && b.repairing) b.repairing = false;
-    }
+  if (bestP && state.minerals[owner] >= bstats(owner, 'refinery').cost + 60) {
+    startConstruction(owner, 'refinery');
+    ai._refSpot = { x: bestP.x, y: bestP.y };
   }
+}
 
-  // economy recovery: below the starting workforce (raided, or just off the
-  // start), rebuild rigs FIRST — a starved base can't fund anything else
-  const workerCap = f.worker ? Math.max(f.economy.workers, minerCap(owner, f.worker)) : 0;
-  const starved = f.worker && workers.length < f.economy.workers;
-  if (starved && state.minerals[owner] >= UNIT_TYPES[f.worker].cost) trainUnit(owner, f.worker);
-
-  // start next structure; reserve its cost so unit spam can't starve it
-  const desired = !state.construction[owner] ? aiDesiredStructure(owner, counts, power) : null;
-  if (desired && (!f.worker || workers.length >= 3) && state.minerals[owner] >= bstats(owner, desired).cost) {
-    startConstruction(owner, desired);
+// ---------- patch up the base ----------
+// Every faction repairs. The AI mends what MATTERS first (the HQ, then
+// production, then defenses) and never touches walls — it would trickle its
+// whole bank into a fence line. It also refuses to repair while a fight is
+// happening on top of the structure: paying to out-heal an active attack is
+// how an AI goes broke and still loses the building.
+const AI_REPAIR_PRIORITY = { hq: 4, factory: 3, barracks: 3, airpad: 3, tech: 3, refinery: 2, powerplant: 2 };
+function aiRepairBase(owner) {
+  let job = null, bestScore = -Infinity;
+  for (const b of state.buildings) {
+    if (b.owner !== owner || !canRepair(b)) continue;
+    if (bstatsOf(b).wallKind || bstatsOf(b).noBlock) continue;      // not the fence, not the mines
+    const frac = b.hp / b.maxHp;
+    if (frac > 0.92) continue;                                      // a scratch can wait
+    if (b.repairing) { job = b; break; }                            // already on it — leave it alone
+    const threatened = state.units.some(e => e.owner !== owner && e.owner !== NEUTRAL && e.hp > 0 &&
+      !hiddenFrom(e, owner) && UNIT_TYPES[e.type].dmg && dist(e, b) < 260);
+    if (threatened) continue;
+    const score = (AI_REPAIR_PRIORITY[b.type] || 1) * (1 - frac);
+    if (score > bestScore) { bestScore = score; job = b; }
   }
-  let reserve = (!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0;
-
-  // grow the workforce all the way to the rig CAP (not just the start count) —
-  // mining throughput, not patch size, is what chokes the worker economies.
-  // (income factions have no rig to train; trainUnit still enforces the cap)
-  if (f.worker && !starved && workers.length < workerCap &&
-      state.minerals[owner] >= UNIT_TYPES[f.worker].cost + reserve) {
-    trainUnit(owner, f.worker);
+  // one structure at a time, and only with a real cushion in the bank, so
+  // repairs never starve the build order or the army
+  if (job && !job.repairing && state.minerals[owner] > 180) job.repairing = true;
+  // ...and drop the job before the bank hits zero. A human can choose to
+  // spend their last mineral on a wall; an AI that does it stops producing.
+  if (state.minerals[owner] < 70) {
+    for (const b of state.buildings) if (b.owner === owner && b.repairing) b.repairing = false;
   }
+}
 
-
-  // ---------- the hollow AI: rigs dig, priests fetch, servitors ascend ----------
-  // This runs BEFORE the army mix on purpose. The Mechanicum ladder IS the
-  // Hollow army, so a rite the AI wants but can't afford yet RESERVES its fee
-  // (same trick the build order uses) instead of losing the race to another
-  // 45-mineral servitor every think tick — which is exactly how the faction
-  // used to stall out at the servitor tier forever.
-  if (isHollow(owner)) {
-    const mech = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'mechanicum');
-    const priests = state.units.filter(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].priest && !x.garrisoned);
-    const guards = state.units.filter(x => x.owner === owner && x.hp > 0 && x.type === 'lanternguard');
-    const dreads = state.units.filter(x => x.owner === owner && x.hp > 0 && x.type === 'dreadnought');
-    const pending = to => state.units.some(x => x.owner === owner && x.hp > 0 &&
-      ((x.ascension && x.ascension.to === to) || (x.order.type === 'ascend' && x.order.key === to)));
-    // a body with nothing better to do is raw material; idle ones first
-    const spare = type => state.units.find(x => x.owner === owner && x.hp > 0 && x.type === type &&
-        !x.ascension && !x.garrisoned && !x.transit && x.order.type === 'idle') ||
-      state.units.find(x => x.owner === owner && x.hp > 0 && x.type === type &&
-        !x.ascension && !x.garrisoned && !x.transit && x.order.type !== 'ascend');
-    // rites in priority order: priests first — no priest, no relic, no faction
-    const wanted = [];
-    if (priests.length < 2) wanted.push('techpriest');
-    if (guards.length + dreads.length < 8) wanted.push('lanternguard');
-    if (guards.length >= 3 && dreads.length < 4) wanted.push('dreadnought');
-    for (const key of wanted) {
-      if (!mech || !ascendReady(owner, key)) continue;
-      const fee = ascendFee(owner, key);
-      // A body already walking to the slab still has to pay on arrival, so its
-      // fee is reserved too — otherwise the army mix spends the minerals out
-      // from under it, the rite is refused at the door, and the AI loops
-      // forever sending servitors it can't afford to consecrate.
-      if (pending(key)) { reserve += fee; break; }
-      const body = spare(ASCEND[key].from);
-      if (!body) continue;
-      if (state.minerals[owner] >= fee + reserve) body.order = { type: 'ascend', destId: mech.id, key };
-      else reserve += fee; // save for it: the army mix has to wait its turn
-      break; // one rite in flight at a time keeps the economy honest
-    }
-    const rigs = state.units.filter(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].digger);
-    // an Excavation Rig is not an army unit, it is the economy: with relics
-    // gating every rite, leaving rig production to the general unit mix left
-    // the AI stuck at the servitor tier for the whole match. Buy them on
-    // purpose, as long as there is anything left in the ground to open.
-    const open = state.digSites.filter(s => !s.taken).length;
-    // (bought OUTSIDE the structure reserve, like a worker — a rig that waits
-    // its turn behind every queued building never gets bought at all)
-    if (open && counts.factory && rigs.length < Math.min(2, open) &&
-        !state.buildings.some(b => b.owner === owner && b.queue.some(j => UNIT_TYPES[j.type].digger)) &&
-        state.minerals[owner] >= UNIT_TYPES.excavationrig.cost) {
-      trainUnit(owner, 'excavationrig');
-    }
-    for (const s of state.digSites) {
-      if (s.taken) continue;
-      if (s.progress < DIG_TIME) {
-        if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'dig' && x.order.siteId === s.id)) continue;
-        // any rig not already on a hole — digging outranks whatever the wave
-        // logic last told it to do
-        const rig = rigs.find(r => r.order.type !== 'dig');
-        if (rig) rig.order = { type: 'dig', siteId: s.id };
-      } else {
-        if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'recover' && x.order.siteId === s.id)) continue;
-        const p = priests.find(x => x.order.type === 'idle');
-        if (p) p.order = { type: 'recover', siteId: s.id };
-      }
-    }
-    for (const w of state.armorWrecks) {
-      if (w.owner !== owner) continue;
-      if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'salvage' && x.order.wreckId === w.id)) continue;
+// ---------- the hollow AI: rigs dig, priests fetch, servitors ascend ----------
+// This runs BEFORE the army mix on purpose. The Mechanicum ladder IS the
+// Hollow army, so a rite the AI wants but can't afford yet RESERVES its fee
+// (same trick the build order uses) instead of losing the race to another
+// 45-mineral servitor every think tick — which is exactly how the faction
+// used to stall out at the servitor tier forever. Returns the updated reserve.
+function aiHollowRites(owner, counts, reserve) {
+  const mech = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'mechanicum');
+  const priests = state.units.filter(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].priest && !x.garrisoned);
+  const guards = state.units.filter(x => x.owner === owner && x.hp > 0 && x.type === 'lanternguard');
+  const dreads = state.units.filter(x => x.owner === owner && x.hp > 0 && x.type === 'dreadnought');
+  const pending = to => state.units.some(x => x.owner === owner && x.hp > 0 &&
+    ((x.ascension && x.ascension.to === to) || (x.order.type === 'ascend' && x.order.key === to)));
+  // a body with nothing better to do is raw material; idle ones first
+  const spare = type => state.units.find(x => x.owner === owner && x.hp > 0 && x.type === type &&
+      !x.ascension && !x.garrisoned && !x.transit && x.order.type === 'idle') ||
+    state.units.find(x => x.owner === owner && x.hp > 0 && x.type === type &&
+      !x.ascension && !x.garrisoned && !x.transit && x.order.type !== 'ascend');
+  // rites in priority order: priests first — no priest, no relic, no faction
+  const wanted = [];
+  if (priests.length < 2) wanted.push('techpriest');
+  if (guards.length + dreads.length < 8) wanted.push('lanternguard');
+  if (guards.length >= 3 && dreads.length < 4) wanted.push('dreadnought');
+  for (const key of wanted) {
+    if (!mech || !ascendReady(owner, key)) continue;
+    const fee = ascendFee(owner, key);
+    // A body already walking to the slab still has to pay on arrival, so its
+    // fee is reserved too — otherwise the army mix spends the minerals out
+    // from under it, the rite is refused at the door, and the AI loops
+    // forever sending servitors it can't afford to consecrate.
+    if (pending(key)) { reserve += fee; break; }
+    const body = spare(ASCEND[key].from);
+    if (!body) continue;
+    if (state.minerals[owner] >= fee + reserve) body.order = { type: 'ascend', destId: mech.id, key };
+    else reserve += fee; // save for it: the army mix has to wait its turn
+    break; // one rite in flight at a time keeps the economy honest
+  }
+  const rigs = state.units.filter(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].digger);
+  // an Excavation Rig is not an army unit, it is the economy: with relics
+  // gating every rite, leaving rig production to the general unit mix left
+  // the AI stuck at the servitor tier for the whole match. Buy them on
+  // purpose, as long as there is anything left in the ground to open.
+  const open = state.digSites.filter(s => !s.taken).length;
+  // (bought OUTSIDE the structure reserve, like a worker — a rig that waits
+  // its turn behind every queued building never gets bought at all)
+  if (open && counts.factory && rigs.length < Math.min(2, open) &&
+      !state.buildings.some(b => b.owner === owner && b.queue.some(j => UNIT_TYPES[j.type].digger)) &&
+      state.minerals[owner] >= UNIT_TYPES.excavationrig.cost) {
+    trainUnit(owner, 'excavationrig');
+  }
+  for (const s of state.digSites) {
+    if (s.taken) continue;
+    if (s.progress < DIG_TIME) {
+      if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'dig' && x.order.siteId === s.id)) continue;
+      // any rig not already on a hole — digging outranks whatever the wave
+      // logic last told it to do
+      const rig = rigs.find(r => r.order.type !== 'dig');
+      if (rig) rig.order = { type: 'dig', siteId: s.id };
+    } else {
+      if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'recover' && x.order.siteId === s.id)) continue;
       const p = priests.find(x => x.order.type === 'idle');
-      if (p) p.order = { type: 'salvage', wreckId: w.id };
+      if (p) p.order = { type: 'recover', siteId: s.id };
     }
   }
+  for (const w of state.armorWrecks) {
+    if (w.owner !== owner) continue;
+    if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'salvage' && x.order.wreckId === w.id)) continue;
+    const p = priests.find(x => x.order.type === 'idle');
+    if (p) p.order = { type: 'salvage', wreckId: w.id };
+  }
+  return reserve;
+}
 
-  // train toward a target composition: pick the most-lacking type and save for
-  // it — training whatever is affordable would starve the expensive units.
-  // Candidates come straight from the faction roster, filtered by whether the
-  // right production building (and any tech prereq) actually stands.
+// train toward a target composition: pick the most-lacking type and save for
+// it — training whatever is affordable would starve the expensive units.
+// Candidates come straight from the faction roster, filtered by whether the
+// right production building (and any tech prereq) actually stands.
+function aiTrainArmy(owner, f, counts, army, reserve) {
   const mix = [];
   const addMix = (type, w) => {
     if (!type || !w) return;
@@ -4311,148 +4288,149 @@ function updateAI(owner, dt) {
       if (have < 2 && state.minerals[owner] >= UNIT_TYPES[detType].cost + reserve) trainUnit(owner, detType);
     }
   }
+}
 
-
-  // ---------- the Deep State runs its front companies ----------
-  // Nobody else would ever build a Front Company: it has no gun, so the army
-  // mix filters it straight out. It has to be bought on purpose, driven to
-  // THEIR doorstep, and opened — and then the ledger it fills has to be spent.
-  if (state.factions[owner] === 'deep') {
-    const FRONTS = 2;
-    const open = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.type === 'frontcompany');
-    const vans = state.units.filter(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].establishes);
-    if (counts.factory && counts.tech && open.length + vans.length < FRONTS &&
-        state.minerals[owner] >= UNIT_TYPES.frontco.cost + reserve &&
-        !state.buildings.some(b => b.owner === owner && b.queue.some(j => UNIT_TYPES[j.type].establishes))) {
-      trainUnit(owner, 'frontco');
-    }
-    // drive each idle van to an enemy drop-off and open up just outside it
-    for (const v of vans) {
-      if (v.order.type !== 'idle') continue;
-      const mark = nearest(v, state.buildings, b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 &&
-        (b.type === 'hq' || bstatsOf(b).dropoff) &&
-        !open.some(f => dist(f, b) <= bstatsOf(f).thief.r * 0.6));
-      if (!mark) continue;
-      // stand off a little: close enough to skim, far enough to go unnoticed
-      const d = dist(v, mark) || 1;
-      const sx = mark.x + (v.x - mark.x) / d * 300, sy = mark.y + (v.y - mark.y) / d * 300;
-      if (dist(v, { x: sx, y: sy }) > 60) v.order = { type: 'move', x: clamp(sx, 60, WORLD_W - 60), y: clamp(sy, 60, WORLD_H - 60) };
-      else v.order = { type: 'establish' };
-    }
-    // spend the ledger: the most expensive play it can afford, on whatever of
-    // theirs matters most (production first, then anything at all)
-    const lev = state.leverage[owner] || 0;
-    if (lev >= LEVERAGE_PLAYS.books.cost) {
-      const affordable = Object.entries(LEVERAGE_PLAYS)
-        .filter(([, pl]) => lev >= pl.cost).sort((a, b) => b[1].cost - a[1].cost);
-      const foe = randomHostile(owner);
-      const prize = state.buildings.find(b => b.owner === foe && b.hp > 0 &&
-          ['factory', 'barracks', 'airpad', 'tech'].includes(b.type)) ||
-        state.buildings.find(b => b.owner === foe && b.hp > 0 && b.type !== 'wall');
-      if (prize) {
-        for (const [key] of affordable) if (playLeverage(owner, key, prize)) break;
-      }
+// ---------- the Deep State runs its front companies ----------
+// Nobody else would ever build a Front Company: it has no gun, so the army
+// mix filters it straight out. It has to be bought on purpose, driven to
+// THEIR doorstep, and opened — and then the ledger it fills has to be spent.
+function aiDeepStateFronts(owner, counts, reserve) {
+  const FRONTS = 2;
+  const open = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.type === 'frontcompany');
+  const vans = state.units.filter(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].establishes);
+  if (counts.factory && counts.tech && open.length + vans.length < FRONTS &&
+      state.minerals[owner] >= UNIT_TYPES.frontco.cost + reserve &&
+      !state.buildings.some(b => b.owner === owner && b.queue.some(j => UNIT_TYPES[j.type].establishes))) {
+    trainUnit(owner, 'frontco');
+  }
+  // drive each idle van to an enemy drop-off and open up just outside it
+  for (const v of vans) {
+    if (v.order.type !== 'idle') continue;
+    const mark = nearest(v, state.buildings, b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 &&
+      (b.type === 'hq' || bstatsOf(b).dropoff) &&
+      !open.some(f => dist(f, b) <= bstatsOf(f).thief.r * 0.6));
+    if (!mark) continue;
+    // stand off a little: close enough to skim, far enough to go unnoticed
+    const d = dist(v, mark) || 1;
+    const sx = mark.x + (v.x - mark.x) / d * 300, sy = mark.y + (v.y - mark.y) / d * 300;
+    if (dist(v, { x: sx, y: sy }) > 60) v.order = { type: 'move', x: clamp(sx, 60, WORLD_W - 60), y: clamp(sy, 60, WORLD_H - 60) };
+    else v.order = { type: 'establish' };
+  }
+  // spend the ledger: the most expensive play it can afford, on whatever of
+  // theirs matters most (production first, then anything at all)
+  const lev = state.leverage[owner] || 0;
+  if (lev >= LEVERAGE_PLAYS.books.cost) {
+    const affordable = Object.entries(LEVERAGE_PLAYS)
+      .filter(([, pl]) => lev >= pl.cost).sort((a, b) => b[1].cost - a[1].cost);
+    const foe = randomHostile(owner);
+    const prize = state.buildings.find(b => b.owner === foe && b.hp > 0 &&
+        ['factory', 'barracks', 'airpad', 'tech'].includes(b.type)) ||
+      state.buildings.find(b => b.owner === foe && b.hp > 0 && b.type !== 'wall');
+    if (prize) {
+      for (const [key] of affordable) if (playLeverage(owner, key, prize)) break;
     }
   }
+}
 
-  // the flat compound hires its ONE Prophet once a Revival Tent stands, and
-  // mans its pillboxes with militia so the concrete isn't just scenery
-  if (state.factions[owner] === 'flat') {
-    if (counts.revivaltent) {
-      const hasProphet = state.units.some(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].sermon) ||
-        state.buildings.some(b => b.owner === owner && b.hp > 0 && b.queue.some(j => UNIT_TYPES[j.type].sermon));
-      if (!hasProphet && state.minerals[owner] >= UNIT_TYPES.prophet.cost + reserve) trainUnit(owner, 'prophet');
-    }
-    for (const b of state.buildings) {
-      if (b.owner !== owner || b.hp <= 0 || !b.done || !b.garrison) continue;
-      const bt = bstatsOf(b);
-      if (!bt.slots || !bt.cost) continue; // own pillboxes only, not captured landmarks
-      const inbound = state.units.filter(x => x.owner === owner && x.hp > 0 &&
-        x.order.type === 'garrison' && x.order.destId === b.id).length;
-      let free = bt.slots - b.garrison.length - inbound;
-      // only spare militia man the slits — the wave army stays in the field
-      for (const x of state.units) {
-        if (free <= 0) break;
-        if (x.owner !== owner || x.hp <= 0 || x.garrisoned || x.type !== f.infantry) continue;
-        if (x.order.type !== 'idle' || dist(x, b) > 600) continue;
-        x.order = { type: 'garrison', destId: b.id };
-        free--;
-      }
+// the flat compound hires its ONE Prophet once a Revival Tent stands, and
+// mans its pillboxes with militia so the concrete isn't just scenery
+function aiFlatCompound(owner, f, counts, reserve) {
+  if (counts.revivaltent) {
+    const hasProphet = state.units.some(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].sermon) ||
+      state.buildings.some(b => b.owner === owner && b.hp > 0 && b.queue.some(j => UNIT_TYPES[j.type].sermon));
+    if (!hasProphet && state.minerals[owner] >= UNIT_TYPES.prophet.cost + reserve) trainUnit(owner, 'prophet');
+  }
+  for (const b of state.buildings) {
+    if (b.owner !== owner || b.hp <= 0 || !b.done || !b.garrison) continue;
+    const bt = bstatsOf(b);
+    if (!bt.slots || !bt.cost) continue; // own pillboxes only, not captured landmarks
+    const inbound = state.units.filter(x => x.owner === owner && x.hp > 0 &&
+      x.order.type === 'garrison' && x.order.destId === b.id).length;
+    let free = bt.slots - b.garrison.length - inbound;
+    // only spare militia man the slits — the wave army stays in the field
+    for (const x of state.units) {
+      if (free <= 0) break;
+      if (x.owner !== owner || x.hp <= 0 || x.garrisoned || x.type !== f.infantry) continue;
+      if (x.order.type !== 'idle' || dist(x, b) > 600) continue;
+      x.order = { type: 'garrison', destId: b.id };
+      free--;
     }
   }
+}
 
-  // fortify: lay a square wall perimeter around the base once established, with
-  // a gap in the middle of each side (and open corners) so the army can still
-  // sortie. A couple segments per think, only when flush so production isn't
-  // starved. Segments snap to the wall grid so they join into a rampart.
-  if (ai.time > 100 && state.minerals[owner] > 300) {
-    if (!ai.wallPlan) {
-      ai.wallPlan = []; ai.wallIdx = 0;
-      const snap = v => Math.round(v / WALL_STEP) * WALL_STEP;
-      const R = snap(290), hx = snap(hq.x), hy = snap(hq.y), n = (2 * R) / WALL_STEP;
-      const side = (fx, fy, dx, dy) => {
-        for (let i = 0; i <= n; i++) {
-          if (i > n * 0.38 && i < n * 0.62) continue; // gap in the middle of each side
-          ai.wallPlan.push({ x: fx + dx * i * WALL_STEP, y: fy + dy * i * WALL_STEP });
-        }
-      };
-      side(hx - R, hy - R, 1, 0); side(hx - R, hy + R, 1, 0); // top, bottom
-      side(hx - R, hy - R, 0, 1); side(hx + R, hy - R, 0, 1); // left, right
-    }
-    let laid = 0;
-    while (ai.wallIdx < ai.wallPlan.length && laid < 2 && state.minerals[owner] > 280) {
-      const p = ai.wallPlan[ai.wallIdx++];
-      if (!placementBlocked(owner, 'wall', p.x, p.y) && withinBuildRadius(owner, p.x, p.y)) {
-        state.minerals[owner] -= bstats(owner, 'wall').cost;
-        makeBuilding(owner, 'wall', p.x, p.y);
-        laid++;
+// fortify: lay a square wall perimeter around the base once established, with
+// a gap in the middle of each side (and open corners) so the army can still
+// sortie. A couple segments per think, only when flush so production isn't
+// starved. Segments snap to the wall grid so they join into a rampart.
+function aiFortify(owner, ai, hq) {
+  if (!ai.wallPlan) {
+    ai.wallPlan = []; ai.wallIdx = 0;
+    const snap = v => Math.round(v / WALL_STEP) * WALL_STEP;
+    const R = snap(290), hx = snap(hq.x), hy = snap(hq.y), n = (2 * R) / WALL_STEP;
+    const side = (fx, fy, dx, dy) => {
+      for (let i = 0; i <= n; i++) {
+        if (i > n * 0.38 && i < n * 0.62) continue; // gap in the middle of each side
+        ai.wallPlan.push({ x: fx + dx * i * WALL_STEP, y: fy + dy * i * WALL_STEP });
       }
-    }
-  }
-
-  // decide what to capture — a SYSTEM, not a grab-everything reflex. The AI
-  // pursues at most ONE capture at a time, only when its army can clearly spare a
-  // body, and scores each landmark by its CURRENT need (economy? healing?
-  // detection? power?), discounted by distance and by how contested the site is.
-  // If nothing clears the bar, it captures nothing and keeps fighting.
-  const outCapturing = state.units.filter(s => s.owner === owner && s.order.type === 'garrison').length;
-  if (ai.time > 40 && army.length >= 5 && outCapturing === 0) {
-    const poor = state.minerals[owner] < 300 && (!f.worker || workers.length <= (f.economy.workers || 3));
-    const hurt = army.length ? army.reduce((s, u) => s + u.hp / u.maxHp, 0) / army.length < 0.72 : false;
-    const cloakFoe = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 &&
-      (UNIT_TYPES[u.type].cloakStill || UNIT_TYPES[u.type].stealth || UNIT_TYPES[u.type].burrow));
-    const lowPow = power.low;
-    const myAir = army.reduce((n, u) => n + (UNIT_TYPES[u.type].flying ? 1 : 0), 0);
-    const value = b => { const s = bstatsOf(b); let v = 0;
-      if (s.income) v += s.income * (poor ? 2.4 : 0.7);   // banks/derricks matter most when broke
-      if (s.spawns) v += 20;                               // free units are always worthwhile
-      if (s.airTech) v += 8 + myAir * 7;                   // crash-site tech pays off with a real air wing
-      if (s.healAura) v += hurt ? 42 : 9;                  // hospitals/depots when the army is bleeding
-      if (s.buffAura) v += hurt ? 26 : 7;
-      if (s.detector) v += cloakFoe ? 38 : 5;              // radar when the enemy runs silent
-      if (s.power > 0) v += lowPow ? 32 : 4;               // substation only when the grid is low
-      if (s.convert) v += 15;
-      return v;
     };
-    let best = null, bestScore = 0;
-    for (const b of state.buildings) {
-      if (b.hp <= 0 || b.owner !== NEUTRAL || !bstatsOf(b).slots) continue;
-      if (b.garrison && b.garrison.length >= bstatsOf(b).slots) continue;
-      const d = dist(hq, b);
-      if (d > 1500) continue;                              // not worth crossing the map for
-      const contested = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 && dist(u, b) < 260);
-      const score = value(b) * (1 - d / 2400) * (contested ? 0.35 : 1);
-      if (score > bestScore) { bestScore = score; best = b; }
-    }
-    if (best && bestScore >= 12) { // only if the payoff clears the bar
-      const claimer = army.find(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
-      if (claimer) claimer.order = { type: 'garrison', destId: best.id };
+    side(hx - R, hy - R, 1, 0); side(hx - R, hy + R, 1, 0); // top, bottom
+    side(hx - R, hy - R, 0, 1); side(hx + R, hy - R, 0, 1); // left, right
+  }
+  let laid = 0;
+  while (ai.wallIdx < ai.wallPlan.length && laid < 2 && state.minerals[owner] > 280) {
+    const p = ai.wallPlan[ai.wallIdx++];
+    if (!placementBlocked(owner, 'wall', p.x, p.y) && withinBuildRadius(owner, p.x, p.y)) {
+      state.minerals[owner] -= bstats(owner, 'wall').cost;
+      makeBuilding(owner, 'wall', p.x, p.y);
+      laid++;
     }
   }
+}
 
-  // defense: react to enemies threatening ANY base structure, not just the HQ.
-  // Pick the threat closest to the HQ (HQ-proximate attackers weighted first),
-  // and pull the whole army onto it (disguised reptilians don't register).
+// decide what to capture — a SYSTEM, not a grab-everything reflex. The AI
+// pursues at most ONE capture at a time, only when its army can clearly spare a
+// body, and scores each landmark by its CURRENT need (economy? healing?
+// detection? power?), discounted by distance and by how contested the site is.
+// If nothing clears the bar, it captures nothing and keeps fighting.
+function aiCapture(owner, f, army, workers, hq, power) {
+  const poor = state.minerals[owner] < 300 && (!f.worker || workers.length <= (f.economy.workers || 3));
+  const hurt = army.length ? army.reduce((s, u) => s + u.hp / u.maxHp, 0) / army.length < 0.72 : false;
+  const cloakFoe = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 &&
+    (UNIT_TYPES[u.type].cloakStill || UNIT_TYPES[u.type].stealth || UNIT_TYPES[u.type].burrow));
+  const lowPow = power.low;
+  const myAir = army.reduce((n, u) => n + (UNIT_TYPES[u.type].flying ? 1 : 0), 0);
+  const value = b => { const s = bstatsOf(b); let v = 0;
+    if (s.income) v += s.income * (poor ? 2.4 : 0.7);   // banks/derricks matter most when broke
+    if (s.spawns) v += 20;                               // free units are always worthwhile
+    if (s.airTech) v += 8 + myAir * 7;                   // crash-site tech pays off with a real air wing
+    if (s.healAura) v += hurt ? 42 : 9;                  // hospitals/depots when the army is bleeding
+    if (s.buffAura) v += hurt ? 26 : 7;
+    if (s.detector) v += cloakFoe ? 38 : 5;              // radar when the enemy runs silent
+    if (s.power > 0) v += lowPow ? 32 : 4;               // substation only when the grid is low
+    if (s.convert) v += 15;
+    return v;
+  };
+  let best = null, bestScore = 0;
+  for (const b of state.buildings) {
+    if (b.hp <= 0 || b.owner !== NEUTRAL || !bstatsOf(b).slots) continue;
+    if (b.garrison && b.garrison.length >= bstatsOf(b).slots) continue;
+    const d = dist(hq, b);
+    if (d > 1500) continue;                              // not worth crossing the map for
+    const contested = state.units.some(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 && dist(u, b) < 260);
+    const score = value(b) * (1 - d / 2400) * (contested ? 0.35 : 1);
+    if (score > bestScore) { bestScore = score; best = b; }
+  }
+  if (best && bestScore >= 12) { // only if the payoff clears the bar
+    const claimer = army.find(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
+    if (claimer) claimer.order = { type: 'garrison', destId: best.id };
+  }
+}
+
+// defense: react to enemies threatening ANY base structure, not just the HQ.
+// Pick the threat closest to the HQ (HQ-proximate attackers weighted first),
+// and pull the whole army onto it (disguised reptilians don't register).
+// Returns true when the army was committed — the think tick ends there.
+function aiDefend(owner, army, hq) {
   const myBldgs = state.buildings.filter(b => b.owner === owner && b.hp > 0);
   let threat = null, best = Infinity;
   for (const u of state.units) {
@@ -4465,32 +4443,123 @@ function updateAI(owner, dt) {
     if (score !== Infinity) score -= supportBias(u);  // gut the medics and buffers first
     if (score < best) { best = score; threat = u; }
   }
-  if (threat) {
-    for (const s of army) {
-      if (!canTarget(UNIT_TYPES[s.type], threat)) continue;
-      // stickiness: a defender already engaging a live nearby threat keeps
-      // shooting it — disembarking a squad next to it must not yank every
-      // gun off the transport onto the fresh bodies
-      if (s.order.type === 'attack') {
-        const cur = findEntity(s.order.targetId);
-        if (cur && cur.kind === 'unit' && cur.hp > 0 && cur.owner !== owner && !hiddenFrom(cur, owner) &&
-            dist(hq, cur) < 700) continue;
-      }
-      orderAttack(s, threat);
+  if (!threat) return false;
+  for (const s of army) {
+    if (!canTarget(UNIT_TYPES[s.type], threat)) continue;
+    // stickiness: a defender already engaging a live nearby threat keeps
+    // shooting it — disembarking a squad next to it must not yank every
+    // gun off the transport onto the fresh bodies
+    if (s.order.type === 'attack') {
+      const cur = findEntity(s.order.targetId);
+      if (cur && cur.kind === 'unit' && cur.hp > 0 && cur.owner !== owner && !hiddenFrom(cur, owner) &&
+          dist(hq, cur) < 700) continue;
     }
-    return;
+    orderAttack(s, threat);
+  }
+  return true;
+}
+
+// attack waves: free-for-all — march on whoever's base is closest
+function aiAttackWave(owner, ai, army, hq) {
+  const idleArmy = army.filter(s => s.order.type === 'idle');
+  if (!(ai.time > AI_GRACE_PERIOD && idleArmy.length >= ai.attackWaveSize)) return;
+  const target = nearest(hq, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 && b.type !== 'sleepercell'))
+    || nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !hiddenFrom(u, owner) && !u.garrisoned));
+  if (target) {
+    for (const s of idleArmy) orderAttackMove(s, target.x, target.y);
+    ai.attackWaveSize = Math.min(12, ai.attackWaveSize + 1);
+  }
+}
+
+function updateAI(owner, dt) {
+  const ai = ais[owner];
+  ai.time += dt;
+  tickConstruction(owner, dt);
+  ai.thinkTimer -= dt;
+  if (ai.thinkTimer > 0) return;
+  ai.thinkTimer = 1.0;
+
+  const f = facOf(owner);
+  const myUnits = state.units.filter(u => u.owner === owner && u.hp > 0);
+  const workers = myUnits.filter(u => UNIT_TYPES[u.type].role === 'worker');
+  const army = myUnits.filter(u => UNIT_TYPES[u.type].role === 'combat');
+  const hq = state.buildings.find(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
+  if (!hq) return;
+
+  const counts = {};
+  for (const b of state.buildings) {
+    if (b.owner === owner && b.hp > 0) counts[b.type] = (counts[b.type] || 0) + 1;
+  }
+  const power = powerOf(owner);
+
+  // place finished construction
+  const c = state.construction[owner];
+  if (c && c.ready) {
+    const spot = aiPickSpot(owner, c.type);
+    if (spot) tryPlace(owner, spot.x, spot.y);
   }
 
-  // attack waves: free-for-all — march on whoever's base is closest
-  const idleArmy = army.filter(s => s.order.type === 'idle');
-  if (ai.time > AI_GRACE_PERIOD && idleArmy.length >= ai.attackWaveSize) {
-    const target = nearest(hq, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 && b.type !== 'sleepercell'))
-      || nearest(hq, state.units.filter(u => u.owner !== owner && u.hp > 0 && !hiddenFrom(u, owner) && !u.garrisoned));
-    if (target) {
-      for (const s of idleArmy) orderAttackMove(s, target.x, target.y);
-      ai.attackWaveSize = Math.min(12, ai.attackWaveSize + 1);
+  // fire a charged superweapon at the fattest enemy target cluster
+  const sw = state.buildings.find(b => b.owner === owner && b.hp > 0 && superReady(b) && !isOffline(b));
+  if (sw) {
+    const tgt = nearest(sw, state.buildings.filter(b => b.owner !== owner && b.owner !== NEUTRAL &&
+      b.hp > 0 && b.type !== 'sleepercell' && !bstatsOf(b).noBlock))
+      || nearest(sw, state.units.filter(u => u.owner !== owner && u.hp > 0 && !u.garrisoned && !hiddenFrom(u, owner)));
+    if (tgt) fireSuperweapon(sw, tgt.x, tgt.y);
+  }
+
+  // idle workers mine
+  for (const w of workers) {
+    if (w.order.type === 'idle') {
+      const patch = nearest(w, state.patches, p => p.amount > 0);
+      if (patch) orderHarvest(w, patch);
     }
   }
+
+  aiForwardRefinery(owner, ai, f, counts);
+  aiRepairBase(owner);
+
+  // economy recovery: below the starting workforce (raided, or just off the
+  // start), rebuild rigs FIRST — a starved base can't fund anything else
+  const workerCap = f.worker ? Math.max(f.economy.workers, minerCap(owner, f.worker)) : 0;
+  const starved = f.worker && workers.length < f.economy.workers;
+  if (starved && state.minerals[owner] >= UNIT_TYPES[f.worker].cost) trainUnit(owner, f.worker);
+
+  // start next structure; reserve its cost so unit spam can't starve it
+  const desired = !state.construction[owner] ? aiDesiredStructure(owner, counts, power) : null;
+  if (desired && (!f.worker || workers.length >= 3) && state.minerals[owner] >= bstats(owner, desired).cost) {
+    startConstruction(owner, desired);
+  }
+  let reserve = (!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0;
+
+  // grow the workforce all the way to the rig CAP (not just the start count) —
+  // mining throughput, not patch size, is what chokes the worker economies.
+  // (income factions have no rig to train; trainUnit still enforces the cap)
+  if (f.worker && !starved && workers.length < workerCap &&
+      state.minerals[owner] >= UNIT_TYPES[f.worker].cost + reserve) {
+    trainUnit(owner, f.worker);
+  }
+
+
+  // the Mechanicum ladder IS the Hollow army, so the rites run BEFORE the army
+  // mix and reserve their fees out from under it
+  if (isHollow(owner)) reserve = aiHollowRites(owner, counts, reserve);
+  aiTrainArmy(owner, f, counts, army, reserve);
+
+  // faction business nobody else transacts
+  if (state.factions[owner] === 'deep') aiDeepStateFronts(owner, counts, reserve);
+  if (state.factions[owner] === 'flat') aiFlatCompound(owner, f, counts, reserve);
+
+  // wall in the base once it's established and flush
+  if (ai.time > 100 && state.minerals[owner] > 300) aiFortify(owner, ai, hq);
+
+  // at most ONE capture in flight, and only when the army can spare a body
+  const outCapturing = state.units.filter(s => s.owner === owner && s.order.type === 'garrison').length;
+  if (ai.time > 40 && army.length >= 5 && outCapturing === 0) aiCapture(owner, f, army, workers, hq, power);
+
+  // the army answers a raid before it goes looking for one
+  if (aiDefend(owner, army, hq)) return;
+  aiAttackWave(owner, ai, army, hq);
 }
 
 // mouse event -> iso screen space (the space cam.x/cam.y pan in)
@@ -5266,6 +5335,91 @@ function panelSignature() {
   return s;
 }
 
+// While the player is mid-gesture — placing a structure, aiming a power, down
+// to their last HQ — that state OWNS the panel and nothing else is shown.
+// Returns true when it took over.
+function panelTargetingMode(addAction) {
+  if (placing) {
+    const nm = facOf(PLAYER).buildingNames[placing] || placing;
+    elSelInfo.textContent = placing === 'gate'
+      ? `Placing ${nm} — click a straight segment of your wall, Esc to cancel`
+      : placing === 'hq'
+        ? `Re-establishing ${nm} — click ANYWHERE on the map, Esc to cancel`
+        : `Placing ${nm} — click a spot near your base, Esc to cancel`;
+    return true;
+  }
+  // the grace window: HQ gone, clock running, one rebuild left. This outranks
+  // every other panel state — nothing else matters while it is counting down.
+  const g = state.hqGrace[PLAYER], def = hqRebuildDef(PLAYER);
+  if (g && def && !hasHq(PLAYER)) {
+    const left = Math.max(0, Math.ceil(g.until - state.time));
+    elSelInfo.style.color = '#ff9f8f';
+    elSelInfo.textContent = def.auto !== undefined
+      ? `HQ DOWN — continuity protocol relocating, ${Math.max(0, Math.ceil(def.auto - (state.time - g.at)))}s`
+      : `HQ DOWN — re-establish within ${left}s or the war is lost`;
+    if (def.auto === undefined) {
+      const btn = document.createElement('button');
+      btn.textContent = `Re-establish HQ — ${def.cost}`;
+      btn.disabled = state.minerals[PLAYER] < def.cost;
+      btn.onclick = () => { placing = 'hq'; refreshPanel(); };
+      addAction(btn);
+    }
+    return true;
+  }
+  if (attackMoveArmed) {
+    elSelInfo.textContent = 'Attack-move — left-click a destination, Esc to cancel';
+    return true;
+  }
+  if (abilityTargeting) {
+    elSelInfo.textContent =
+      abilityTargeting === 'zone' ? 'Weather Modification — click a target area, Esc to cancel'
+      : abilityTargeting === 'recall'
+        ? `Vril Recall — click a patch of ground (${recallTargets(PLAYER, mouse.x, mouse.y).length}/${recallDef(PLAYER).max} in the circle), Esc to cancel`
+        : 'Cloning Vats — click one of your infantry, Esc to cancel';
+    return true;
+  }
+  if (leverageTargeting) {
+    const play = LEVERAGE_PLAYS[leverageTargeting];
+    elSelInfo.style.color = '#c9a7ff';
+    elSelInfo.textContent = `${play.name} (${play.cost} leverage) — click an ENEMY structure, Esc to cancel`;
+    return true;
+  }
+  if (superTargeting) {
+    const sw = state.buildings.find(b => b.id === superTargeting);
+    elSelInfo.textContent = (sw ? buildingName(sw) : 'Superweapon') + ' — click a target, Esc to cancel';
+    return true;
+  }
+  return false;
+}
+
+// ---------- repair, for every faction and every structure ----------
+// Deliberately BEFORE the per-type branches (each of which owns its own
+// buttons), so a Superweapon, a Mechanicum and a garrisoned pillbox all get the
+// same repair control. Works on a whole box-selection of buildings at once,
+// which is how you actually use it after a raid.
+function panelRepairControls(addAction) {
+  const mine = selection.filter(e => e.kind === 'building' && e.owner === PLAYER);
+  const busy = mine.filter(e => e.repairing);
+  const hurt = mine.filter(e => canRepair(e) && !e.repairing);
+  if (busy.length) {
+    const btn = document.createElement('button');
+    const rate = busy.reduce((s, e) => s + repairCostPerSec(e), 0);
+    btn.textContent = `Stop repairs (${busy.length})`;
+    btn.title = `Currently spending $${rate.toFixed(1)}/s`;
+    btn.onclick = () => { for (const e of busy) e.repairing = false; refreshPanel(); };
+    addAction(btn);
+  }
+  if (hurt.length) {
+    const btn = document.createElement('button');
+    const rate = hurt.reduce((s, e) => s + repairCostPerSec(e), 0);
+    btn.textContent = `Repair ${hurt.length > 1 ? `all (${hurt.length})` : ''} — $${rate.toFixed(1)}/s`.replace('  ', ' ');
+    btn.title = 'Mends at ' + Math.round(REPAIR_RATE * 100) + '% of max HP per second, billed as it goes' +
+      (powerOf(PLAYER).low ? ' — HALF SPEED while the grid is browned out' : '');
+    btn.onclick = () => { for (const e of hurt) e.repairing = true; refreshPanel(); };
+    addAction(btn);
+  }
+}
+
 function refreshPanel() {
   selection = selection.filter(e => e.hp > 0);
   const sig = panelSignature();
@@ -5274,58 +5428,7 @@ function refreshPanel() {
   const addAction = el => { if (rebuild) elActions.appendChild(el); };
   if (rebuild) elActions.innerHTML = '';
 
-  if (placing) {
-    const nm = facOf(PLAYER).buildingNames[placing] || placing;
-    elSelInfo.textContent = placing === 'gate'
-      ? `Placing ${nm} — click a straight segment of your wall, Esc to cancel`
-      : placing === 'hq'
-        ? `Re-establishing ${nm} — click ANYWHERE on the map, Esc to cancel`
-        : `Placing ${nm} — click a spot near your base, Esc to cancel`;
-    return;
-  }
-  // the grace window: HQ gone, clock running, one rebuild left. This outranks
-  // every other panel state — nothing else matters while it is counting down.
-  {
-    const g = state.hqGrace[PLAYER], def = hqRebuildDef(PLAYER);
-    if (g && def && !hasHq(PLAYER)) {
-      const left = Math.max(0, Math.ceil(g.until - state.time));
-      elSelInfo.style.color = '#ff9f8f';
-      elSelInfo.textContent = def.auto !== undefined
-        ? `HQ DOWN — continuity protocol relocating, ${Math.max(0, Math.ceil(def.auto - (state.time - g.at)))}s`
-        : `HQ DOWN — re-establish within ${left}s or the war is lost`;
-      if (def.auto === undefined) {
-        const btn = document.createElement('button');
-        btn.textContent = `Re-establish HQ — ${def.cost}`;
-        btn.disabled = state.minerals[PLAYER] < def.cost;
-        btn.onclick = () => { placing = 'hq'; refreshPanel(); };
-        addAction(btn);
-      }
-      return;
-    }
-  }
-  if (attackMoveArmed) {
-    elSelInfo.textContent = 'Attack-move — left-click a destination, Esc to cancel';
-    return;
-  }
-  if (abilityTargeting) {
-    elSelInfo.textContent =
-      abilityTargeting === 'zone' ? 'Weather Modification — click a target area, Esc to cancel'
-      : abilityTargeting === 'recall'
-        ? `Vril Recall — click a patch of ground (${recallTargets(PLAYER, mouse.x, mouse.y).length}/${recallDef(PLAYER).max} in the circle), Esc to cancel`
-        : 'Cloning Vats — click one of your infantry, Esc to cancel';
-    return;
-  }
-  if (leverageTargeting) {
-    const play = LEVERAGE_PLAYS[leverageTargeting];
-    elSelInfo.style.color = '#c9a7ff';
-    elSelInfo.textContent = `${play.name} (${play.cost} leverage) — click an ENEMY structure, Esc to cancel`;
-    return;
-  }
-  if (superTargeting) {
-    const sw = state.buildings.find(b => b.id === superTargeting);
-    elSelInfo.textContent = (sw ? buildingName(sw) : 'Superweapon') + ' — click a target, Esc to cancel';
-    return;
-  }
+  if (panelTargetingMode(addAction)) return;
   elSelInfo.style.color = '';
   if (selection.length === 0) { elSelInfo.textContent = 'Nothing selected'; return; }
 
@@ -5379,246 +5482,227 @@ function refreshPanel() {
     }
     return;
   }
-  // ---------- repair, for every faction and every structure ----------
-  // Deliberately BEFORE the per-type branches below (each of which returns
-  // early for its own buttons), so a Superweapon, a Mechanicum and a garrisoned
-  // pillbox all get the same repair control. Works on a whole box-selection of
-  // buildings at once, which is how you actually use it after a raid.
-  {
-    const mine = selection.filter(e => e.kind === 'building' && e.owner === PLAYER);
-    const busy = mine.filter(e => e.repairing);
-    const hurt = mine.filter(e => canRepair(e) && !e.repairing);
-    if (busy.length) {
+  panelRepairControls(addAction);
+  if (selection.length === 1 && first.kind === 'building') panelForBuilding(first, addAction);
+  else panelForSelection(addAction);
+}
+
+// the single-structure panel: garrison, rally, production, rites, faction plays
+function panelForBuilding(first, addAction) {
+  const bt = bstatsOf(first);
+  if (bt.slots) {
+    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+      ` — garrison ${first.garrison.length}/${bt.slots}` +
+      (bt.income ? ` — +${bt.income} minerals / 10s` : '') +
+      (bt.airTech ? ' — aircraft +15% dmg, self-repairing' : '');
+    if (first.garrison.length) {
       const btn = document.createElement('button');
-      const rate = busy.reduce((s, e) => s + repairCostPerSec(e), 0);
-      btn.textContent = `Stop repairs (${busy.length})`;
-      btn.title = `Currently spending $${rate.toFixed(1)}/s`;
-      btn.onclick = () => { for (const e of busy) e.repairing = false; refreshPanel(); };
+      btn.textContent = `Evacuate (${first.garrison.length})`;
+      btn.onclick = () => evacuate(first);
       addAction(btn);
     }
-    if (hurt.length) {
+    return;
+  }
+  // the Mechanicum: one button per rite, then the QUEUE. Clicking a rite
+  // sends the nearest idle body of the right tier walking in; bodies that
+  // arrive line up and are consecrated one at a time, in arrival order.
+  if (first.type === 'mechanicum' && first.owner === PLAYER) {
+    const line = (first.rites || []).map(id => findEntity(id)).filter(Boolean);
+    // the head of the line is the one actually on the slab (it has an `at`)
+    const head = line[0];
+    const headLeft = head && head.ascension.at !== undefined
+      ? Math.max(0, Math.ceil(head.ascension.at - state.time)) : null;
+    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+      ` — relics ${relicCount(PLAYER)}` +
+      (line.length
+        ? ` — SLAB: ${UNIT_TYPES[head.ascension.to].name}` +
+          (headLeft === null ? '' : ` ${headLeft}s`) +
+          (line.length > 1
+            ? `  |  waiting: ${line.slice(1).map(u => UNIT_TYPES[u.ascension.to].name).join(', ')}`
+            : '')
+        : ' — slab empty');
+    for (const [key, A] of Object.entries(ASCEND)) {
+      const to = UNIT_TYPES[key], from = UNIT_TYPES[A.from];
+      const fee = ascendFee(PLAYER, key);
       const btn = document.createElement('button');
-      const rate = hurt.reduce((s, e) => s + repairCostPerSec(e), 0);
-      btn.textContent = `Repair ${hurt.length > 1 ? `all (${hurt.length})` : ''} — $${rate.toFixed(1)}/s`.replace('  ', ' ');
-      btn.title = 'Mends at ' + Math.round(REPAIR_RATE * 100) + '% of max HP per second, billed as it goes' +
-        (powerOf(PLAYER).low ? ' — HALF SPEED while the grid is browned out' : '');
-      btn.onclick = () => { for (const e of hurt) e.repairing = true; refreshPanel(); };
+      btn.textContent = `${to.name} — $${fee}` + (fee < A.cost ? ' (salvaged)' : '');
+      if (relicCount(PLAYER) < A.relics) {
+        btn.textContent += ` [${relicCount(PLAYER)}/${A.relics} relics]`;
+        btn.disabled = true;
+      } else if (A.req && !hasStruct(PLAYER, A.req)) {
+        btn.textContent += ` [needs ${facOf(PLAYER).buildingNames[A.req] || A.req}]`;
+        btn.disabled = true;
+      } else {
+        btn.title = `Consumes one ${from.name}`;
+        btn.onclick = () => { beginRite(first, key); refreshPanel(); };
+      }
+      addAction(btn);
+    }
+    // one cancel button per queued body, in order: click it and that body
+    // walks back out unchanged with its fee refunded
+    line.forEach((u, i) => {
+      const btn = document.createElement('button');
+      const working = i === 0 && u.ascension.at !== undefined;
+      btn.textContent = `✕ ${i + 1}. ${UNIT_TYPES[u.ascension.to].name}` +
+        (working ? ' (on the slab)' : ' (waiting)');
+      btn.title = `Cancel — the ${UNIT_TYPES[u.type].name} walks back out and $${u.ascension.fee || 0} is refunded`;
+      btn.onclick = () => { cancelRite(u); refreshPanel(); };
+      addAction(btn);
+    });
+    return;
+  }
+  if (bt.superweapon) {
+    const need = superChargeOf(first), have = Math.min(need, first.charge || 0);
+    const charged = have >= need;
+    const isCoup = superKindOf(first) === 'coup';
+    const bank = Math.floor(state.loosh[first.owner] || 0);
+    let status;
+    if (isOffline(first)) status = 'BLACKED OUT';
+    else if (!charged) status = `charging ${Math.floor(have)}/${need}s`;
+    else if (isCoup && bank < 60) status = `charged — the throne thirsts: needs 60 loosh (have ${bank})`;
+    else if (isCoup) { const spend = clamp(bank, 60, 200); status = `READY — will drink ${spend} loosh (coup radius ${120 + (spend - 60)})`; }
+    else status = 'READY TO FIRE';
+    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP — ` + status;
+    const ready = superReady(first);
+    if (first.owner === PLAYER && ready && !isOffline(first)) {
+      const btn = document.createElement('button');
+      btn.textContent = 'Launch [click target]';
+      btn.onclick = () => { superTargeting = first.id; refreshPanel(); };
+      addAction(btn);
+    }
+    return;
+  }
+  elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+    (first.queue.length ? ` — training (${first.queue.length} queued)` : '') +
+    ((first.type === 'hq' || bstatsOf(first).thief) && facOf(PLAYER).hqRebuild &&
+      facOf(PLAYER).hqRebuild.auto !== undefined
+      ? ` — LEVERAGE ${Math.floor(state.leverage[PLAYER] || 0)}` : '') +
+    (bstatsOf(first).thief ? ` — skimming ${Math.round(bstatsOf(first).thief.r)} around it` : '') +
+    ' — right-click to set rally point';
+  // LEVERAGE: spend it from the seat of the operation OR from any front
+  // company — whichever you happen to have clicked. Hiding it on one
+  // building meant nobody ever found it.
+  if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === PLAYER && LEVERAGE_PLAYS) {
+    for (const [key, play] of Object.entries(LEVERAGE_PLAYS)) {
+      const btn = document.createElement('button');
+      btn.textContent = `${play.name} — ${play.cost}`;
+      btn.title = play.desc;
+      btn.disabled = (state.leverage[PLAYER] || 0) < play.cost;
+      btn.onclick = () => { leverageTargeting = key; refreshPanel(); };
       addAction(btn);
     }
   }
-  if (selection.length === 1 && first.kind === 'building') {
-    const bt = bstatsOf(first);
-    if (bt.slots) {
-      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
-        ` — garrison ${first.garrison.length}/${bt.slots}` +
-        (bt.income ? ` — +${bt.income} minerals / 10s` : '') +
-        (bt.airTech ? ' — aircraft +15% dmg, self-repairing' : '');
-      if (first.garrison.length) {
-        const btn = document.createElement('button');
-        btn.textContent = `Evacuate (${first.garrison.length})`;
-        btn.onclick = () => evacuate(first);
-        addAction(btn);
+}
+
+// everything else: a unit, or any multi-entity box-selection
+function panelForSelection(addAction) {
+  const counts = {};
+  for (const s of selection) {
+    const nm = s.kind === 'unit' ? UNIT_TYPES[s.type].name : buildingName(s);
+    counts[nm] = (counts[nm] || 0) + 1;
+  }
+  let info = 'Selected: ' + Object.entries(counts).map(([n, c]) => `${c}× ${n}`).join(', ');
+  if (selection.length === 1 && selection[0].kind === 'unit') {
+    const uu = selection[0], ut = UNIT_TYPES[uu.type];
+    info += ` — ${Math.ceil(uu.hp)}/${ut.hp} HP`;
+    if (ut.maxAmmo) info += ` — Ammo ${Math.floor(uu.ammo)}/${ut.maxAmmo}${uu.order.type === 'rearm' ? ' (rearming)' : ''}`;
+    if (ut.captures) info += ' — right-click an enemy structure to capture it';
+    if (ut.repair) info += ' — repairs nearby damaged allies';
+    if (ut.detector) info += ' — detector: reveals stealthed & burrowed enemies';
+    if (ut.cloakStill) info += uu.cloaked ? ' — cloaked (holding still)' : ' — cloaks when it holds still';
+    if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
+    if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
+    if (ut.plantMine) info += ' — buries free IEDs on its own while standing idle';
+    if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
+  }
+  elSelInfo.textContent = info;
+  // an unmarked van that can open a shopfront where it stands
+  const vans = selection.filter(e => e.kind === 'unit' && e.owner === PLAYER && e.hp > 0 &&
+    UNIT_TYPES[e.type].establishes);
+  if (vans.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Establish Front Company (${vans.length})`;
+    btn.title = 'Deploys into a disguised building that skims a share of every enemy delivery nearby. Consumed.';
+    btn.onclick = () => { vans.forEach(v => { v.order = { type: 'establish' }; }); refreshPanel(); };
+    addAction(btn);
+  }
+  // transports in the selection: one button dumps every rider out
+  const trs = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.cargo && s.cargo.length);
+  if (trs.length) {
+    const total = trs.reduce((n, v) => n + v.cargo.length, 0);
+    const btn = document.createElement('button');
+    btn.textContent = `Unload (${total})`;
+    btn.onclick = () => {
+      for (const v of trs) {
+        v.cargo.forEach((id, i) => {
+          const p = findEntity(id);
+          if (!p || p.hp <= 0) return;
+          p.garrisoned = false; p.transportId = null;
+          const a = i / v.cargo.length * Math.PI * 2;
+          p.x = v.x + Math.cos(a) * (UNIT_TYPES[v.type].r + 10);
+          p.y = v.y + Math.sin(a) * (UNIT_TYPES[v.type].r + 10);
+          p.order = { type: 'idle' };
+        });
+        v.cargo = [];
       }
-      return;
-    }
-    // the Mechanicum: one button per rite, then the QUEUE. Clicking a rite
-    // sends the nearest idle body of the right tier walking in; bodies that
-    // arrive line up and are consecrated one at a time, in arrival order.
-    if (first.type === 'mechanicum' && first.owner === PLAYER) {
-      const line = (first.rites || []).map(id => findEntity(id)).filter(Boolean);
-      // the head of the line is the one actually on the slab (it has an `at`)
-      const head = line[0];
-      const headLeft = head && head.ascension.at !== undefined
-        ? Math.max(0, Math.ceil(head.ascension.at - state.time)) : null;
-      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
-        ` — relics ${relicCount(PLAYER)}` +
-        (line.length
-          ? ` — SLAB: ${UNIT_TYPES[head.ascension.to].name}` +
-            (headLeft === null ? '' : ` ${headLeft}s`) +
-            (line.length > 1
-              ? `  |  waiting: ${line.slice(1).map(u => UNIT_TYPES[u.ascension.to].name).join(', ')}`
-              : '')
-          : ' — slab empty');
-      for (const [key, A] of Object.entries(ASCEND)) {
-        const to = UNIT_TYPES[key], from = UNIT_TYPES[A.from];
-        const fee = ascendFee(PLAYER, key);
-        const btn = document.createElement('button');
-        btn.textContent = `${to.name} — $${fee}` + (fee < A.cost ? ' (salvaged)' : '');
-        if (relicCount(PLAYER) < A.relics) {
-          btn.textContent += ` [${relicCount(PLAYER)}/${A.relics} relics]`;
-          btn.disabled = true;
-        } else if (A.req && !hasStruct(PLAYER, A.req)) {
-          btn.textContent += ` [needs ${facOf(PLAYER).buildingNames[A.req] || A.req}]`;
-          btn.disabled = true;
-        } else {
-          btn.title = `Consumes one ${from.name}`;
-          btn.onclick = () => { beginRite(first, key); refreshPanel(); };
-        }
-        addAction(btn);
-      }
-      // one cancel button per queued body, in order: click it and that body
-      // walks back out unchanged with its fee refunded
-      line.forEach((u, i) => {
-        const btn = document.createElement('button');
-        const working = i === 0 && u.ascension.at !== undefined;
-        btn.textContent = `✕ ${i + 1}. ${UNIT_TYPES[u.ascension.to].name}` +
-          (working ? ' (on the slab)' : ' (waiting)');
-        btn.title = `Cancel — the ${UNIT_TYPES[u.type].name} walks back out and $${u.ascension.fee || 0} is refunded`;
-        btn.onclick = () => { cancelRite(u); refreshPanel(); };
-        addAction(btn);
-      });
-      return;
-    }
-    if (bt.superweapon) {
-      const need = superChargeOf(first), have = Math.min(need, first.charge || 0);
-      const charged = have >= need;
-      const isCoup = superKindOf(first) === 'coup';
-      const bank = Math.floor(state.loosh[first.owner] || 0);
-      let status;
-      if (isOffline(first)) status = 'BLACKED OUT';
-      else if (!charged) status = `charging ${Math.floor(have)}/${need}s`;
-      else if (isCoup && bank < 60) status = `charged — the throne thirsts: needs 60 loosh (have ${bank})`;
-      else if (isCoup) { const spend = clamp(bank, 60, 200); status = `READY — will drink ${spend} loosh (coup radius ${120 + (spend - 60)})`; }
-      else status = 'READY TO FIRE';
-      elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP — ` + status;
-      const ready = superReady(first);
-      if (first.owner === PLAYER && ready && !isOffline(first)) {
-        const btn = document.createElement('button');
-        btn.textContent = 'Launch [click target]';
-        btn.onclick = () => { superTargeting = first.id; refreshPanel(); };
-        addAction(btn);
-      }
-      return;
-    }
-    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
-      (first.queue.length ? ` — training (${first.queue.length} queued)` : '') +
-      ((first.type === 'hq' || bstatsOf(first).thief) && facOf(PLAYER).hqRebuild &&
-        facOf(PLAYER).hqRebuild.auto !== undefined
-        ? ` — LEVERAGE ${Math.floor(state.leverage[PLAYER] || 0)}` : '') +
-      (bstatsOf(first).thief ? ` — skimming ${Math.round(bstatsOf(first).thief.r)} around it` : '') +
-      ' — right-click to set rally point';
-    // LEVERAGE: spend it from the seat of the operation OR from any front
-    // company — whichever you happen to have clicked. Hiding it on one
-    // building meant nobody ever found it.
-    if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === PLAYER && LEVERAGE_PLAYS) {
-      for (const [key, play] of Object.entries(LEVERAGE_PLAYS)) {
-        const btn = document.createElement('button');
-        btn.textContent = `${play.name} — ${play.cost}`;
-        btn.title = play.desc;
-        btn.disabled = (state.leverage[PLAYER] || 0) < play.cost;
-        btn.onclick = () => { leverageTargeting = key; refreshPanel(); };
-        addAction(btn);
-      }
-    }
-  } else {
-    const counts = {};
-    for (const s of selection) {
-      const nm = s.kind === 'unit' ? UNIT_TYPES[s.type].name : buildingName(s);
-      counts[nm] = (counts[nm] || 0) + 1;
-    }
-    let info = 'Selected: ' + Object.entries(counts).map(([n, c]) => `${c}× ${n}`).join(', ');
-    if (selection.length === 1 && selection[0].kind === 'unit') {
-      const uu = selection[0], ut = UNIT_TYPES[uu.type];
-      info += ` — ${Math.ceil(uu.hp)}/${ut.hp} HP`;
-      if (ut.maxAmmo) info += ` — Ammo ${Math.floor(uu.ammo)}/${ut.maxAmmo}${uu.order.type === 'rearm' ? ' (rearming)' : ''}`;
-      if (ut.captures) info += ' — right-click an enemy structure to capture it';
-      if (ut.repair) info += ' — repairs nearby damaged allies';
-      if (ut.detector) info += ' — detector: reveals stealthed & burrowed enemies';
-      if (ut.cloakStill) info += uu.cloaked ? ' — cloaked (holding still)' : ' — cloaks when it holds still';
-      if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
-      if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
-      if (ut.plantMine) info += ' — buries free IEDs on its own while standing idle';
-      if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
-    }
-    elSelInfo.textContent = info;
-    // an unmarked van that can open a shopfront where it stands
-    const vans = selection.filter(e => e.kind === 'unit' && e.owner === PLAYER && e.hp > 0 &&
-      UNIT_TYPES[e.type].establishes);
-    if (vans.length) {
-      const btn = document.createElement('button');
-      btn.textContent = `Establish Front Company (${vans.length})`;
-      btn.title = 'Deploys into a disguised building that skims a share of every enemy delivery nearby. Consumed.';
-      btn.onclick = () => { vans.forEach(v => { v.order = { type: 'establish' }; }); refreshPanel(); };
-      addAction(btn);
-    }
-    // transports in the selection: one button dumps every rider out
-    const trs = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.cargo && s.cargo.length);
-    if (trs.length) {
-      const total = trs.reduce((n, v) => n + v.cargo.length, 0);
-      const btn = document.createElement('button');
-      btn.textContent = `Unload (${total})`;
-      btn.onclick = () => {
-        for (const v of trs) {
-          v.cargo.forEach((id, i) => {
-            const p = findEntity(id);
-            if (!p || p.hp <= 0) return;
-            p.garrisoned = false; p.transportId = null;
-            const a = i / v.cargo.length * Math.PI * 2;
-            p.x = v.x + Math.cos(a) * (UNIT_TYPES[v.type].r + 10);
-            p.y = v.y + Math.sin(a) * (UNIT_TYPES[v.type].r + 10);
-            p.order = { type: 'idle' };
-          });
-          v.cargo = [];
-        }
-        sfx('click');
-        refreshPanel();
-      };
-      addAction(btn);
-    }
-    // evacuate any garrisoned civilian structures caught in the selection
-    const gbs = selection.filter(s => s.kind === 'building' && s.garrison && s.garrison.length);
-    if (gbs.length) {
-      const total = gbs.reduce((n, b) => n + b.garrison.length, 0);
-      const btn = document.createElement('button');
-      btn.textContent = `Evacuate (${total})`;
-      btn.onclick = () => { gbs.forEach(evacuate); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
-      addAction(btn);
-    }
-    // reptilian slaves: cull the selected ones on demand for burst loosh
-    const slaves = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.hp > 0 && UNIT_TYPES[s.type].looshOnDeath);
-    if (slaves.length) {
-      const btn = document.createElement('button');
-      btn.textContent = `Harvest Loosh (${slaves.length})`;
-      btn.onclick = () => {
-        for (const s of slaves) s.hp = 0; // the death sweep books the loosh + auto-replaces
-        eva('The pit feeds');
-        sfx('click');
-        selection = selection.filter(s => s.hp > 0);
-        refreshPanel();
-      };
-      addAction(btn);
-      // the work regime: cycle Merciful -> Normal -> Brutal for the whole pit
-      const drv = document.createElement('button');
-      drv.textContent = `Drive: ${slaveDriveOf(PLAYER)}`;
-      drv.title = 'Brutal: mine 35% faster, die twice as fast (loosh gushes). ' +
-        'Merciful: live 60% longer (cheap, little loosh). Applies to newly bought slaves.';
-      drv.onclick = () => {
-        const i = SLAVE_DRIVES.indexOf(slaveDriveOf(PLAYER));
-        state.slaveDrive[PLAYER] = SLAVE_DRIVES[(i + 1) % SLAVE_DRIVES.length];
-        sfx('click');
-        refreshPanel();
-      };
-      addAction(drv);
-    }
-    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
-      const btn = document.createElement('button');
-      btn.textContent = 'Attack-Move [A]';
-      btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
-      addAction(btn);
-    }
-    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.transit)) {
-      const anyUp = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.burrowed);
-      const btn = document.createElement('button');
-      btn.textContent = (anyUp ? 'Burrow' : 'Surface') + ' [X]';
-      btn.onclick = toggleBurrowSelection;
-      addAction(btn);
-    }
-    if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) {
-      const btn = document.createElement('button');
-      btn.textContent = 'Explore [V]';
-      btn.onclick = exploreSelection;
-      addAction(btn);
-    }
+      sfx('click');
+      refreshPanel();
+    };
+    addAction(btn);
+  }
+  // evacuate any garrisoned civilian structures caught in the selection
+  const gbs = selection.filter(s => s.kind === 'building' && s.garrison && s.garrison.length);
+  if (gbs.length) {
+    const total = gbs.reduce((n, b) => n + b.garrison.length, 0);
+    const btn = document.createElement('button');
+    btn.textContent = `Evacuate (${total})`;
+    btn.onclick = () => { gbs.forEach(evacuate); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
+    addAction(btn);
+  }
+  // reptilian slaves: cull the selected ones on demand for burst loosh
+  const slaves = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.hp > 0 && UNIT_TYPES[s.type].looshOnDeath);
+  if (slaves.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Harvest Loosh (${slaves.length})`;
+    btn.onclick = () => {
+      for (const s of slaves) s.hp = 0; // the death sweep books the loosh + auto-replaces
+      eva('The pit feeds');
+      sfx('click');
+      selection = selection.filter(s => s.hp > 0);
+      refreshPanel();
+    };
+    addAction(btn);
+    // the work regime: cycle Merciful -> Normal -> Brutal for the whole pit
+    const drv = document.createElement('button');
+    drv.textContent = `Drive: ${slaveDriveOf(PLAYER)}`;
+    drv.title = 'Brutal: mine 35% faster, die twice as fast (loosh gushes). ' +
+      'Merciful: live 60% longer (cheap, little loosh). Applies to newly bought slaves.';
+    drv.onclick = () => {
+      const i = SLAVE_DRIVES.indexOf(slaveDriveOf(PLAYER));
+      state.slaveDrive[PLAYER] = SLAVE_DRIVES[(i + 1) % SLAVE_DRIVES.length];
+      sfx('click');
+      refreshPanel();
+    };
+    addAction(drv);
+  }
+  if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
+    const btn = document.createElement('button');
+    btn.textContent = 'Attack-Move [A]';
+    btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
+    addAction(btn);
+  }
+  if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.transit)) {
+    const anyUp = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.burrowed);
+    const btn = document.createElement('button');
+    btn.textContent = (anyUp ? 'Burrow' : 'Surface') + ' [X]';
+    btn.onclick = toggleBurrowSelection;
+    addAction(btn);
+  }
+  if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) {
+    const btn = document.createElement('button');
+    btn.textContent = 'Explore [V]';
+    btn.onclick = exploreSelection;
+    addAction(btn);
   }
 }
 

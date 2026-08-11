@@ -24,11 +24,6 @@ const COLORS = {
   3: '#b06fff', 4: '#ffe14d', 5: '#ff7ad9',
   [NEUTRAL]: '#a8a290',
 };
-const COLORS_DARK = {
-  0: '#2b6cb0', 1: '#b03434', 2: '#b06d1c',
-  3: '#6f3fb0', 4: '#b09a26', 5: '#b0408c',
-  [NEUTRAL]: '#6e6a5e',
-};
 
 // map sizes: world dimensions (multiples of FOG_TILE) + how many total
 // players (you + AIs) fit on the start ring
