@@ -9,9 +9,20 @@
 
   // ---------- color helpers ----------
 
-  function shade(hex, f) { // f: -1..1 darken/lighten
-    const n = parseInt(hex.slice(1), 16);
-    let r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  // f: -1..1 darken/lighten. Accepts '#rrggbb' OR this function's own
+  // 'rgb(r,g,b)' output — a tier authored as `body: shade(base, 0.15)` gets
+  // shaded AGAIN per extrusion slice by isoHull3D, and parsing 'rgb(...)' as
+  // hex used to yield NaN -> rgb(0,0,0), i.e. jet-black flanks on every raised
+  // cab in the game.
+  function shade(col, f) {
+    let r, g, b;
+    if (col[0] === '#') {
+      const n = parseInt(col.slice(1), 16);
+      r = (n >> 16) & 255; g = (n >> 8) & 255; b = n & 255;
+    } else {
+      const m = col.match(/-?\d+(\.\d+)?/g);
+      r = +m[0]; g = +m[1]; b = +m[2];
+    }
     if (f < 0) { r *= 1 + f; g *= 1 + f; b *= 1 + f; }
     else { r += (255 - r) * f; g += (255 - g) * f; b += (255 - b) * f; }
     return `rgb(${r | 0},${g | 0},${b | 0})`;
@@ -7123,39 +7134,86 @@
       if (o2.firing) { c.fillStyle = 'rgba(255,230,150,0.9)'; c.beginPath(); c.arc(5.5, -1, 1.6, 0, TAU); c.fill(); }
     },
   });
-  // the School Bus Bunker: welded plate over yellow steel, believers firing
-  // from the window slits (see T.schoolbus for the riders)
+  // the School Bus Bunker: a Type C bus — snout out front, tall cabin behind —
+  // rewelded into a rolling pillbox. The silhouette is what sells it, so the
+  // hood is its own SHORT tier and the cabin stacks on top: from any angle you
+  // read hood-then-box, not a slab. Believers fire from the window slits
+  // (see T.schoolbus for the riders).
+  const BUS_BODY = '#d4a827', BUS_TRIM = '#2b2b30';
   I.schoolbus = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 30,
-    under: (c, t2, o2) => wheels(c, t2, o2, [[-9, -7.2], [-9, 7.2], [9, -7.2], [9, 7.2]], 5.2, 3),
+    len: 34,
+    under: (c, t2, o2) => {
+      // six wheels: steer axle up front, duals at the back like the real thing
+      wheels(c, t2, o2, [[11, -7.4], [11, 7.4], [-7.5, -7.6], [-7.5, 7.6], [-12, -7.6], [-12, 7.6]], 5.4, 3.1);
+      c.fillStyle = '#3a3d34';                                   // welded push bumper
+      c.beginPath(); c.moveTo(19.5, -6.2); c.lineTo(21, -4.6); c.lineTo(21, 4.6); c.lineTo(19.5, 6.2); c.closePath(); c.fill();
+      c.strokeStyle = '#22251f'; c.lineWidth = 0.7; c.stroke();
+      c.fillStyle = '#4a4e42'; c.fillRect(15, -6.9, 5, 1.1); c.fillRect(15, 5.8, 5, 1.1); // side skirt plate
+    },
     tiers: [
-      { poly: [[14, -4], [14, 4], [12, 6.4], [-14, 6.4], [-14, -6.4], [12, -6.4]], h: 8, body: '#c9a227',
+      // the hood — low, tapered, sits ahead of and below the cabin
+      { poly: [[19, -4.4], [19, 4.4], [16, 5.9], [-14.5, 5.9], [-14.5, -5.9], [16, -5.9]], h: 4.5, body: BUS_BODY,
         detail: (c) => {
-          c.fillStyle = shade('#c9a227', 0.12); rr(c, -13, -5.6, 26, 11.2, 1.5); c.fill(); // roof
-          c.strokeStyle = '#6b5a1a'; c.lineWidth = 0.7; // welded plate seams
-          for (let i = -10; i <= 10; i += 5) { c.beginPath(); c.moveTo(i, -5.6); c.lineTo(i, 5.6); c.stroke(); }
-          c.fillStyle = '#1c2026'; c.fillRect(11.4, -4.6, 1.8, 9.2); // windshield slit
-          c.fillStyle = '#3a3325'; rr(c, -12.6, -1.2, 24, 2.4, 0.6); c.fill(); // rub-rail stripe
-          c.fillStyle = '#23271c'; // plated-over window row
-          for (let i = -9; i <= 7; i += 4) { c.fillRect(i, -5.2, 2.4, 1.4); c.fillRect(i, 3.8, 2.4, 1.4); }
+          c.fillStyle = shade(BUS_BODY, -0.14); rr(c, 12, -4.9, 6.6, 9.8, 1.4); c.fill();      // hood panel
+          c.strokeStyle = shade(BUS_BODY, -0.34); c.lineWidth = 0.55;
+          c.beginPath(); c.moveTo(15.2, -4.6); c.lineTo(15.2, 4.6); c.stroke();                // hood seam
+          c.fillStyle = '#efe4c6';                                                             // headlights
+          c.beginPath(); c.arc(18, -3.2, 0.85, 0, TAU); c.fill();
+          c.beginPath(); c.arc(18, 3.2, 0.85, 0, TAU); c.fill();
+        } },
+      // the cabin — full width, tall, stopping short of the hood
+      { poly: [[11.5, -5.9], [11.5, 5.9], [-14.5, 5.9], [-14.5, -5.9]], h: 6.5, body: shade(BUS_BODY, 0.05),
+        detail: (c) => {
+          c.fillStyle = '#1b2028'; c.fillRect(10.1, -4.6, 1.6, 9.2);                           // windshield slit
+          c.fillStyle = 'rgba(150,190,170,0.18)'; c.fillRect(10.4, -4.2, 1, 8.4);
+          // the gun slits the riders shoot through: narrow, inset, NOT a stripe
+          c.fillStyle = '#33301f';
+          for (let i = -12; i <= 6.5; i += 4.4) { c.fillRect(i, -5.5, 2.6, 0.85); c.fillRect(i, 4.65, 2.6, 0.85); }
+          c.fillStyle = shade(BUS_BODY, 0.14); rr(c, -13.2, -3.7, 24.2, 7.4, 1.2); c.fill();   // roof deck
+          c.strokeStyle = shade(BUS_BODY, -0.3); c.lineWidth = 0.55;                           // welded plate seams
+          for (let i = -10; i <= 8; i += 4.5) { c.beginPath(); c.moveTo(i, -3.5); c.lineTo(i, 3.5); c.stroke(); }
+          c.fillStyle = '#7d3026'; rr(c, -1.3, -1.5, 3.2, 3, 0.6); c.fill();                   // emergency roof hatch
+          c.strokeStyle = '#4e1d16'; c.lineWidth = 0.45; c.stroke();
+          c.fillStyle = shade(BUS_BODY, -0.5); rr(c, -12.4, -1.1, 2.6, 2.2, 0.5); c.fill();    // roof vent
         } },
     ],
+    above: (c, t2, o2) => {
+      c.save(); c.transform(1, 0.5, -1, 0.5, 0, 0); c.rotate(o2.facing);
+      // the stop-sign arm, still bolted on and swung out from the left flank
+      c.strokeStyle = '#4a4e42'; c.lineWidth = 0.7;
+      c.beginPath(); c.moveTo(1.5, -5.6); c.lineTo(1.5, -7.2); c.stroke();
+      c.fillStyle = '#8d2a24';
+      c.beginPath(); c.arc(1.5, -8.2, 1.5, 0, TAU); c.fill();
+      c.strokeStyle = '#5c1a16'; c.lineWidth = 0.4; c.stroke();
+      // CB whip off the rear corner, wobbling as it rolls
+      c.strokeStyle = '#53574a'; c.lineWidth = 0.6;
+      c.beginPath(); c.moveTo(-12.5, -4.6); c.lineTo(-12.5, -5.4); c.stroke();
+      c.restore();
+      c.strokeStyle = '#53574a'; c.lineWidth = 0.6;
+      c.beginPath(); c.moveTo(-3, -1); c.quadraticCurveTo(-4, -5, -3.4 + Math.sin(t2 * 2) * 0.8, -9); c.stroke();
+    },
   });
   // believers at the bus windows: one head-and-rifle per loaded passenger,
-  // drawn live over the cached hull (cargo count changes at runtime)
+  // ranged along the flanks at the slit line (not floating on the roof).
+  // Drawn live over the cached hull, since cargo count changes at runtime.
   T.schoolbus = (ctx, t, o) => {
     ctx.save();
-    ctx.translate(0, -8.8);
+    ctx.translate(0, -9.4);
     ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    ctx.rotate(o.facing || 0);
     for (let i = 0; i < Math.min(o.cargo || 0, 6); i++) {
-      const rx = -9 + (i % 3) * 6, ry = i < 3 ? -3.6 : 3.6, s = ry < 0 ? -1 : 1;
-      ctx.fillStyle = '#4d5238';
-      ctx.beginPath(); ctx.arc(rx, ry, 1.4, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#caa06e';
-      ctx.beginPath(); ctx.arc(rx + 0.2, ry - s * 0.4, 0.85, 0, TAU); ctx.fill();
-      ctx.fillStyle = '#20241a';
+      const rx = -10.8 + (i % 3) * 6.6, ry = i < 3 ? -5.1 : 5.1, s = ry < 0 ? -1 : 1;
+      ctx.fillStyle = '#3d4230';                                    // shoulders
+      ctx.beginPath(); ctx.arc(rx, ry, 1.15, 0, TAU); ctx.fill();
+      ctx.fillStyle = '#a8814f';                                    // head
+      ctx.beginPath(); ctx.arc(rx + 0.2, ry - s * 0.3, 0.7, 0, TAU); ctx.fill();
       ctx.save(); ctx.translate(rx, ry); ctx.rotate(s * 1.35 + Math.sin(t * 1.2 + i) * 0.1);
-      ctx.fillRect(0.7, -0.35, 3.2, 0.7);
+      ctx.fillStyle = '#1a1d15';                                    // rifle out the slit
+      ctx.fillRect(0.6, -0.28, 3, 0.56);
+      if (o.firing && (i + ((t * 9) | 0)) % 3 === 0) {              // muzzles flicker, not all at once
+        ctx.fillStyle = 'rgba(255,226,140,0.85)';
+        ctx.beginPath(); ctx.arc(3.9, 0, 0.62, 0, TAU); ctx.fill();
+      }
       ctx.restore();
     }
     ctx.restore();
