@@ -94,6 +94,38 @@ function effectiveConviction(owner, x, y) {
   }
   return cv;
 }
+// ---------- where the meter's movement comes from, itemised ----------
+// The sim ticks conviction from `net`; the sidebar EXPLAINS it from the same
+// object. One source of truth, so the readout can never drift from the rule it
+// is describing. Returns raw numbers only — the HUD does the wording.
+const CONVICTION_DECAY = 0.15;   // doubt, per second, always
+const CONVICTION_TIER2 = 60;     // Documentary Drops start flipping tier-2 units
+function convictionLedger(owner) {
+  const prophet = state.units.find(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].sermon);
+  const preaching = !!prophet && !prophet.transit && !prophet.garrisoned && !prophet.burrowed &&
+    state.time - (prophet.movedT || -99) > 1.5;
+  let tents = 0, amped = 0, tentGen = 0;
+  for (const b of state.buildings) {
+    if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
+    const bt = bstatsOf(b);
+    if (!bt.convictionRate) continue;
+    const hot = preaching && dist(b, prophet) <= Math.max(bt.w, bt.h) * 0.9 + 30;
+    tents++; if (hot) amped++;
+    tentGen += bt.convictionRate * (hot ? 2 : 1);
+  }
+  let crowd = 0, sermonGen = 0;
+  if (preaching) {
+    const s = UNIT_TYPES[prophet.type].sermon;
+    for (const u of state.units) {
+      if (u.owner !== owner || u.hp <= 0 || u === prophet || u.garrisoned) continue;
+      if (UNIT_TYPES[u.type].builtAt === 'barracks' && dist(u, prophet) <= s.crowdR) crowd++;
+    }
+    crowd = Math.min(s.max, crowd);
+    sermonGen = s.rate + crowd * s.per;
+  }
+  return { prophet, preaching, tents, amped, tentGen, crowd, sermonGen,
+           decay: CONVICTION_DECAY, net: tentGen + sermonGen - CONVICTION_DECAY };
+}
 // Documentary Drops accelerate with Conviction: 180s cold, 100s at full heat
 const docDropPeriod = owner => 180 - convictionOf(owner) * 0.8;
 // is this entity standing inside a forest blob? (Deer Stand's whole career)
@@ -1225,32 +1257,8 @@ function updateAbilities(dt) {
       sig.timer -= 10;
       state.minerals[owner] += Math.min(QE_CAP, Math.round(powerOf(owner).used * QE_RATE));
     } else if (fkey === 'flat') {
-      // ---------- conviction generation ----------
-      // Revival Tents feed the meter (doubled while the Prophet preaches
-      // inside one), the Prophet's sermon feeds it wherever he stands still
-      // (more with a crowd of infantry around him), and it bleeds 0.15/s on
-      // its own — a compound that stops preaching loses heart.
-      const prophet = state.units.find(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].sermon);
-      const preaching = prophet && !prophet.transit && !prophet.garrisoned && !prophet.burrowed &&
-        state.time - (prophet.movedT || -99) > 1.5;
-      let gen = 0;
-      for (const b of state.buildings) {
-        if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
-        const bt = bstatsOf(b);
-        if (!bt.convictionRate) continue;
-        const amped = preaching && dist(b, prophet) <= Math.max(bt.w, bt.h) * 0.9 + 30;
-        gen += bt.convictionRate * (amped ? 2 : 1);
-      }
-      if (preaching) {
-        const s = UNIT_TYPES[prophet.type].sermon;
-        let crowd = 0;
-        for (const u of state.units) {
-          if (u.owner !== owner || u.hp <= 0 || u === prophet || u.garrisoned) continue;
-          if (UNIT_TYPES[u.type].builtAt === 'barracks' && dist(u, prophet) <= s.crowdR) crowd++;
-        }
-        gen += s.rate + Math.min(s.max, crowd) * s.per;
-      }
-      state.conviction[owner] = clamp(convictionOf(owner) + (gen - 0.15) * dt, 0, 100);
+      const cv = convictionLedger(owner);
+      state.conviction[owner] = clamp(convictionOf(owner) + cv.net * dt, 0, 100);
       if (sig.timer >= docDropPeriod(owner)) {
         sig.timer = 0;
         documentaryDrop(owner);
@@ -5169,11 +5177,57 @@ function sigClick() {
   refreshPanel();
 }
 
+// The Conviction meter, for players who reasonably cannot tell what a bare
+// number from 0-100 is buying them. Answers the four questions the macro game
+// actually asks: where am I, which way am I moving, what is it worth right now,
+// and what is the next thing it unlocks.
+function refreshConviction() {
+  if (!isFlat(PLAYER)) { elConvWrap.classList.remove('on'); elConvWhy.classList.remove('on'); return; }
+  elConvWrap.classList.add('on'); elConvWhy.classList.add('on');
+
+  const cv = convictionOf(PLAYER);
+  const led = convictionLedger(PLAYER);
+  const rising = led.net > 0.005, falling = led.net < -0.005;
+
+  elConvFill.style.width = cv.toFixed(1) + '%';
+  elConvFill.classList.toggle('falling', falling);
+  elConvFill.classList.toggle('hot', cv >= CONVICTION_TIER2);
+  elConvTier.classList.toggle('passed', cv >= CONVICTION_TIER2);
+
+  const arrow = rising ? '▲' : falling ? '▼' : '–';
+  elConvText.textContent = `✊ ${Math.round(cv)}  ${arrow}${led.net >= 0 ? '+' : ''}${led.net.toFixed(2)}/s`;
+
+  // what it is worth THIS SECOND, in the currencies the player already reads
+  const dmg = Math.round(cv * 0.25);                       // 0.0025/point, as a %
+  const drop = Math.ceil(docDropPeriod(PLAYER));
+  const bits = [`<b>+${dmg}%</b> damage`, `drops every <b>${drop}s</b>`];
+  bits.push(cv >= CONVICTION_TIER2
+    ? '<b>tier 2</b> flipping'
+    : `tier 2 at <b>${CONVICTION_TIER2}</b> (${Math.ceil(CONVICTION_TIER2 - cv)} to go)`);
+
+  // ...and WHY it is moving, so a stalled meter is diagnosable at a glance
+  const why = [];
+  if (led.tents) why.push(`${led.tents} tent${led.tents > 1 ? 's' : ''}${led.amped ? ` (${led.amped} amped)` : ''} +${led.tentGen.toFixed(2)}`);
+  else why.push('<span class="bad">no Revival Tent</span>');
+  if (led.preaching) why.push(`Prophet +${led.sermonGen.toFixed(2)} (crowd ${led.crowd})`);
+  else if (led.prophet) why.push('<span class="bad">Prophet not preaching</span>');
+  else why.push('<span class="bad">no Prophet</span>');
+  why.push(`doubt −${led.decay.toFixed(2)}`);
+
+  elConvWhy.innerHTML = bits.join(' · ') + '<br>' + why.join(' · ');
+  elConvWrap.title = 'CONVICTION — the Flat Earth faith meter.\n' +
+    'Revival Tents stoke it (doubled with the Prophet standing inside one).\n' +
+    'The Prophet preaches wherever he holds still, faster with infantry around him.\n' +
+    'It bleeds 0.15/s on its own, so a compound that stops preaching cools.\n' +
+    'Pays: up to +25% believer damage, Documentary Drops from 180s down to 100s,\n' +
+    `and at ${CONVICTION_TIER2} the drops start flipping tier-2 units instead of only tier-1.`;
+}
+
 function refreshSidebar() {
   if (!started) return;
+  refreshConviction();
   elCredits.textContent = '$ ' + state.minerals[PLAYER] +
     (isReptilian(PLAYER) ? '   ☠ ' + Math.floor(state.loosh[PLAYER] || 0) : '') +
-    (isFlat(PLAYER) ? '   ✊ ' + Math.round(convictionOf(PLAYER)) : '') +
     (isHollow(PLAYER) ? '   🗿 ' + relicCount(PLAYER) : '') +
     (facOf(PLAYER) && facOf(PLAYER).hqRebuild && facOf(PLAYER).hqRebuild.auto !== undefined
       ? '   🗄 ' + Math.floor(state.leverage[PLAYER] || 0) : '');
@@ -7688,6 +7742,11 @@ mmCanvas.addEventListener('contextmenu', e => e.preventDefault());
 const elCredits = document.getElementById('credits');
 const elPowerFill = document.getElementById('powerfill');
 const elPowerText = document.getElementById('powertext');
+const elConvWrap = document.getElementById('convwrap');
+const elConvFill = document.getElementById('convfill');
+const elConvTier = document.getElementById('convtier');
+const elConvText = document.getElementById('convtext');
+const elConvWhy = document.getElementById('convwhy');
 const gridStructures = document.getElementById('grid-structures');
 const gridUnits = document.getElementById('grid-units');
 const elSelInfo = document.getElementById('selinfo');
