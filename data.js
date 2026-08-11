@@ -66,7 +66,9 @@ const WEAPON_STYLE = {
 // which building-art family each faction uses
 const FAMILY_STYLE = { flat: 'flat', resistance: 'flat', glob: 'glob', deep: 'glob', hollow: 'hollow', grey: 'alien', reptilian: 'alien' };
 
-const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER', f: 'factory', d: 'airpad', r: 'tech' };
+// build hotkeys. NOTE: 'm' is taken globally by mute and 'h' by centre-on-home,
+// so the Mechanicum answers to 'c' (consecration) rather than its own initial.
+const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER', f: 'factory', d: 'airpad', r: 'tech', c: 'mechanicum' };
 
 // ---------- factions ----------
 
@@ -75,6 +77,8 @@ const FACTIONS = {
     name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
     desc: 'Defend the ice wall. A prepper compound that runs on CONVICTION: Revival Tents stoke the faith, Ham Radios broadcast it locally, and the Megaphone Prophet preaches it — the hotter it burns, the harder every believer hits and the faster Documentary Drops flip enemy units to the cause. Militia man the Pillboxes, the Killdozer plows the road, and the sky stays suspicious — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
     economy: { workers: 5 },
+    // the compound is a tent city — losing the bunker is a setback, not the end
+    hqRebuild: { cost: 350, grace: 60 },
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
     air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
     extras: ['prophet', 'deerstand', 'fireworks', 'quadrunner', 'schoolbus', 'engineer'], advanced: ['combine'],
@@ -96,6 +100,8 @@ const FACTIONS = {
     name: 'The Resistance', family: 'RESISTANCE', emoji: '📡',
     desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts. The cheapest structures anywhere — none of them built to last. Fast scrap-built Salvage Rigs keep the minerals moving.',
     economy: { workers: 4 },
+    // a cell that loses its radio finds another basement
+    hqRebuild: { cost: 300, grace: 60 },
     worker: 'salvagerig', infantry: 'partisan', aa: 'manpad', vehicle: 'technical',
     air: ['wballoon', 'fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'chembiplane', 'engineer'], advanced: ['cruisetruck'],
@@ -115,21 +121,21 @@ const FACTIONS = {
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit — and paid for in full. PMC Contractors hold the line, M1 Abrams columns roll over it, and Bradleys deliver fire teams that shoot from the ports. Overhead is the real budget: AH-64 gunships, stealth F-35s, A-10s on the gun run — and once the Black Site Lab opens, the AC-130 Spectre owns the night. Everything is expensive. Everything works.',
+    desc: 'Order through orbit — and paid for in full. PMC Contractors hold the line, M1 Abrams columns roll over it, and Bradleys deliver fire teams that shoot from the ports. Overhead is the real budget: AH-64 gunships, stealth F-35s, A-10s on the gun run — and once the Black Site Lab opens, B-52s carpet whole blocks off the map. Everything is expensive. Everything works.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'pmc', aa: 'jammer', vehicle: 'abrams',
     airFocus: 1.5, // still THE air power, but the AI fields an army under it too
     air: ['apache', 'f35', 'a10'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'bradley', 'blackvan', 'himars', 'engineer', 'mechanic'], advanced: ['gunship'],
+    extras: ['riot', 'bradley', 'blackvan', 'himars', 'engineer', 'mechanic'], advanced: ['b52'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
-      passive: { name: 'Quantitative Easing', desc: 'The printer follows the economy: every 10s you gain minerals equal to 12% of the power your base actually DRAWS. And when a building falls, 25% of its cost is refunded — too big to fail.' },
+      passive: { name: 'Quantitative Easing', desc: 'The printer follows the economy: every 10s you gain minerals equal to 12% of the power your base actually DRAWS, up to 40. And when a building falls, 25% of its cost is refunded — too big to fail.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
     },
     buildingNames: {
       hq: 'World HQ', powerplant: 'Fusion Plant', barracks: 'Command Center',
       factory: 'Motor Pool', airpad: 'Air Force Base', tech: 'Black Site Lab',
-      tower5g: '5G Tower', samsite: 'Patriot Battery', hangar: 'Spectre Hangar',
+      tower5g: '5G Tower', samsite: 'Patriot Battery',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Service Bay',
       refinery: 'Refinery', datacenter: 'Data Center',
       satellite: 'Orbital Uplink',
@@ -140,41 +146,45 @@ const FACTIONS = {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
     desc: 'It was never elected and never leaves. Its assets run silent — Agents, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. The air wing flies stealth: the TR-3B haunts the map unseen, B-1 Lancers rule the sky, and the B-2 Spirit erases city blocks — none of them visible until the ordnance is already falling. A detector is the only way to find any of them.',
     economy: { workers: 3 },
+    // Continuity of Government: it was never in that building anyway
+    hqRebuild: { cost: 0, grace: 75, auto: 25 },
     worker: 'blackrig', infantry: 'agent', aa: 'jammer', vehicle: 'spooktank',
     airFocus: 1.4, // still a black-budget air wing, second only to the USAF
     air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: ['b2'],
-    structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
+    extras: ['riot', 'disinfovan', 'frontco', 'engineer', 'mechanic'], advanced: ['b2'],
+    structs: ['wall', 'gate', 'repairpad', 'refinery', 'fedreserve', 'superweapon'],
     powers: {
-      passive: { name: 'Deep Cover Recruitment', desc: 'Every 2 minutes a mole from the ENEMY roster reports to your barracks.' },
+      passive: { name: 'Continuity of Government', desc: 'ASSETS: enemy line troops are quietly turned into sleepers — they keep serving their owner, but you see whatever they see, and you can wake them at will to fight for you. And if your HQ falls, an undisclosed location takes over: it relocates itself, once per game.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
     },
     buildingNames: {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
       factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
-      tower5g: '5G Tower', samsite: 'Patriot Battery',
+      tower5g: '5G Tower', samsite: 'Patriot Battery', fedreserve: 'Federal Reserve',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Motor Pool Annex',
       superweapon: 'Blackout Command Node',
     },
   },
   hollow: {
     name: 'Hollow Earthers', family: 'EARTHERS', emoji: '🕳️',
-    desc: 'The real world is below — and it left its machines behind. Excavation Rigs crack open DIG SITES for buried relics; Tech Priests carry them home and the lost arts return: Mole Servitors ascend to vril-armored Lantern Guards, Guards are entombed in Dreadnoughts, and one Dreadnought — fused with a Tech Priest — is enthroned in the Warlord Drill Titan. Quake Drill Trucks and Seismic Imitators speak with the voice of the earth itself.',
+    desc: 'The real world is below — and it left its machines behind. The Servitorium turns out Mole Servitors by the dozen; the Mechanicum takes them apart and builds something better — a Tech Priest to read the old marks, or a Lantern Guard whose bolter barrage clears the ground before the halberd arrives. A Guard that has proven itself is entombed in a Dreadnought. Excavation Rigs crack open DIG SITES and the Priests carry the relics home: no relic, no ascension. Overhead, Vril Discs hold the sky and Tesla Ornithopters strafe the ground; Quake Drill Trucks and Seismic Imitators speak with the voice of the earth itself.',
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleservitor', aa: 'slinger', vehicle: 'quaketruck',
-    air: ['ornithopter'], tower: 'seismic', aaTower: 'geyser',
-    extras: ['techpriest', 'excavationrig', 'engineer'], advanced: ['aerostat'],
-    structs: ['wall', 'gate', 'titanworks', 'geode', 'refinery', 'superweapon'],
+    air: ['ornithopter', 'vrildisc'], tower: 'seismic', aaTower: 'geyser',
+    extras: ['engineer', 'excavationrig'], advanced: ['aerostat'],
+    structs: ['wall', 'gate', 'mechanicum', 'geode', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Seismic Sense', desc: 'Enemy ground units are always visible on your radar.' },
-      sig: { name: 'Vril Recall', desc: 'Target ONE of your units anywhere on the map: it teleports home to your HQ in a vril flash.', kind: 'unit', cd: 90 },
+      // a small circle, not a single body — big enough for a squad that has
+      // overextended, far too small to evacuate an army (r/max below)
+      sig: { name: 'Vril Recall', desc: 'Target a small patch of ground anywhere on the map: your units standing in it — up to 5, nearest the centre first — flash home to your HQ.', kind: 'recall', r: 75, max: 5, cd: 90 },
     },
     buildingNames: {
-      hq: 'Inner Sanctum', powerplant: 'Geothermal Vent', barracks: 'Burrow',
+      hq: 'Inner Sanctum', powerplant: 'Geothermal Vent', barracks: 'Servitorium',
       factory: 'Drill Works', airpad: 'Cavern Roost', tech: 'Reliquary',
       seismic: 'Seismic Imitator', geyser: 'Geyser Cannon',
       wall: 'Stone Rampart', gate: 'Stone Gate', mine: 'Sinkhole Trap',
-      titanworks: 'Titan Foundry', geode: 'Crystal Geode',
+      mechanicum: 'Mechanicum', geode: 'Crystal Geode',
       superweapon: 'Seismic Resonator',
     },
   },
@@ -204,7 +214,7 @@ const FACTIONS = {
     economy: { workers: 5, start: 200 },
     worker: 'slave', infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
     air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
-    extras: ['nephilim', 'priest', 'shapeshifter', 'broodmother'], advanced: ['draco'],
+    extras: ['nephilim', 'priest', 'broodslave', 'shapeshifter', 'broodmother'], advanced: ['draco'],
     structs: ['wall', 'gate', 'repairpad', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
@@ -219,6 +229,70 @@ const FACTIONS = {
     },
   },
 };
+
+// ---------- structure repair ----------
+// Universal and faction-agnostic: select a damaged structure of yours, turn
+// Repair on, and it knits back at REPAIR_RATE of its max HP per second while
+// billing you continuously. Mending a near-wreck all the way to full costs
+// REPAIR_COST of the sticker price, so repairing always beats rebuilding — but
+// it is never free, never instant, and it stops the moment the money does.
+// Captured civilian structures have no sticker price and are billed off their
+// hit points instead (see repairValueOf).
+const REPAIR_RATE = 0.05;      // fraction of max HP mended per second
+const REPAIR_COST = 0.45;      // fraction of build cost for a 0 -> full mend
+const REPAIR_FREE_VALUE = 0.25; // priceless structures bill at this × their HP
+
+// ---------- Quantitative Easing (Globalist passive) ----------
+// The printer pays a slice of the power the base actually DRAWS. Left uncapped
+// that is a runaway loop — every structure raises upkeep, upkeep IS the
+// revenue, so building more pays for building more. At full build-out it was
+// paying ~118/10s (11.8/sec), more than any other faction's ENTIRE economy
+// from all sources combined. The cap turns it back into a solid floor instead
+// of an engine: good early when the grid is small, no longer a snowball.
+const QE_RATE = 0.12;   // fraction of power drawn, paid every 10s
+const QE_CAP = 40;      // ...but never more than this per payout (4/sec)
+
+// ---------- LEVERAGE (Deep State) ----------
+// Every mineral a Front Company skims is banked twice: once as money, and once
+// as a record of what it was skimmed from. That record is LEVERAGE, and it
+// buys things money cannot. Every play is non-lethal and aimed at an enemy
+// STRUCTURE — the Deep State does not shoot your base, it ruins your quarter.
+// (Cost is in leverage, never in minerals; the minerals were already paid.)
+const LEVERAGE_PLAYS = {
+  books: {
+    name: 'Open the Books', cost: 60,
+    desc: 'Their entire estate — every building and everything standing near it — is laid bare to you for 25s.',
+    dur: 25,
+  },
+  freeze: {
+    name: 'Freeze Assets', cost: 140,
+    desc: 'The target structure goes dark for 30s: no production, no weapons, no power on the grid.',
+    dur: 30,
+  },
+  margin: {
+    name: 'Margin Call', cost: 220,
+    desc: "Their construction is called in — whatever they are building right now is cancelled, and not one mineral comes back.",
+  },
+};
+
+// ---------- bound escorts (Broodmother, Disinfo Van, Mothership) ----------
+// The swarm screens in FRONT of its master and makes contact first; the master
+// holds back and keeps working. Without this the escort trailed behind her and
+// the fragile thing leading the swarm was the swarm's whole reason to exist.
+const BROOD_LEAD = 95;      // how far ahead of the master the screen rides
+const BROOD_STANDOFF = 130; // master backs off from anything closer than this
+
+// ---------- Smuggling Routes (Resistance signature) ----------
+// The run pays for holding the countryside, and holdings are counted BY
+// DISTRICT, not by door: the first captured civilian building claims a
+// SMUGGLE_AREA-radius region and every other building inside that region is
+// worth nothing extra. Otherwise a Metropolis map — where a city block has a
+// dozen structures — would pay several times what a Country map does for the
+// same effort.
+const SMUGGLE_BASE = 150;       // the run itself
+const SMUGGLE_PER_AREA = 45;    // per distinct district held
+const SMUGGLE_AREA = 620;       // radius a single holding claims
+const SMUGGLE_MAX_AREAS = 4;    // ceiling, so a huge map can't run away either
 
 // ---------- superweapons ----------
 // One tech-gated structure per faction (the shared `superweapon` building
@@ -235,14 +309,14 @@ const SUPER_DEFS = {
 
 // ---------- units ----------
 // targets: 'ground' | 'air' | 'both' (default 'ground' for anything armed)
-// weapon: 'gun' (default) | 'lob' | 'bomb' | 'storm' | 'spray' | 'gunship'
+// weapon: 'gun' (default) | 'lob' | 'bomb' | 'storm' | 'spray' | 'carpet'
 // pad: RA2-style airfield craft — occupies one of its airpad's 4 slots,
 //      parks there when idle, and burns maxAmmo ammo it reloads on the pad.
 //      Air units WITHOUT pad (helicopters, blimps, saucers) fly free.
 // plane: fixed-wing — keeps airspeed and a turn rate (turn, rad/s) instead of
-//        hovering: strafing runs, loitering circles, bombing passes; the
-//        gunship orbits its target (orbitR) firing broadsides, with a heavy
-//        shell every shellEvery-th shot (shellDmg/shellSplash).
+//        hovering: strafing runs, loitering circles, bombing passes. A
+//        'carpet' bomber walks burstShells bombs along its flight path,
+//        scattered over beatenLen x beatenWidth around the aim point.
 // req: building type that must be finished before the unit can be trained.
 
 const UNIT_TYPES = {
@@ -262,7 +336,14 @@ const UNIT_TYPES = {
   // until they drop (~lifespan seconds, staggered). Every death — overwork,
   // enemy fire, or the Harvest button — pays looshOnDeath, and the Hatchery
   // automatically buys a replacement. The pit restocks itself.
-  slave:       { name: 'Slave',           role: 'worker', builtAt: 'barracks', hp: 35,  speed: 82, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 160, cost: 25, r: 7,  buildTime: 3, limit: 8, lifespan: 110, looshOnDeath: 3 },
+  slave:       { name: 'Slave',           role: 'worker', builtAt: 'barracks', hp: 35,  speed: 82, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 160, cost: 25, r: 7,  buildTime: 3, limit: 8, lifespan: 110, looshOnDeath: 3, pitBonus: true },
+  // Broodslave: the Gene Vault's own crop, grown for the work rather than
+  // caught for it. Nearly three times the price of a Slave and it hauls twice
+  // the crystal, burns out sooner, and its death pays THREE TIMES the loosh —
+  // the late-game answer to a pit that mines and bleeds too slowly to keep the
+  // caste fed. Its own separate cap, so it adds to the pit instead of
+  // competing for it (and it takes no Vault/Throne bonus of its own).
+  broodslave:  { name: 'Broodslave',       role: 'worker', builtAt: 'barracks', hp: 55,  speed: 78, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 170, cost: 70, r: 8,  buildTime: 5, limit: 4, carry: 13, lifespan: 95, looshOnDeath: 9, req: 'tech', drawScale: 1.12 },
   // Deep State line infantry now: an agent is nobody until the wire comes in
   agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6, cloakStill: true, cloakDelay: 1.8 },
   // Globalist line infantry: contractors with MiB-grade training and a
@@ -270,8 +351,10 @@ const UNIT_TYPES = {
   pmc:         { name: 'PMC Contractor',  role: 'combat', builtAt: 'barracks', hp: 105, speed: 72, dmg: 12, atkRange: 140, cooldown: 0.85, sight: 240, cost: 120, r: 10, buildTime: 7, drawScale: 1.08 },
   mib:         { name: 'Man in Black',    role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 11, atkRange: 140, cooldown: 0.9,  sight: 240, cost: 80, r: 10, buildTime: 7, cloakStill: true, cloakDelay: 1.8 },
   // Hollow line infantry: half-flesh menials with pick-rifles — cheap, loyal,
-  // and the raw material of the ascension ladder (the Reliquary makes them
-  // Lantern Guards once enough relics are banked)
+  // and the raw material of the whole ascension ladder — every other body the
+  // faction fields started as one of these on a Mechanicum slab. Treat the
+  // stats below as the Hollow UNIT OF ACCOUNT: a Lantern Guard is priced and
+  // tuned at ~6 servitors, a Dreadnought at ~3 Guards.
   moleservitor: { name: 'Mole Servitor',  role: 'combat', builtAt: 'barracks', hp: 80,  speed: 74, dmg: 6,  atkRange: 95,  cooldown: 0.7,  sight: 190, cost: 45, r: 9,  buildTime: 5 },
   greytrooper: { name: 'Grey Abductor',   role: 'combat', builtAt: 'barracks', hp: 70,  speed: 78, dmg: 7,  atkRange: 120, cooldown: 0.8,  sight: 230, cost: 55, r: 9,  buildTime: 5 },
   raptoid:     { name: 'Reptoid Warrior', role: 'combat', builtAt: 'barracks', hp: 130, speed: 85, dmg: 10, atkRange: 30,  cooldown: 0.8,  sight: 210, cost: 70, r: 10, buildTime: 6 },
@@ -344,21 +427,53 @@ const UNIT_TYPES = {
   // echolocation: the wail that terrifies also finds — the brood's detector
   screecher: { name: 'Dread Screecher', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 155, speed: 100, dmg: 11, atkRange: 135, cooldown: 1.1, sight: 270, cost: 140, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', debuffAura: { r: 180, weaken: 0.35 }, detector: true },
   // ---------- the Hollow Mechanicus ----------
+  // None of these three are TRAINED. They are made on a Mechanicum slab out
+  // of the body below them (see ASCEND) — that is the entire Hollow tech tree.
+  //
+  // Both war bodies fight on the same doctrine, and it is worth stating once:
+  // they are MELEE units with a heavy weapon on a clock. The base attack (dmg
+  // /atkRange/cooldown) is the halberd or the fist, swung at contact range.
+  // The gun is the `volley` block — a barrage that goes off on its own timer
+  // whether or not the body is already in a brawl, at `acc` accuracy standing
+  // off and the much worse `meleeAcc` while swinging. See updateVolley().
+  //
   // Tech Priest: heals the flesh AND mends the machine (repair), recovers
   // excavated relics (walks to a dug site, channels, teleports home with the
-  // prize), salvages fallen Guard/Dreadnought armor for cheaper rebuilds,
-  // and is consumed — willingly — in the forging of the Titan.
-  techpriest: { name: 'Tech Priest', role: 'combat', builtAt: 'barracks', hp: 95, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 140, r: 9, buildTime: 9, repair: 8, priest: true },
-  // ascension bodies — never trained, only made from lesser bodies + relics.
-  // The Lantern Guard fights like a space marine: vril bolts on the approach,
-  // then the halberd once it closes (meleeDmg/meleeRange in tryAttack).
-  lanternguard: { name: 'Lantern Guard', role: 'combat', builtAt: 'barracks', hp: 230, speed: 66, dmg: 13, atkRange: 135, cooldown: 0.9, sight: 230, cost: 0, r: 10, buildTime: 0, armor: 0.25, meleeDmg: 30, meleeRange: 34, vril: true, armorTier: 'guard', drawScale: 1.12 },
-  dreadnought:  { name: 'Dreadnought',   role: 'combat', builtAt: 'barracks', hp: 560, speed: 50, dmg: 24, atkRange: 165, cooldown: 0.55, sight: 240, cost: 0, r: 13, buildTime: 0, armor: 0.35, bldgBonus: 1.3, clawArm: true, vril: true, armorTier: 'dread', drawScale: 1.8 },
-  // the Warlord Drill Titan: near-invincible, an autocannon arm for the
-  // ground, shoulder rocket salvos for the sky (aaAura), and a claw that
-  // ruins anything it reaches (bldgBonus + crush). Forged in the Titan
-  // Foundry from one Dreadnought, one Tech Priest, and a fortune.
-  titan: { name: 'Warlord Drill Titan', role: 'combat', builtAt: 'titanworks', hp: 2100, speed: 30, dmg: 30, atkRange: 215, cooldown: 0.35, sight: 320, cost: 0, r: 24, buildTime: 0, armor: 0.45, bldgBonus: 2, targets: 'ground', aaAura: { r: 210, dps: 22 }, aaRockets: true, clawArm: true, vril: true, shape: 'square', drawScale: 2.6 },
+  // prize), and salvages fallen Guard/Dreadnought armor for cheaper rebuilds.
+  techpriest: { name: 'Tech Priest', role: 'combat', builtAt: 'mechanicum', hp: 95, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 0, r: 9, buildTime: 0, repair: 8, priest: true },
+  // Lantern Guard — priced and tuned at ~6 Mole Servitors (270 minerals, and
+  // roughly 6× a servitor's damage once the barrage is averaged in). The
+  // halberd is the day job; every 20-30s the bolter opens up, sweeps ground
+  // and anything hovering low, and the Guard charges in behind its own volley.
+  lanternguard: {
+    name: 'Lantern Guard', role: 'combat', builtAt: 'mechanicum', hp: 430, speed: 66,
+    dmg: 44, atkRange: 36, cooldown: 1.0, sight: 250, cost: 0, r: 10, buildTime: 0,
+    armor: 0.3, swing: true, vril: true, armorTier: 'guard', drawScale: 1.15,
+    volley: {
+      name: 'bolter barrage', every: [20, 30], shots: 6, gap: 0.14, dmg: 26,
+      range: 230, acc: 0.9, meleeAcc: 0.55, lowAir: true, charge: 3,
+    },
+  },
+  // Dreadnought — a Guard entombed, and priced at ~3 Guards (810 minerals all
+  // in). Kills with the power fist; the arm cannon barks every ~15s and the
+  // shoulder rack answers it with three rockets that WILL reach aircraft at
+  // any altitude. Both keep firing mid-brawl, just badly aimed.
+  dreadnought: {
+    name: 'Dreadnought', role: 'combat', builtAt: 'mechanicum', hp: 1100, speed: 48,
+    dmg: 96, atkRange: 40, cooldown: 0.8, sight: 260, cost: 0, r: 14, buildTime: 0,
+    armor: 0.42, bldgBonus: 1.4, clawArm: true, vril: true, armorTier: 'dread', drawScale: 1.9,
+    // RELENTLESS: at a walk it is the slowest thing on the field, and a melee
+    // unit that cannot catch anything only ever kills buildings — infantry
+    // simply strolled away from it. With a target marked it builds momentum
+    // and runs foot troops down; it still cannot catch a technical.
+    relentless: 1.8,
+    volley: {
+      name: 'autocannon burst', every: [14, 17], shots: 5, gap: 0.12, dmg: 34,
+      range: 210, acc: 0.9, meleeAcc: 0.5, lowAir: true, charge: 3,
+      // the shoulder rack fires straight off the back of the burst
+      rockets: { count: 3, gap: 0.28, delay: 0.45, dmg: 60, range: 300, acc: 0.95, meleeAcc: 0.6 },
+    },
+  },
   // resistance specialists: the RPG tube is their can opener (vehBonus
   // multiplies damage vs ground vehicles), the marksman their long arm —
   // one bullet, one man: light infantry die to a single round, but the same
@@ -397,6 +512,13 @@ const UNIT_TYPES = {
   // Globalist detector: an unmarked van bristling with antennas — no cloak,
   // the Globalists watch openly. Finds spies, stealth and burrowers.
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
+  // Front Company: an unmarked van that DEPLOYS INTO A BUILDING — a shopfront
+  // with a brass plaque and nobody in it. While it stands undetected it skims a
+  // cut of every mineral load delivered to an enemy drop-off inside its reach
+  // (see thief.r). It is unarmed, it runs silent while parked, and a single
+  // detector walking past strips the disguise and leaves a 260-HP shed anyone
+  // can shoot. Plant it near THEIR base: that is the whole risk.
+  frontco: { name: 'Front Company', role: 'combat', builtAt: 'factory', hp: 190, speed: 84, dmg: 0, atkRange: 0, cooldown: 1, sight: 250, cost: 190, r: 12, buildTime: 11, shape: 'square', cloakStill: true, cloakDelay: 1.2, establishes: 'frontcompany', req: 'tech' },
   // Deep State signature armor: a blacked-out ambush tank that vanishes when
   // it stops (cloakStill) and lands a doubled first strike from concealment;
   // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
@@ -438,7 +560,12 @@ const UNIT_TYPES = {
   // glass-cannon gunship: cheap, vicious, and it does not take a punch
   // glass-cannon gunship, now firing VISIBLE Hydra rockets — and walked back
   // from its reign of terror: slower volleys, softer warheads, pricier
-  apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 16, atkRange: 150, cooldown: 0.65, sight: 270, cost: 150, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'tri', rocketArt: true },
+  // it is an attack HELICOPTER, not an interceptor: Hellfires and a chin gun
+  // for things on the ground, and it can reach other rotorcraft, drones and
+  // balloons loitering at its own altitude (lowAir). Fast jets and the
+  // high-altitude fleet are simply out of its envelope now — it used to
+  // dominate the entire sky for 150 minerals.
+  apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 16, dmgVsGround: 16, atkRange: 150, cooldown: 0.72, sight: 270, cost: 190, r: 11, buildTime: 11, flying: true, targets: 'ground', lowAir: true, shape: 'tri', rocketArt: true },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
   fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri' },
   // Shahed: a purchasable loitering munition — flies at its target and dives
@@ -455,7 +582,7 @@ const UNIT_TYPES = {
   // lingering chemtrail (toxin) as it strafes
   chembiplane: { name: 'Chemtrail Biplane', flyH: 30, role: 'combat', builtAt: 'airpad', hp: 110, speed: 140, dmg: 8, atkRange: 70, cooldown: 1, sight: 280, cost: 130, r: 10, buildTime: 9, flying: true, shape: 'tri', weapon: 'spray', groundEffect: { kind: 'toxin', r: 26, dur: 2, dps: 5 }, pad: true, maxAmmo: 6, plane: true, turn: 2.4 },
   // the globalist air wing: a fast swing-wing strike jet, and two tech-gated
-  // heavies — an orbiting AC-130 and the stealth-black flying wing
+  // heavies — a carpet-bombing B-52 and the stealth-black flying wing
   // Deep State's stealth air-superiority jet: supersonic, hits hard against
   // anything flying, plinks weakly at the ground on the way home. Invisible
   // until it fires.
@@ -468,31 +595,43 @@ const UNIT_TYPES = {
   // the GAU-8 does the talking: wide lazy turns into long saturation runs
   // (weapon 'gunrun') that annihilate vehicles and infantry along the flight
   // path — friend or foe, no IFF. Nearly useless against buildings.
-  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 1.3, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 4, beatenLen: 95, beatenWidth: 28, runOut: 260 },
+  a10:     { name: 'A-10 Warthog', flyH: 30, drawScale: 1.15, role: 'combat', builtAt: 'airpad', hp: 230, speed: 165, dmg: 22, atkRange: 150, cooldown: 0.6, sight: 300, cost: 200, r: 12, buildTime: 12, flying: true, shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.4, targets: 'ground', vehBonus: 1.9, bldgBonus: 0.25, splash: 13, weapon: 'gunrun', burstShells: 4, beatenLen: 95, beatenWidth: 28, runOut: 260 },
   // Globalist stealth fighter: lives on the airfield, scrambles at hostile
   // air with eight rails, and can strafe ground targets in a pinch — weakly.
   // Invisible until it opens fire, briefly lit, then gone again.
   // stealth coating dropped (the Deep State kept the classified paint):
   // it flies loud and proud now, pure interceptor
   f35:     { name: 'F-35 Interceptor', flyH: 38, role: 'combat', builtAt: 'airpad', hp: 175, speed: 235, dmg: 24, dmgVsGround: 9, atkRange: 170, cooldown: 0.55, sight: 320, cost: 170, r: 11, buildTime: 10, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 3.2 },
-  // lumbering death circle: wide slow pylon turn, battery rakes up to
-  // multiTarget enemies in range at once; flies from its own single-plane hangar
-  gunship: { name: 'AC-130 Gunship', flyH: 50, drawScale: 1.5, role: 'combat', builtAt: 'hangar', hp: 380, speed: 80, dmg: 11, atkRange: 230, cooldown: 0.22, sight: 320, cost: 420, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 40, plane: true, turn: 1.2, weapon: 'gunship', runOut: 240, shellEvery: 8, shellDmg: 45, shellSplash: 34, multiTarget: 3, req: 'tech' },
+  // the BUFF: a strategic bomber flying off the ordinary Air Force Base. It
+  // does not dogfight, orbit or loiter — it lines up a long straight run and
+  // walks a STICK of bombs through the target (weapon 'carpet': burstShells
+  // bombs spread along beatenLen/beatenWidth of the flight path). Murder on
+  // buildings and packed formations, useless against anything nimble, and it
+  // has to fly all the way home after two sticks.
+  b52: { name: 'B-52 Stratofortress', flyH: 52, drawScale: 1.6, role: 'combat', builtAt: 'airpad', hp: 420, speed: 108, dmg: 30, atkRange: 62, cooldown: 2.6, sight: 300, cost: 430, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 0.85, weapon: 'carpet', splash: 38, bldgBonus: 1.8, burstShells: 6, beatenLen: 155, beatenWidth: 30, runOut: 300, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
   // Grey Abductor Saucer: hovers over a ground unit and locks a tractor beam —
   // hold it long enough and the victim is hauled up and away (removed, +minerals).
   // Heavies (hp over abductMax) are too heavy to lift; the beam just drains them.
   abductor:   { name: 'Abductor Saucer', flyH: 30, drawScale: 1.35, role: 'combat', builtAt: 'airpad', hp: 200, speed: 100, dmg: 7, atkRange: 95, cooldown: 0.5, sight: 300, cost: 200, r: 12, buildTime: 13, flying: true, shape: 'saucer', weapon: 'abduct', abductTime: 3, abductMax: 300, abductBounty: 20 },
-  // ---------- apex heavies (AC-130 tier, all tech-gated) ----------
+  // ---------- apex heavies (all tech-gated) ----------
   // Flat: the Combine of Correction — an armor-plated harvester that reaps
   // what it's pointed at. ONE heavy cannon on the cab (no broadside battery),
   // and the header reel crushes infantry under it like wheat.
   combine:  { name: 'Combine of Correction', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 700, speed: 42, dmg: 36, atkRange: 195, cooldown: 1.5, sight: 280, cost: 470, r: 20, buildTime: 20, shape: 'square', armor: 0.3, bldgBonus: 1.4, req: 'tech' },
-  // Hollow air wing (Cavern Roost): the Tesla Ornithopter is a brass
-  // flapping-wing contraption that strafes with crackling vril arcs; the
-  // Pipe Organ Aerostat is a hovering calliope whose shockwave chords shred
-  // nearby aircraft (aaAura) while its drone dampens enemy fire below.
+  // Hollow air wing (Cavern Roost). The Ornithopter hits the ground, the Vril
+  // Disc owns the sky, the Aerostat holds an umbrella over both — the faction
+  // used to field NOTHING that could shoot at an aircraft except a Crystal
+  // Slinger on foot, which made a single enemy air wing unanswerable.
+  //
+  // Tesla Ornithopter: a brass flapping-wing contraption that strafes with
+  // crackling vril arcs. Ground only.
   ornithopter: { name: 'Tesla Ornithopter', flyH: 30, drawScale: 1.5, role: 'combat', builtAt: 'airpad', hp: 155, speed: 120, dmg: 14, atkRange: 110, cooldown: 0.6, sight: 270, cost: 160, r: 11, buildTime: 10, flying: true, targets: 'ground', shape: 'tri', vril: true },
+  // Vril Disc (Haunebu): the thing they actually recovered down there. A
+  // hovering bell-disc that holds altitude on a humming vril field — no
+  // airfield slot, no ammo, no rearming, it simply stays up. Their answer to
+  // an enemy air wing, and it will strafe the ground on the way past.
+  vrildisc: { name: 'Vril Disc', flyH: 34, drawScale: 1.3, role: 'combat', builtAt: 'airpad', hp: 210, speed: 118, dmg: 20, dmgVsGround: 8, atkRange: 165, cooldown: 0.6, sight: 290, cost: 175, r: 12, buildTime: 11, flying: true, targets: 'both', shape: 'saucer', vril: true },
   aerostat: { name: 'Pipe Organ Aerostat', flyH: 36, drawScale: 1.1, role: 'combat', builtAt: 'airpad', hp: 270, speed: 76, dmg: 0, atkRange: 0, cooldown: 1, sight: 290, cost: 230, r: 13, buildTime: 13, flying: true, shape: 'blimp', aaAura: { r: 165, dps: 18 }, aaChord: true, debuffAura: { r: 175, weaken: 0.3 }, vril: true, req: 'tech' },
   // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
   // lance vaporizes ONE ground target at a time; its bound Tic Tac escort
@@ -514,28 +653,34 @@ const UNIT_TYPES = {
 // players from the start, never near a starting base). Only Hollow can dig:
 // an Excavation Rig parks on a site and opens it over DIG_TIME seconds with a
 // progress bar everyone can read; the exposed relic then waits until a Tech
-// Priest channels on it and teleports home, banking it. Each relic pays a
-// boon (drawn without replacement from the pool below) AND counts toward the
-// ascension thresholds in ASCEND/TITAN_DEF.
+// Priest channels on it and teleports home, banking it.
+// Relics grant NO passive boons — they are pure keys. What a banked relic buys
+// is permission: the ascension thresholds in ASCEND. No relic, no Guard; no
+// four relics, no Dreadnought. The names below are flavor on the marker.
 const DIG_TIME = 50;
 const RELIC_DEFS = {
-  plating:   { name: 'Brazen Plating',      desc: 'your buildings take 15% less damage' },
-  engine:    { name: 'Ancient Engine',      desc: 'your ground vehicles move 12% faster' },
-  capacitor: { name: 'Vril Capacitor',      desc: 'your vril and tesla weapons hit 15% harder' },
-  resonant:  { name: 'Resonant Core',       desc: 'your quake weapons hit 25% harder' },
-  thirdeye:  { name: 'Third Eye of Agartha', desc: 'every remaining Dig Site reveals what it holds, and your HQ becomes a detector' },
-  forges:    { name: 'Deep Forges',         desc: 'your units train 12% faster' },
-  gyros:     { name: 'Gyroscopic Vanes',    desc: 'your aircraft move 12% faster' },
-  coffers:   { name: 'Golden Coffers',      desc: 'the vaults pay +12 minerals / 10s' },
+  plating:   { name: 'Brazen Plating',       desc: 'a slab of unpitted bronze from the deep foundries' },
+  engine:    { name: 'Ancient Engine',       desc: 'still warm, and nobody alive knows what fuels it' },
+  capacitor: { name: 'Vril Capacitor',       desc: 'a coil that hums when you look away from it' },
+  resonant:  { name: 'Resonant Core',        desc: 'struck once at the founding; the note has not stopped' },
+  thirdeye:  { name: 'Third Eye of Agartha', desc: 'a lens ground for an eye that was never human' },
+  forges:    { name: 'Deep Forges',          desc: 'the tooling plates of a workshop under the crust' },
+  gyros:     { name: 'Gyroscopic Vanes',     desc: 'brass vanes that hold level no matter how you turn them' },
+  coffers:   { name: 'Golden Coffers',       desc: 'a sealed strongbox stamped with a forgotten sigil' },
 };
-// the ascension ladder: pay the fee, walk the body into the building, wait.
+// the ascension ladder — the whole Hollow unit system in one table.
+// The Servitorium turns out Mole Servitors; the MECHANICUM takes them apart.
+// Walk a body in, pay the fee, wait, and something better walks out. Every
+// rung consumes the rung below it, so the sticker price of a Lantern Guard is
+// really servitor + fee, and a Dreadnought is guard + fee.
 // Banked armor (a Tech Priest salvaging a fallen Guard/Dreadnought) halves
 // the fee for the next body of that tier.
 const ASCEND = {
-  lanternguard: { from: 'moleservitor', at: 'tech',    relics: 2, cost: 120, time: 8 },
-  dreadnought:  { from: 'lanternguard', at: 'factory', relics: 3, cost: 300, time: 14 },
+  // the Priest costs no relic — he is how you GET relics in the first place
+  techpriest:   { from: 'moleservitor', at: 'mechanicum', relics: 0, cost: 95,  time: 7 },
+  lanternguard: { from: 'moleservitor', at: 'mechanicum', relics: 2, cost: 225, time: 11, tier: 'guard' },
+  dreadnought:  { from: 'lanternguard', at: 'mechanicum', relics: 4, cost: 540, time: 20, tier: 'dread', req: 'tech' },
 };
-const TITAN_DEF = { relics: 5, cost: 900, time: 60, minPlayers: 4 };
 
 // ---------- conversion tiers ----------
 // Documentary Drops (and any future conversion effect) climb a 3-rung ladder:
@@ -564,9 +709,10 @@ const BUILDING_TYPES = {
   powerplant: { hp: 320, w: 58, h: 58, cost: 80,  buildTime: 10, sight: 160, power: +100, cap: 6 },
   barracks:   { hp: 450, w: 54, h: 54, cost: 100, buildTime: 12, sight: 200, power: -30,  cap: 3 },
   factory:    { hp: 500, w: 88, h: 68, cost: 150, buildTime: 16, sight: 200, power: -40,  cap: 2 },
-  airpad:     { hp: 420, w: 96, h: 72, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 3, padCap: 4 },
-  // dedicated heavy hangar: holds a single AC-130, gated behind the tech lab
-  hangar:     { hp: 520, w: 124, h: 92, cost: 220, buildTime: 18, sight: 220, power: -50, cap: 2, padCap: 1, req: 'tech' },
+  // two airfields is the ceiling for everyone: 8 parked craft is already a
+  // serious air force, and a third field turned air factions into a wall of
+  // planes nothing on the ground could answer
+  airpad:     { hp: 420, w: 96, h: 72, cost: 140, buildTime: 16, sight: 200, power: -40,  cap: 2, padCap: 4 },
   // research site: pricey and power-hungry, unlocks each faction's advanced
   // units (req: 'tech' on the unit); flat-earth family airpads need it too
   tech:       { hp: 480, w: 60, h: 60, cost: 260, buildTime: 20, sight: 220, power: -80, cap: 1 },
@@ -591,13 +737,21 @@ const BUILDING_TYPES = {
   aanest:       { hp: 260, w: 36, h: 36, cost: 70,  buildTime: 8,  sight: 270, power: -20, cap: 5, dmg: 3.5, atkRange: 220, cooldown: 0.14, targets: 'air' }, // rapid tracer stream
   samsite:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 20,  atkRange: 270, cooldown: 1.6,  targets: 'air', weapon: 'missile', ownWeaponArt: true },
   geyser:       { hp: 300, w: 38, h: 38, cost: 95,  buildTime: 10, sight: 280, power: -30, cap: 5, dmg: 16,  atkRange: 240, cooldown: 0.75, targets: 'air' },
-  tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 2.4, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam', ownWeaponArt: true },
+  // continuous lock: it no longer hauls anything out of the sky (the capture
+  // was a coin-flip that either did nothing or deleted an expensive aircraft
+  // with no counterplay). It just drains hard and holds the target down.
+  tractor:      { hp: 320, w: 38, h: 38, cost: 110, buildTime: 12, sight: 300, power: -30, cap: 5, dmg: 6.5, atkRange: 250, cooldown: 0.1,  targets: 'air', weapon: 'beam', ownWeaponArt: true },
   // hollow-earth infrastructure. Tunnel entrances are network nodes (along
   // with the HQ and power plants): ground units enter one and surface at any
   // other after a distance-scaled transit. anywhere: exempt from the
   // build-radius rule — forward entrances near the enemy are the point.
   tunnelentrance: { name: 'Tunnel Entrance', hp: 280, w: 44, h: 44, cost: 60, buildTime: 8, sight: 200, power: -10, cap: 6, anywhere: true },
   geode:          { name: 'Crystal Geode', hp: 340, w: 48, h: 48, cost: 150, buildTime: 14, sight: 170, power: 0, income: 10, cap: 4, req: 'tech' },
+  // Deep State economy: it does not mine and it does not print — it takes a
+  // bigger cut. Every Front Company skims harder while this stands, and the
+  // Reserve pays a small float of its own. Gated behind the Continuity Bunker,
+  // so it is the SECOND thing you tech into, after the front companies exist.
+  fedreserve:     { name: 'Federal Reserve', hp: 420, w: 58, h: 54, cost: 260, buildTime: 18, sight: 190, power: -40, income: 8, cap: 2, req: 'tech', skimBoost: 0.18 },
   // Globalist premium income: a server farm that prints money off the grid.
   // Power-hungry (fits their infrastructure identity), capped so it's a floor,
   // not a runaway — the late-game answer for a faction with no field income.
@@ -624,11 +778,12 @@ const BUILDING_TYPES = {
   // is revealed (terrain + visible units; cloaked units still need a detector).
   // Pricey, power-hungry, tech-gated, one per player.
   satellite: { name: 'Satellite Uplink', hp: 360, w: 60, h: 60, cost: 320, buildTime: 22, sight: 300, power: -70, cap: 1, req: 'tech', revealMap: true },
-  // the Titan Foundry: one per player, tech-gated, and only worth its slab
-  // on big maps (Titans are disabled with 3 or fewer players — see TITAN_DEF).
-  // Consumes one Dreadnought and one Tech Priest walked in together, plus a
-  // fortune, and forges the Warlord Drill Titan over a very long build.
-  titanworks: { name: 'Titan Foundry', hp: 620, w: 96, h: 84, cost: 420, buildTime: 22, sight: 220, power: -80, cap: 1, req: 'tech' },
+  // the Mechanicum: the Hollow tech tree, standing in one building. Servitors
+  // walk in and Tech Priests, Lantern Guards and Dreadnoughts walk out (see
+  // ASCEND). No tech prereq — this is the SECOND thing a Hollow player builds,
+  // because the Priests it makes are the only way to bank a relic. The
+  // Dreadnought rite is the one rung that waits on the Reliquary.
+  mechanicum: { name: 'Mechanicum', hp: 600, w: 88, h: 76, cost: 170, buildTime: 14, sight: 210, power: -40, cap: 2 },
   // the superweapon slot: same structure everywhere, very different payloads
   // (see SUPER_DEFS); expensive, power-hungry, one per player
   superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },
@@ -640,6 +795,11 @@ const BUILDING_TYPES = {
   // as MORE convicted than the meter says (convictionAura.bonus).
   revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, convictionRate: 0.4, healAura: { r: 150, rate: 4 } },
   hamradio:    { name: 'Ham Radio',    hp: 220, w: 36, h: 36, cost: 90,  buildTime: 9,  sight: 260, power: -10, cap: 4, convictionAura: { r: 240, bonus: 25 } },
+  // the deployed Front Company. Never built from a menu — an unmarked van
+  // establishes it (see UNIT_TYPES.frontco). thief.cut is the share taken from
+  // every enemy delivery to a drop-off within thief.r.
+  frontcompany: { name: 'Front Company', hp: 260, w: 46, h: 42, cost: 0, buildTime: 0, sight: 230, power: 0,
+                  stealth: true, anywhere: true, thief: { r: 470, cut: 0.3 } },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
   // neutral map structures — garrison infantry inside to claim them
@@ -663,7 +823,7 @@ const BUILDING_TYPES = {
   // downtown colossus: fills a whole city block and towers over everything
   megatower:  { name: 'Mega Tower',        hp: 3200, w: 112, h: 100, cost: 0, buildTime: 0, sight: 330, power: 0, slots: 14, tall: true },
   hospital:   { name: 'General Hospital', hp: 1000, w: 74, h: 66, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 6, healAura: { r: 230, rate: 11 } },
-  bank:       { name: 'Federal Reserve',  hp: 820,  w: 58, h: 54, cost: 0, buildTime: 0, sight: 210, power: 0, slots: 4, income: 22 },
+  bank:       { name: 'Reserve Bank',  hp: 820,  w: 58, h: 54, cost: 0, buildTime: 0, sight: 210, power: 0, slots: 4, income: 22 },
   radiotower: { name: 'Radio Station',    hp: 440,  w: 40, h: 40, cost: 0, buildTime: 0, sight: 560, power: 0, slots: 2 },
   radar:      { name: 'Radar Station',    hp: 520,  w: 48, h: 48, cost: 0, buildTime: 0, sight: 420, power: 0, slots: 3, detector: true },
   researchlab:{ name: 'Research Lab',     hp: 640,  w: 56, h: 52, cost: 0, buildTime: 0, sight: 220, power: 0, slots: 4, buffAura: { r: 190 } },
@@ -672,7 +832,10 @@ const BUILDING_TYPES = {
   tvstation:  { name: 'TV Station',       hp: 560,  w: 56, h: 52, cost: 0, buildTime: 0, sight: 240, power: 0, slots: 4, convert: { every: 40, r: 1000 } },
   monument:   { name: 'Monument',         hp: 760,  w: 48, h: 48, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 3, buffAura: { r: 250 } },
   fueldepot:  { name: 'Fuel Depot',       hp: 420,  w: 60, h: 48, cost: 0, buildTime: 0, sight: 200, power: 0, slots: 3, healAura: { r: 210, rate: 7 }, rearm: true, explodes: { r: 85, dmg: 50, fire: { r: 50, dur: 4, dps: 9 } } },
-  blacksite:  { name: 'Black Site',       hp: 660,  w: 54, h: 50, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 4, spawns: { type: 'mib', every: 40 } },
+  // spawns.max is the DETACHMENT SIZE, not a total: the site tops itself back
+  // up to this many and then stops, so holding it all game is a standing squad
+  // rather than an ever-growing free army
+  blacksite:  { name: 'Black Site',       hp: 660,  w: 54, h: 50, cost: 0, buildTime: 0, sight: 230, power: 0, slots: 4, spawns: { type: 'mib', every: 40, max: 4 } },
   // rural/roadside mystery: hold it and salvaged saucers roll off the wreck
   // recovered anti-grav, not a free saucer factory: while held, the owner's
   // aircraft hit 15% harder and slowly knit themselves back together in flight
@@ -720,7 +883,7 @@ const BUILDING_MODS = {
     powerplant: { cost: 125, hp: 420, power: 150, buildTime: 13, w: 62, h: 62 },
     barracks:   { cost: 125, hp: 520, buildTime: 13, w: 58, h: 58 },
     factory:    { cost: 175, hp: 560, buildTime: 17 },
-    airpad:     { cost: 160, hp: 470, buildTime: 17 },
+    airpad:     { cost: 175, hp: 520, buildTime: 18, w: 132, h: 96 }, // a runway the BUFF actually fits on
     tech:       { cost: 300, hp: 560 },
   },
   deep: { // black-budget funding: nearly Globalist quality, slightly leaner
