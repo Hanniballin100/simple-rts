@@ -14,11 +14,13 @@ Then open http://localhost:8377 and choose your truth.
 
 | File | Contents |
 |---|---|
+| `rng.js` | Seeded PRNG, split into a `simRandom()` stream (hashed, in lockstep) and a free-running `fxRandom()` stream (cosmetic only). |
 | `data.js` | All game data: constants, map sizes, terrain types, factions, unit/building stats. Balance changes go here. |
 | `iso.js` | 2:1 isometric projection layer: project/unproject helpers used at render + input time (the simulation stays flat cartesian). |
 | `mapgen.js` | Random map generator: start positions, mineral fields, terrain features. |
 | `art.js` | Unit & building drawings (animated vector, RA2-style iso volumes with NE lighting) + particle effects. |
 | `game.js` | Engine: state, orders, combat, AI, input, sidebar UI, depth-sorted iso rendering. |
+| `desync.js` | `hashState()` and the determinism self-test harness. Dev only — nothing in the game depends on it. |
 | `mockup.html/js` | Standalone art style demo. |
 
 ## Factions
@@ -56,6 +58,75 @@ Seven factions in four families, each with its own roster, passive trait, and si
 - EVA-style speech announcer and synthesized sound effects (mute with M)
 - Enemy AIs play random factions from other families, each with its own build order, army composition, defense, and attack waves
 - Click any enemy unit or building for a full intel card
+
+## Determinism
+
+The simulation is deterministic: the same seed and the same sequence of
+commands produce bit-identical state forever. This is groundwork for lockstep
+multiplayer; the networking itself is not built.
+
+Three rules hold it up.
+
+**One seeded stream for the sim, one free stream for the eye.** `simRandom()`
+is seeded from `state.seed` at `startGame(faction, seed)` and covers everything
+that can change *whether* or *where* something happens — damage rolls, scatter,
+AI picks, spawn jitter, loot, the whole of `mapgen.js`. `fxRandom()` covers
+particles, smoke, muzzle flashes and all of `art.js`; it is seeded from the
+clock on purpose, so an accidental sim dependency on it shows up immediately as
+a desync instead of hiding behind a shared seed. There is no `Math.random()` in
+the sim path.
+
+**A fixed timestep.** `stepSim()` advances exactly `TICK = 1/30` of a second
+and takes no wall-clock delta at all. `frame(now)` accumulates real time, runs
+up to `MAX_CATCHUP = 5` ticks, drops the backlog past that, and renders.
+`state.time` is derived from `state.tick`, never accumulated, so it cannot
+drift. `stepTicks(n)` advances the sim headless, with no rendering and no
+clock.
+
+**A command layer.** Input never mutates state. It posts
+`{tick, owner, seq, type, payload}` into a tick-keyed queue, and `stepSim()`
+drains that tick's bucket first, sorted by owner then by the issuer-assigned
+sequence number — never by insertion order. Commands carry ids, never object
+references. Selection, camera, zoom, control groups and the placement cursor
+stay client-side and never enter the queue.
+
+### Proving it
+
+`desync.js` provides `hashState()` — a uint32 fold of every sim-relevant field,
+including the RNG cursor and draw count, hashing floats by their exact bits —
+and a harness that runs a match twice in one page and compares the hash at
+every tick.
+
+```js
+Desync.selftest({ seed: 4242, faction: 'flat', opponents: 3 }, 400)
+// -> { ok: true, ticks: 401, finalHash: ... }
+```
+
+The full proof is a 4000-tick, four-AI game run twice: identical at every tick.
+Add `script: Desync.scriptedPlayer` to exercise the command queue too. The
+long-run recipe is at the bottom of `desync.js` (it has to be chunked to fit
+the console, not for any reason to do with the result).
+
+### The one caveat
+
+`Math.sin`, `cos`, `atan2`, `hypot` and `sqrt` are **not** specified to be
+bit-identical across JavaScript engines, and they are load-bearing in the sim:
+roughly 150 calls on sim paths, in distance checks, facing, and every unit's
+movement integration. Replacing them means a lookup-table rewrite of the
+movement and combat core.
+
+**The choice made here is to accept them**, which means determinism is
+guaranteed between clients on the same engine (Chrome↔Chrome, Firefox↔Firefox),
+not across engines. In practice V8, SpiderMonkey and JSC agree on these far
+more often than the spec requires, so a cross-engine match will usually work
+and will occasionally desync — the harness will say exactly which tick. If
+cross-engine play becomes a requirement, that is the work: fixed-point or
+table-driven trig and distance, done as its own pass.
+
+The one place this was *not* accepted is `prand()` in `mapgen.js`, which used
+`fract(sin(x) * 43758.5)`. That idiom amplifies a one-ulp disagreement into a
+completely different value, and `prand` decides where city blocks and landmarks
+go, so it is now an integer hash.
 
 ## Controls
 

@@ -230,3 +230,45 @@ const Desync = {
     return this.compare();
   },
 };
+
+// A scripted player, for the "same seed + same commands twice" test. It posts
+// REAL commands through enqueue() at fixed ticks and resolves its targets from
+// sim state only — never from the selection or the camera, which a replay
+// would not have. Everything it does is something a human could do.
+Desync.scriptedPlayer = function (t) {
+  const hq = state.buildings.find(b => b.owner === PLAYER && b.type === 'hq' && b.hp > 0);
+  if (!hq) return;
+  const mine = state.units.filter(u => u.owner === PLAYER && u.hp > 0);
+  const army = mine.filter(u => UNIT_TYPES[u.type].role === 'combat');
+  const workers = mine.filter(u => UNIT_TYPES[u.type].role === 'worker');
+  const f = FACTIONS[state.factions[PLAYER]];
+  if (t === 5)   enqueue(PLAYER, 'build', { t: 'powerplant' });
+  if (t === 90)  enqueue(PLAYER, 'place', { t: 'powerplant', x: hq.x + 120, y: hq.y + 90 });
+  if (t === 120) enqueue(PLAYER, 'build', { t: 'barracks' });
+  if (t === 260) enqueue(PLAYER, 'place', { t: 'barracks', x: hq.x - 130, y: hq.y + 100 });
+  if (t === 300 && workers.length) enqueue(PLAYER, 'move', { u: workers.map(u => u.id), x: hq.x + 260, y: hq.y + 260 });
+  if (t >= 320 && t < 900 && t % 40 === 0 && f.infantry) enqueue(PLAYER, 'train', { t: f.infantry });
+  if (t === 400) enqueue(PLAYER, 'research', { k: 'stealth' });
+  if (t === 430) enqueue(PLAYER, 'wallline', { x0: hq.x - 200, y0: hq.y - 160, x1: hq.x + 60, y1: hq.y - 160 });
+  if (t === 600 && army.length) enqueue(PLAYER, 'attackmove', { u: army.map(u => u.id), x: WORLD_W / 2, y: WORLD_H / 2 });
+  if (t === 750) enqueue(PLAYER, 'rally', { b: hq.id, x: hq.x + 80, y: hq.y + 160 });
+  if (t === 900 && army.length) enqueue(PLAYER, 'move', { u: army.map(u => u.id), x: hq.x, y: hq.y + 200 });
+};
+
+// ---- the long proof ----
+//
+// The full 4-AI run is too slow for one console call (hashing a late-game
+// world costs more than stepping it), so drive it in chunks. Paste these in
+// order, one call each; the last one prints the verdict:
+//
+//   __CFG = { seed: 20260812, faction: 'flat', size: 'large',
+//             opponents: 4, supers: true, setting: 'town' };
+//   Desync.reset(); Desync.begin(__CFG); Desync.advance(700);
+//   Desync.advance(900); Desync.advance(1100); Desync.advance(1300); Desync.keep();
+//   Desync.begin(__CFG); Desync.advance(1600);
+//   Desync.advance(1400); Desync.advance(1000); Desync.keep();
+//   Desync.compare();     // -> { ok: true, ticks: 4001, finalHash: ... }
+//
+// Add `script: Desync.scriptedPlayer` to __CFG to exercise the command queue
+// as well as the AI. Chunk sizes are only about the 30s tool timeout — the
+// result does not depend on where the run is split.
