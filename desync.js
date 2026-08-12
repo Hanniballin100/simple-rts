@@ -146,6 +146,20 @@ function hashState() {
     else hval(state[k], 0);
   }
 
+  // Fog. It looks derived, but "explored" accumulates and persists, and the
+  // sim reads it — a scout picks its next destination out of it — so it is
+  // state and it can drift independently. Four tiles to a word: the grid runs
+  // to 120x84 per owner and this is folded every tick.
+  hstr('fog');
+  for (const o of OWNERS) {
+    const v = visAll[o];
+    if (!v) { hu32(0xF0F0F0F0); continue; }
+    hu32(v.length);
+    let i = 0;
+    for (; i + 3 < v.length; i += 4) hu32(v[i] | (v[i + 1] << 8) | (v[i + 2] << 16) | (v[i + 3] << 24));
+    for (; i < v.length; i++) hu32(v[i]);
+  }
+
   // the AI brains: thinkTimer, wave size and target picks are all sim state
   hstr('ais');
   for (const o of Object.keys(ais).sort((a, b) => a - b)) {
@@ -166,7 +180,7 @@ const Desync = {
   begin(cfg) {
     this.cfg = Object.assign({
       seed: 12345, faction: 'flat', size: 'medium', opponents: 3,
-      supers: true, setting: 'town', script: null,
+      supers: true, setting: 'town', script: null, as: PLAYER,
     }, cfg || {});
     const c = this.cfg;
     selectedSize = c.size;
@@ -174,6 +188,9 @@ const Desync = {
     superweaponsOn = c.supers;
     if (typeof selectedSetting !== 'undefined') selectedSetting = c.setting;
     startGame(c.faction, c.seed);
+    // `as` is which seat the local screen is sitting in. It must change
+    // nothing that the hash can see — that is the whole point of viewpointTest.
+    localOwner = c.as;
     this.log = [hashState()]; // tick 0: the world as generated, before any step
     return { tick: state.tick, hash: this.log[0] };
   },
@@ -229,6 +246,33 @@ const Desync = {
     }
     return this.compare();
   },
+};
+
+// ---- the viewpoint test ----
+//
+// selftest() runs both matches from the same seat, so it cannot see view state
+// leaking into the simulation — both runs read the same fog, the same
+// selection, the same camera, and agree with each other about all of it.
+//
+// This runs the same match from two DIFFERENT seats. Everything about who is
+// watching — fog, sound, particles, the panel — is allowed to differ; not one
+// bit the hash can see is. A failure here means something the local screen
+// owns has reached sim state, and it names the tick.
+//
+// This is the test that would have caught the scout reading the human's fog.
+Desync.viewpointTest = function (cfg, ticks, seatA, seatB) {
+  const a = seatA === undefined ? 0 : seatA;
+  const b = seatB === undefined ? 1 : seatB;
+  this.reset();
+  for (const seat of [a, b]) {
+    this.begin(Object.assign({}, cfg, { as: seat }));
+    this.advance(ticks);
+    this.keep();
+  }
+  const r = this.compare();
+  r.seats = [a, b];
+  localOwner = PLAYER; // put the screen back where it was
+  return r;
 };
 
 // A scripted player, for the "same seed + same commands twice" test. It posts

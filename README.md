@@ -107,6 +107,28 @@ Add `script: Desync.scriptedPlayer` to exercise the command queue too. The
 long-run recipe is at the bottom of `desync.js` (it has to be chunked to fit
 the console, not for any reason to do with the result).
 
+There is a second test, and it catches a different class of bug:
+
+```js
+Desync.viewpointTest({ seed: 4242, faction: 'flat', opponents: 3 }, 400, 0, 1)
+// -> { ok: true, ticks: 401, seats: [0, 1] }
+```
+
+`selftest` runs both matches from the same seat, so it cannot see view state
+leaking into the simulation — both runs read the same fog and agree with each
+other about all of it. `viewpointTest` runs the same match from two *different*
+seats. Everything about who is watching may differ; nothing the hash can see
+may. A failure means something the local screen owns has reached sim state, and
+it names the tick.
+
+That is not hypothetical. Fog of war used to be a single grid built for owner
+zero, and the scout `explore` order picked its destination out of it — so every
+side's scouts navigated by the human player's vision. `selftest` was green
+through 4000 ticks with that bug in place. `viewpointTest` fails on it one tick
+after a scout is given the order. Fog is per-owner now, and `tileStateFor` /
+`visibleTo` / `nearestUnexplored` all take an owner: **the simulation may only
+ask what a named side knows, never what the screen knows.**
+
 ### The one caveat
 
 `Math.sin`, `cos`, `atan2`, `hypot` and `sqrt` are **not** specified to be

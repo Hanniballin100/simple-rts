@@ -244,7 +244,17 @@ let sfxCount = 0, sfxWindow = 0;
 // ---------- fog of war state (sized by initFog once the map exists) ----------
 
 let FW = 0, FH = 0;
-let vis = new Uint8Array(0); // 0 unexplored, 1 explored, 2 visible
+// ONE GRID PER OWNER. 0 unexplored, 1 explored, 2 currently visible.
+// This used to be a single array built for owner zero, which was fine while
+// there was only ever one human at the screen — but the simulation reads fog
+// (a scout picks its next destination from it), so on two clients that have
+// explored different ground the same scout walks two different ways and the
+// match comes apart. Whose fog it is now has to be stated at every call.
+let visAll = [];             // owner -> Uint8Array(FW * FH)
+// Which side is at this keyboard. Only the VIEW may depend on it: rendering,
+// the panel, the announcer, sound. If a value derived from localOwner ever
+// reaches sim state, Desync.viewpointTest() will catch it.
+let localOwner = PLAYER;
 let fogImg = null;           // ImageData reused every frame (fillRect per tile is too slow on big maps)
 const fogCanvas = document.createElement('canvas');
 const fogCtx = fogCanvas.getContext('2d');
@@ -252,11 +262,14 @@ const fogCtx = fogCanvas.getContext('2d');
 function initFog() {
   FW = Math.round(WORLD_W / FOG_TILE);
   FH = Math.round(WORLD_H / FOG_TILE);
-  vis = new Uint8Array(FW * FH);
+  visAll = [];
+  for (const o of OWNERS) visAll[o] = new Uint8Array(FW * FH);
   fogCanvas.width = FW;
   fogCanvas.height = FH;
   fogImg = fogCtx.createImageData(FW, FH);
 }
+// the local player's grid, for the renderer
+function localVis() { return visAll[localOwner] || new Uint8Array(FW * FH); }
 
 
 function ensureAudio() {
@@ -442,19 +455,33 @@ function hasStruct(owner, type) {
   return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done && b.type === type);
 }
 
-function tileState(x, y) {
+// Fog lookups come in two flavours. The For(owner, ...) ones answer the real
+// question — what does THIS side know? — and are the only ones the simulation
+// is allowed to ask. The bare ones answer for whoever is at the keyboard, and
+// belong to rendering, the panel and sound.
+function tileIndex(x, y) {
   const tx = clamp(Math.floor(x / FOG_TILE), 0, FW - 1);
   const ty = clamp(Math.floor(y / FOG_TILE), 0, FH - 1);
-  return vis[ty * FW + tx];
+  return ty * FW + tx;
 }
+function tileStateFor(owner, x, y) {
+  const v = visAll[owner];
+  return v ? v[tileIndex(x, y)] : 0;
+}
+function tileState(x, y) { return tileStateFor(localOwner, x, y); }
 
-// nearest never-seen (vis===0) tile center to a world point — used by the
-// scout Explore order. Returns null when the whole map has been revealed.
-function nearestUnexplored(wx, wy) {
+// nearest never-seen (state 0) tile center to a world point, from ONE side's
+// point of view — used by the scout Explore order. Returns null when that side
+// has revealed the whole map. The owner argument is load-bearing: this decides
+// where a scout walks, and reading the local player's fog here made the same
+// scout walk somewhere different on every client.
+function nearestUnexplored(owner, wx, wy) {
+  const v = visAll[owner];
+  if (!v) return null;
   let best = null, bestD = Infinity;
   for (let ty = 0; ty < FH; ty++) {
     for (let tx = 0; tx < FW; tx++) {
-      if (vis[ty * FW + tx] !== 0) continue;
+      if (v[ty * FW + tx] !== 0) continue;
       const cx = tx * FOG_TILE + FOG_TILE / 2, cy = ty * FOG_TILE + FOG_TILE / 2;
       const d = (cx - wx) ** 2 + (cy - wy) ** 2;
       if (d < bestD) { bestD = d; best = { x: cx, y: cy }; }
@@ -463,7 +490,9 @@ function nearestUnexplored(wx, wy) {
   return best;
 }
 
-function markSight(x, y, sight) {
+function markSight(owner, x, y, sight) {
+  const v = visAll[owner];
+  if (!v) return; // neutral, or the no-IFF pseudo-owners: nobody is looking
   const tx0 = Math.max(0, Math.floor((x - sight) / FOG_TILE));
   const tx1 = Math.min(FW - 1, Math.floor((x + sight) / FOG_TILE));
   const ty0 = Math.max(0, Math.floor((y - sight) / FOG_TILE));
@@ -471,42 +500,53 @@ function markSight(x, y, sight) {
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
       const cx = tx * FOG_TILE + FOG_TILE / 2, cy = ty * FOG_TILE + FOG_TILE / 2;
-      if ((cx - x) ** 2 + (cy - y) ** 2 <= sight * sight) vis[ty * FW + tx] = 2;
+      if ((cx - x) ** 2 + (cy - y) ** 2 <= sight * sight) v[ty * FW + tx] = 2;
     }
   }
 }
 
+// Every side's fog, every tick. One pass over the world marks each sighting
+// into whichever owner's grid it belongs to, so this costs barely more than
+// the single-player version did — the per-owner part is only the decay sweep.
 function updateFog() {
-  for (let i = 0; i < vis.length; i++) if (vis[i] === 2) vis[i] = 1;
+  for (const o of OWNERS) {
+    const v = visAll[o];
+    for (let i = 0; i < v.length; i++) if (v[i] === 2) v[i] = 1;
+  }
   for (const u of state.units) {
-    if (u.owner === PLAYER && u.hp > 0 && !u.garrisoned) markSight(u.x, u.y, UNIT_TYPES[u.type].sight);
+    if (u.hp <= 0) continue;
+    if (!u.garrisoned) markSight(u.owner, u.x, u.y, UNIT_TYPES[u.type].sight);
     // probe-drone trackers: lasting vision of the tagged unit, wherever it goes
-    if (u.owner !== PLAYER && u.hp > 0 && u.trackedBy && u.trackedBy[PLAYER]) markSight(u.x, u.y, 140);
+    if (u.trackedBy) for (const o of OWNERS) if (o !== u.owner && u.trackedBy[o]) markSight(o, u.x, u.y, 140);
     // ASSETS: you see whatever your sleepers see, from inside their army
-    if (u.sleeperFor === PLAYER && u.hp > 0 && !u.garrisoned) markSight(u.x, u.y, UNIT_TYPES[u.type].sight);
+    if (u.sleeperFor !== undefined && u.sleeperFor !== null && !u.garrisoned) {
+      markSight(u.sleeperFor, u.x, u.y, UNIT_TYPES[u.type].sight);
+    }
   }
   for (const b of state.buildings) {
-    if (b.owner === PLAYER && b.hp > 0) markSight(b.x, b.y, bstatsOf(b).sight);
+    if (b.hp > 0) markSight(b.owner, b.x, b.y, bstatsOf(b).sight);
   }
   // Open the Books: their whole estate laid bare, building by building
-  const bk = state.books[PLAYER];
-  if (bk && state.time < bk.until) {
+  for (const o of OWNERS) {
+    const bk = state.books[o];
+    if (!bk || state.time >= bk.until) continue;
     for (const b of state.buildings) {
-      if (b.owner === bk.on && b.hp > 0) markSight(b.x, b.y, Math.max(bstatsOf(b).sight, 260));
+      if (b.owner === bk.on && b.hp > 0) markSight(o, b.x, b.y, Math.max(bstatsOf(b).sight, 260));
     }
   }
   // orbital uplink (Globalist Satellite): a finished one reveals the whole map
-  if (state.buildings.some(b => b.owner === PLAYER && b.hp > 0 && b.done && bstatsOf(b).revealMap)) {
-    vis.fill(2);
+  for (const b of state.buildings) {
+    if (b.hp > 0 && b.done && visAll[b.owner] && bstatsOf(b).revealMap) visAll[b.owner].fill(2);
   }
 }
 
-function visibleToPlayer(e) {
-  if (e.owner === PLAYER) return true;
-  if (hiddenFrom(e, PLAYER)) return false; // stealthed/burrowed and undetected
-  const t = tileState(e.x, e.y);
+function visibleTo(owner, e) {
+  if (e.owner === owner) return true;
+  if (hiddenFrom(e, owner)) return false; // stealthed/burrowed and undetected
+  const t = tileStateFor(owner, e.x, e.y);
   return e.kind === 'building' ? t >= 1 : t === 2;
 }
+function visibleToPlayer(e) { return visibleTo(localOwner, e); }
 
 // is this entity currently running silent? (drawn ghosted for its owner,
 // and for enemies whose detector has it pinned)
@@ -3214,9 +3254,9 @@ function updateUnit(u, dt) {
       // auto-recon: keep heading for the nearest unseen ground; when the map is
       // fully lit, stand down. Re-picks a target once the current one is seen.
       o.reT = (o.reT || 0) - dt;
-      if (o.tx === undefined || o.tx === null || tileState(o.tx, o.ty) >= 1 || o.reT <= 0) {
+      if (o.tx === undefined || o.tx === null || tileStateFor(u.owner, o.tx, o.ty) >= 1 || o.reT <= 0) {
         o.reT = 0.6;
-        const spot = nearestUnexplored(u.x, u.y);
+        const spot = nearestUnexplored(u.owner, u.x, u.y);
         if (!spot) { u.order = { type: 'idle' }; if (u.owner === PLAYER) eva('Area explored'); break; }
         o.tx = spot.x; o.ty = spot.y;
       }
@@ -4867,7 +4907,7 @@ function issueCommand(owner, unitIds, x, y) {
 
   // right-click a neutral (or own-held) civilian structure: infantry garrison it
   const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots &&
-    (b.owner === NEUTRAL || (b.owner === owner && b.done)) && visibleToPlayer(b) &&
+    (b.owner === NEUTRAL || (b.owner === owner && b.done)) && visibleTo(owner, b) &&
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   if (gb) {
     let any = false;
@@ -4877,14 +4917,13 @@ function issueCommand(owner, unitIds, x, y) {
     if (any) { sfx('click'); return; }
   }
 
-  // NOTE: visibleToPlayer() is the LOCAL player's fog. Commands are only ever
-  // issued by PLAYER in this build, so it is the right fog — a lockstep build
-  // with real opponents needs per-owner fog here, or the target resolution
-  // would read one client's vision on every client.
-  const foe = enemiesOf(owner).find(e => visibleToPlayer(e) &&
+  // Target resolution runs at EXECUTION time on every client, so it has to ask
+  // about the ISSUING side's vision, not the local one. These were
+  // visibleToPlayer()/tileState() — i.e. whoever happened to be at the keyboard.
+  const foe = enemiesOf(owner).find(e => visibleTo(owner, e) &&
     (e.kind === 'unit' ? clickHitsUnit(e, x, y, 6)
                        : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
-  const patch = state.patches.find(p => p.amount > 0 && dist(p, pt) <= 20 && tileState(p.x, p.y) >= 1);
+  const patch = state.patches.find(p => p.amount > 0 && dist(p, pt) <= 20 && tileStateFor(owner, p.x, p.y) >= 1);
   // a damaged friendly unit under the cursor: repair units tend to it
   const ally = state.units.find(a => a.owner === owner && a.hp > 0 && !a.garrisoned &&
     a.hp < a.maxHp && clickHitsUnit(a, x, y, 6));
@@ -7102,6 +7141,7 @@ function drawOverlays() {
   // fog — raw pixels (black with per-tile alpha), stretched over the world
   // rect through the projection so tiles land as ground diamonds
   const fd = new Uint32Array(fogImg.data.buffer);
+  const vis = localVis();
   for (let i = 0; i < vis.length; i++) {
     fd[i] = vis[i] === 2 ? 0 : vis[i] === 1 ? 0x80000000 : 0xF2000000;
   }
