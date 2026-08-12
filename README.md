@@ -10,6 +10,21 @@ node serve.js
 
 Then open http://localhost:8377 and choose your truth.
 
+### Multiplayer
+
+Nobody needs to download anything. One person runs `node serve.js`; everyone
+else opens that machine's address in a browser. The server prints the LAN URL
+to share on startup. (Across the internet you need that one machine reachable —
+a forwarded port, a tunnel, or a small VPS. The relay is tiny and idle enough
+to run anywhere.)
+
+Open **Multiplayer** on the setup screen, put the same room name in, pick a
+faction, ready up. The host presses Start.
+
+Up to 6 seats, humans plus AI opponents. Everyone runs the whole simulation and
+only commands cross the wire — see [Determinism](#determinism) for why that
+works and what it costs.
+
 ## Code layout
 
 | File | Contents |
@@ -21,6 +36,8 @@ Then open http://localhost:8377 and choose your truth.
 | `art.js` | Unit & building drawings (animated vector, RA2-style iso volumes with NE lighting) + particle effects. |
 | `game.js` | Engine: state, orders, combat, AI, input, sidebar UI, depth-sorted iso rendering. |
 | `desync.js` | `hashState()` and the determinism self-test harness. Dev only — nothing in the game depends on it. |
+| `net.js` | Lockstep multiplayer client: lobby handshake, turn loop, drift alarm, disconnect handling. Inert until you join a room. |
+| `serve.js` | Static file server **and** the multiplayer relay (hand-rolled WebSocket, no dependencies). Simulates nothing. |
 | `mockup.html/js` | Standalone art style demo. |
 
 ## Factions
@@ -152,6 +169,29 @@ through 4000 ticks with that bug in place. `viewpointTest` fails on it one tick
 after a scout is given the order. Fog is per-owner now, and `tileStateFor` /
 `visibleTo` / `nearestUnexplored` all take an owner: **the simulation may only
 ask what a named side knows, never what the screen knows.**
+
+### Over the wire
+
+`net.js` puts the three rules to work. Each client sends one packet per tick —
+always, even an empty one, because silence is indistinguishable from a lost
+message — stamped `NET_DELAY` (4 ticks, ~133ms) in the future. No client runs
+tick T until it holds every player's packet for tick T; that wait is the
+"Waiting for players…" bar. The relay assigns seats and the seed, forwards
+packets, and simulates nothing.
+
+Two safety nets. Every `HASH_EVERY` ticks each client publishes its
+`hashState()` fingerprint; a mismatch stops the match and names the tick,
+because a drift cannot be repaired and two people silently playing different
+games is the worse outcome. And when a player disconnects, the relay names a
+tick at which their seat becomes AI-controlled — delivered as an ordinary
+`resign` command, so every client hands over on the same tick rather than each
+giving up on its own schedule.
+
+This is the test that found the last real bug. Unit separation ran on
+alternating **rendered frames** (`frameNo`), so which units got shoved on a
+given tick depended on the client's frame rate. Neither same-page test could
+see it — both runs share one `frameNo`. Two browsers could not agree for a
+minute. It alternates on `state.tick` now.
 
 ### The one caveat
 

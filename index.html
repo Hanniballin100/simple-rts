@@ -62,8 +62,25 @@
         <div class="setup-opts" id="super-buttons"></div>
       </div>
     </div>
+    <div id="mp-panel">
+      <button id="mp-toggle">Multiplayer ▼</button>
+      <div id="mp-body">
+        <div class="mp-line">
+          <input id="mp-name" maxlength="16" placeholder="Your name" value="Player">
+          <input id="mp-room" maxlength="8" placeholder="Room" value="MAIN">
+          <button id="mp-connect">Connect</button>
+        </div>
+        <div id="mp-list"></div>
+        <div class="mp-line">
+          <button id="mp-ready" style="display:none">Ready</button>
+          <button id="mp-start" style="display:none">Start match</button>
+        </div>
+        <div class="mp-hint">Everyone opens this same address, joins the same room, picks a faction below and readies up. The host starts the match.</div>
+      </div>
+    </div>
     <div id="family-groups"></div>
   </div>
+  <div id="net-status"></div>
   <script src="rng.js"></script>
   <script src="data.js"></script>
   <script src="iso.js"></script>
@@ -71,5 +88,6 @@
   <script src="art.js"></script>
   <script src="game.js"></script>
   <script src="desync.js"></script>
+  <script src="net.js"></script>
 </body>
 </html>

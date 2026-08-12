@@ -3115,10 +3115,17 @@ function updateCargoRiders(u, dt) {
 // separation only within the same layer (ground vs ground, air vs air);
 // aircraft parked on a pad hold their slot, and fixed-wing craft are never
 // shoved — they are always moving anyway. Each unit resolves overlap on
-// alternating frames — half the cost, visually identical
+// alternating TICKS — half the cost, visually identical.
+//
+// This alternated on `frameNo` until it desynced a live match: frameNo counts
+// RENDERED FRAMES, so which units separate on a given tick depended on the
+// client's frame rate. Two machines shoved different units on the same tick
+// and drifted apart within a minute. Neither same-page test could see it —
+// both runs shared one frameNo — which is exactly why the fingerprint that
+// clients exchange over the wire earns its keep.
 function separateFromNeighbors(u, stats) {
   if (u.landed || stats.plane) return;
-  if (((u.id + frameNo) & 1) === 0) return;
+  if (((u.id + state.tick) & 1) === 0) return;
   const myFlying = !!stats.flying;
   const sgx = (u.x / SEP_CELL) | 0, sgy = (u.y / SEP_CELL) | 0;
   for (let cx2 = sgx - 1; cx2 <= sgx + 1; cx2++) {
@@ -5593,8 +5600,13 @@ function startGame(faction, seed, opts) {
   powerMemo = { t: -1 };
   document.getElementById('faction-select').classList.add('hidden');
   const size = MAP_SIZES[selectedSize];
-  const numEnemies = clamp(selectedOpponents, 1, size.maxPlayers - 1);
-  OWNERS = Array.from({ length: numEnemies + 1 }, (_, o) => o);
+  // In a networked match the lobby has already counted the seats — humans plus
+  // whatever AIs were asked for. Single player derives it from the opponent
+  // picker, which is the same sum with exactly one human.
+  const total = (opts && opts.extraSeats)
+    ? clamp(opts.extraSeats, 2, size.maxPlayers)
+    : clamp(selectedOpponents, 1, size.maxPlayers - 1) + 1;
+  OWNERS = Array.from({ length: total }, (_, o) => o);
 
   // seat assignment. Single player is the one-element case of the lobby.
   const seats = (opts && opts.humans && opts.humans.length)
@@ -7510,14 +7522,24 @@ function drainCommands() {
 // cover the round trip and nothing else in the sim has to change.
 const CMD_DELAY = 1;
 
+// file a command against the tick it will execute on
+function queueCommand(c) {
+  let bucket = commandQueue.get(c.tick);
+  if (!bucket) commandQueue.set(c.tick, bucket = []);
+  bucket.push(c);
+}
+
 function enqueue(owner, type, payload) {
   if (!started || state.over) return null;
-  const at = state.tick + CMD_DELAY;
   const seq = cmdSeq[owner] = (cmdSeq[owner] || 0) + 1;
-  const c = { tick: at, owner, seq, type, payload: payload || {} };
-  let bucket = commandQueue.get(at);
-  if (!bucket) commandQueue.set(at, bucket = []);
-  bucket.push(c);
+  const c = { owner, seq, type, payload: payload || {} };
+  // Networked: the command goes into the outbox and is stamped when the next
+  // turn packet goes out, NOT here. Stamping it here would race — the player
+  // can click after this frame's packet has already left, and the command
+  // would be filed for a tick that peers were never told about.
+  if (typeof Net !== 'undefined' && Net.inMatch) { Net.outbox.push(c); return c; }
+  c.tick = state.tick + CMD_DELAY;
+  queueCommand(c);
   return c;
 }
 
@@ -7566,6 +7588,20 @@ const COMMANDS = {
   cancelrite:  (o, p) => { const u = cmdUnit(p.u, o); if (u) cancelRite(u); },
   super:       (o, p) => { const b = cmdBuilding(p.b, o); if (b && superReady(b) && !isOffline(b)) fireSuperweapon(b, p.x, p.y); },
   leverage:    (o, p) => { const t = state.buildings.find(b => b.id === p.b && b.hp > 0 && b.owner !== o && b.owner !== NEUTRAL); if (t) playLeverage(o, p.k, t); },
+  // A player is gone. This is a COMMAND rather than something the network
+  // layer does directly, because every client has to hand the seat over on the
+  // same tick — a client that gave up two ticks early would have run two ticks
+  // of AI the others did not, which is a desync caused by handling a
+  // disconnect. The relay names the tick; this applies it.
+  resign:      (o, p) => {
+    const seat = p.owner;
+    if (!OWNERS.includes(seat) || !humanOwners.has(seat)) return;
+    humanOwners.delete(seat);
+    // no simRandom() here: an abandoned seat must not shift the RNG cursor,
+    // or every client that processes this would need to agree on the draw too
+    if (!ais[seat]) ais[seat] = { attackWaveSize: 5, thinkTimer: 0, time: 0 };
+    if (seat === localOwner) eva('Battle control terminated');
+  },
   ability:     (o, p) => {
     if (p.m === 'zone') (isFlat(o) ? castFirmament : castWeather)(o, p.x, p.y);
     else if (p.m === 'recall') castRecall(o, p.x, p.y);
@@ -7786,11 +7822,26 @@ function frame(now) {
     clampCam();
 
     accumulator += real;
-    let n = 0;
+    const net = (typeof Net !== 'undefined' && Net.inMatch) ? Net : null;
+    let n = 0, stalled = false;
     while (accumulator >= TICK && n < MAX_CATCHUP && !state.over) {
+      // THE lockstep rule: a tick may not run until every player's orders for
+      // that tick are in hand. Guessing and rolling back is a different (much
+      // larger) architecture; here we simply wait, which is what the
+      // "Waiting for players…" bar in every RTS of this lineage is.
+      if (net && !net.canStep(state.tick + 1)) { stalled = true; break; }
       stepSim();
       accumulator -= TICK;
       n++;
+      if (net) net.afterTick(); // publish this client's next packet
+    }
+    if (stalled) {
+      // Do not let real time pile up while we wait, or the moment the missing
+      // packet lands the game fast-forwards through the backlog.
+      accumulator = Math.min(accumulator, TICK);
+      net.noteStall();
+    } else if (net) {
+      net.clearStall();
     }
     // hit the cap: we are behind by more than we can honestly make up, so
     // throw the backlog away rather than carrying a debt into the next frame
@@ -8417,7 +8468,12 @@ let superweaponsOn = true; // faction-select toggle: superweapon structures enab
       const btn = document.createElement('button');
       btn.className = 'card';
       btn.innerHTML = `<span class="card-title">${f.emoji} ${f.name}</span><span class="card-desc">${f.desc}</span>`;
-      btn.addEventListener('click', () => startGame(key));
+      // In a lobby the faction buttons choose your side rather than starting
+      // the match — the host starts it, once, for everyone at the same seed.
+      btn.addEventListener('click', () => {
+        if (typeof Net !== 'undefined' && Net.connected) Net.pickFaction(key);
+        else startGame(key);
+      });
       col.appendChild(btn);
     }
     wrap.appendChild(col);
