@@ -852,6 +852,7 @@ function fireSuperweapon(b, x, y) {
     for (const u of state.units) {
       if (u.owner === owner || u.hp <= 0 || u.garrisoned || u.type === 'phantom') continue;
       if (UNIT_TYPES[u.type].role === 'worker') continue; // only fighters turn
+      if (disproved(u.owner, 'actors')) continue;        // Crisis Actors: nobody real turns
       if (dist(u, { x, y }) <= r) {
         u.coupOrig = u.coupOrig !== undefined ? u.coupOrig : u.owner;
         u.coupRevert = state.time + 45;
@@ -1164,7 +1165,8 @@ function recruitSleeper(owner) {
   // anybody's line trooper will do, so long as they're not elite kit, not a
   // one-of-a-kind, and not already somebody else's asset
   const pool = state.units.filter(u => u.hp > 0 && u.owner !== owner && u.owner !== NEUTRAL &&
-    !u.sleeperFor && !u.garrisoned && !u.transit && moleEligible(u.type));
+    !u.sleeperFor && !u.garrisoned && !u.transit && moleEligible(u.type) &&
+    !disproved(u.owner, 'actors'));   // Crisis Actors: none of theirs is recruitable
   if (!pool.length) return;
   const u = pool[Math.floor(Math.random() * pool.length)];
   u.sleeperFor = owner;
@@ -2006,9 +2008,7 @@ function dealDamage(attacker, target, dmg, stats) {
     dmg *= stats.vehBonus;
   }
   // armored units (riot shields, tripod plating) shrug off part of everything
-  // "Armour Is Propaganda": plate is a story, and the denier does not believe it
-  if (target.kind === 'unit' && UNIT_TYPES[target.type].armor &&
-      !(attacker && attacker.owner !== undefined && disproved(attacker.owner, 'armour'))) {
+  if (target.kind === 'unit' && UNIT_TYPES[target.type].armor) {
     dmg *= 1 - UNIT_TYPES[target.type].armor;
   }
   // Grey target-painting: a probe-designated target takes extra damage from the
@@ -2475,7 +2475,8 @@ function fireAt(u, target, t) {
         u.abductId = target.id;
         target.beamHoldFrac = u.abductHold / (t.abductTime || 3); // capture countdown bar
         target.beamHoldT = state.time;
-        if (target.hp > 0 && UNIT_TYPES[target.type].hp <= (t.abductMax || 320) && u.abductHold >= (t.abductTime || 3)) {
+        if (target.hp > 0 && !disproved(target.owner, 'actors') &&
+            UNIT_TYPES[target.type].hp <= (t.abductMax || 320) && u.abductHold >= (t.abductTime || 3)) {
           target.hp = 0; target.abducted = true;
           state.minerals[u.owner] = (state.minerals[u.owner] || 0) + (t.abductBounty || 20);
           Particles.pulse(target.x, target.y, 45, [190, 140, 255]);
@@ -2908,6 +2909,7 @@ function updateAuras(u, stats, dt) {
       u.cvT = 0;
       const victim = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL && e.hp > 0 &&
         !e.garrisoned && UNIT_TYPES[e.type].builtAt === 'barracks' && UNIT_TYPES[e.type].role === 'combat' &&
+        !disproved(e.owner, 'actors') &&      // Crisis Actors: none of theirs will listen
         dist(e, u) <= stats.convert.r);
       if (victim) {
         victim.owner = u.owner; victim.disguised = false; victim.carrying = 0; victim.order = { type: 'idle' };
@@ -3858,7 +3860,8 @@ function updateCapturedAuras(b, bt, dt) {
     if (b.convT >= bt.convert.every) {
       b.convT = 0;
       const pool = state.units.filter(u => u.owner !== b.owner && u.owner !== NEUTRAL && u.hp > 0 && !u.garrisoned &&
-        u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' && dist(u, b) <= bt.convert.r);
+        u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' &&
+        !disproved(u.owner, 'actors') && dist(u, b) <= bt.convert.r);
       if (pool.length) {
         const v = pool[Math.floor(Math.random() * pool.length)];
         v.owner = b.owner; v.disguised = false; v.order = { type: 'idle' };
@@ -4469,7 +4472,11 @@ function aiFlatCompound(owner, f, counts, reserve) {
     if (foes.filter(u => UNIT_TYPES[u.type].flying).length >= 3) want.push('sky');
     if (foeBld.some(b => bstatsOf(b).superweapon)) want.push('nukes');
     if (foes.some(u => UNIT_TYPES[u.type].weapon === 'lob')) want.push('ballistics');
-    if (foes.some(u => (UNIT_TYPES[u.type].armor || 0) >= 0.25)) want.push('armour');
+    // anyone who can take your people off you: reptilian coup, grey tractor
+    // beams, deep-state handlers, a captured TV Station
+    if (foeBld.some(b => bstatsOf(b).convert) ||
+        foes.some(u => { const t = UNIT_TYPES[u.type]; return t.convert || t.weapon === 'abduct' || t.handler; }) ||
+        ['reptilian', 'grey', 'deep'].some(fk => OWNERS.some(o => o !== owner && state.factions[o] === fk))) want.push('actors');
     // nothing pressing? prove the cheapest outstanding thing anyway — an idle
     // Institute is the same waste as an idle factory
     for (const k of Object.keys(DISPROOFS).sort((a, b) => DISPROOFS[a].cost - DISPROOFS[b].cost)) want.push(k);
@@ -6026,6 +6033,7 @@ function draw() {
 
   // area-effect zones first — ground decals that everything stands on
   drawZones();
+  drawAuraRings();
 
   // view bounds in iso space — everything off-screen skips the draw pass
   const cx0 = cam.x - 60, cx1 = cam.x + canvas.width / cam.zoom + 60;
@@ -6832,6 +6840,64 @@ function drawProjectilesIso() {
 
 // area-effect zones: the coverage circle is a ground ellipse; the weather
 // inside (rain, flames, gas) draws upright in screen space
+// ---------- aura rings ----------
+// Every aura in the game used to be an invisible circle the player had to
+// intuit — the Barrage Balloon was the worst case, because the aura IS the
+// unit, but the Prophet, Aerostat, Technician and every captured landmark had
+// the same problem. Selecting the thing that owns one now draws it on the
+// ground, and flak bubbles are drawn faintly at ALL times (for either side)
+// because "where is it unsafe to fly" is information both players need.
+const AURA_RINGS = [
+  { key: 'mendAura',   col: '140,255,170' },   // friendly: mends
+  { key: 'healAura',   col: '140,255,170' },
+  { key: 'buffAura',   col: '255,214,120' },   // friendly: hits harder
+  { key: 'hardenAura', col: '150,205,255' },   // friendly: takes less
+  { key: 'debuffAura', col: '255,140,140' },   // hostile: their aim suffers
+  { key: 'aaAura',     col: '125,255,214' },   // hostile: shreds aircraft
+  { key: 'convert',    col: '201,167,255' },   // hostile: takes their people
+  { key: 'thief',      col: '255,206,120' },   // economic: skims their deliveries
+];
+const AURA_MAX_R = 600;   // the TV Station converts map-wide; that is not a ring
+
+function auraRing(wx, wy, r, col, alpha, dashed) {
+  const rx = r * Math.SQRT2;
+  ctx.save();
+  ctx.strokeStyle = `rgba(${col},${alpha})`;
+  ctx.lineWidth = dashed ? 1 : 1.4;
+  if (dashed) ctx.setLineDash([5, 7]);
+  ctx.beginPath();
+  ctx.ellipse(isoX(wx, wy), isoY(wx, wy), rx, rx / 2, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  if (!dashed) {
+    ctx.fillStyle = `rgba(${col},${(alpha * 0.09).toFixed(3)})`;
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawAuraRings() {
+  // standing flak, always shown: static area denial only works as a decision
+  // if you can see where it reaches before you fly into it
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.garrisoned || selection.includes(u)) continue;
+    const t = UNIT_TYPES[u.type];
+    if (!t.aaAura) continue;
+    if (u.owner !== PLAYER && (hiddenFrom(u, PLAYER) || !visibleToPlayer(u))) continue;
+    auraRing(u.x, u.y, t.aaAura.r, '125,255,214', 0.15, true);
+  }
+  // ...and everything the player has actually selected, in full
+  for (const e of selection) {
+    if (e.hp <= 0) continue;
+    const st = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
+    if (!st) continue;
+    for (const a of AURA_RINGS) {
+      const def = st[a.key];
+      if (!def || !def.r || def.r > AURA_MAX_R) continue;
+      auraRing(e.x, e.y, def.r, a.col, 0.5, false);
+    }
+  }
+}
+
 function drawZones() {
   for (const z of state.zones) {
     const kind = z.kind || 'rain';
@@ -7323,8 +7389,10 @@ function frame(now) {
     updateClosedSky(dt);
     for (const u of state.units) {
       if (u.expires && state.time > u.expires) u.hp = 0; // phantoms & hatchlings fade
-      // mind-controlled units revert to their real owner when the coup lapses
-      if (u.coupRevert && state.time > u.coupRevert && u.hp > 0) {
+      // mind-controlled units revert to their real owner when the coup lapses —
+      // or the moment their side proves the whole thing was staged
+      if (u.coupRevert && u.hp > 0 &&
+          (state.time > u.coupRevert || disproved(u.coupOrig, 'actors'))) {
         if (u.coupOrig !== undefined && state.factions[u.coupOrig]) {
           u.owner = u.coupOrig;
           u.order = { type: 'idle' };

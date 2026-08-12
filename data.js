@@ -254,8 +254,8 @@ const REPAIR_FREE_VALUE = 0.25; // priceless structures bill at this × their HP
 const DISPROOFS = {
   stealth:    { name: 'Stealth Is a Psyop',      cost: 260, time: 45,
                 desc: 'Nothing can hide from you. Cloaked, stealthed, burrowed and disguised units are all plainly visible, permanently, with no detector needed.' },
-  armour:     { name: 'Armour Is Propaganda',    cost: 240, time: 40,
-                desc: 'Plate is a story they tell. Your weapons ignore enemy armour entirely — riot shields, tank plating, tripod hulls all count as bare.' },
+  actors:     { name: 'Crisis Actors',           cost: 250, time: 42,
+                desc: 'Every last one of them is a paid actor, and nobody real ever changes sides. Your people cannot be converted, mind-controlled, abducted or recruited as sleepers by anyone — and any of yours already turned come straight back.' },
   ballistics: { name: 'Ballistics Is a Theory',  cost: 220, time: 38,
                 desc: 'Shells cannot arc over a flat earth. Enemy artillery and other lobbed weapons scatter wildly when they fire at anything of yours.' },
   nukes:      { name: 'Nukes Are Fake',          cost: 320, time: 55,
