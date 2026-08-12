@@ -5464,6 +5464,32 @@ function startGame(faction, seed) {
   accumulator = 0;
   commandQueue.clear();
   for (const k of Object.keys(cmdSeq)) delete cmdSeq[k];
+  // Full world reset. This used to be missing, and a second startGame() in one
+  // page stacked a fresh set of bases on top of the old ones — which is fine
+  // for a human who reloads between games, and fatal for a desync harness that
+  // has to run the same match twice in one page.
+  state.units = [];
+  state.buildings = [];
+  state.patches = [];
+  state.projectiles = [];
+  state.zones = [];
+  state.digSites = [];
+  state.armorWrecks = [];
+  state.floats = [];
+  state.airTechOwners = new Set();
+  state.over = false;
+  state._slaveT = 0;
+  selection = [];
+  nextId = 1;
+  for (const k of Object.keys(ais)) delete ais[k];
+  // module-level sim scratch that survives a match otherwise: the path epoch
+  // is stamped onto every cached unit path, and the per-tick memos are keyed
+  // on state.time, which has just gone back to zero
+  pathEpoch = 0;
+  pathDirty = true;
+  enemyMemo = { t: -1 };
+  detMemo = { t: -1 };
+  powerMemo = { t: -1 };
   document.getElementById('faction-select').classList.add('hidden');
   const size = MAP_SIZES[selectedSize];
   const numEnemies = clamp(selectedOpponents, 1, size.maxPlayers - 1);
@@ -5498,6 +5524,14 @@ function startGame(faction, seed) {
   state.floats = []; state.skimSeen = false;
 
   setupWorld(generateMap(selectedSize, OWNERS.length, selectedSetting === 'random' ? null : selectedSetting));
+  // seedDigSites() calls terrainNear(), which reads terrainIndex — and
+  // terrainIndex is only ever rebuilt by ensurePathGrid() on the first tick,
+  // i.e. AFTER this runs. On a fresh page it was therefore empty (so the
+  // "never inside impassable terrain" check silently passed everything), and
+  // on a second match it still held the PREVIOUS map's obstacles. Build it
+  // here so the check actually looks at this map.
+  markPathDirty();
+  ensurePathGrid();
   seedDigSites(); // after bases exist — sites keep clear of every starting camp
   const vs = OWNERS.filter(o => o !== PLAYER)
     .map(o => `${facOf(o).emoji} ${facOf(o).name}`).join('  +  ');
