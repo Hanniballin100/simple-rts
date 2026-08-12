@@ -74,12 +74,12 @@ const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER
 const FACTIONS = {
   flat: {
     name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
-    desc: 'Defend the ice wall. A prepper compound that runs on CONVICTION: Revival Tents stoke the faith, Ham Radios broadcast it locally, and the Megaphone Prophet preaches it — the hotter it burns, the harder every believer hits and the faster Documentary Drops flip enemy units to the cause. Militia man the Pillboxes, the Killdozer plows the road, and the sky stays suspicious — the Balloon Dock unlocks only after the Institute of Truth proves it is fake.',
+    desc: 'Defend the ice wall. A dug-in prepper compound that wins by REFUSING TO BELIEVE YOU: the Institute of Truth disproves whatever the enemy is actually fielding, and a disproved thing stops working on you for the rest of the game. Megaphone Prophets patch up the line and talk enemy troops into walking over, militia man the Pillboxes, the Killdozer plows the road, and nothing they own flies — the whole air wing floats.',
     economy: { workers: 5 },
     // the compound is a tent city — losing the bunker is a setback, not the end
     hqRebuild: { cost: 350, grace: 60 },
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
-    air: ['wballoon', 'balloon', 'pigeon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
+    air: ['wballoon', 'balloon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
     extras: ['prophet', 'deerstand', 'fireworks', 'quadrunner', 'schoolbus', 'engineer'], advanced: ['combine'],
     structs: ['hamradio', 'revivaltent', 'wall', 'gate', 'refinery', 'superweapon'],
     powers: {
@@ -244,6 +244,27 @@ const REPAIR_RATE = 0.05;      // fraction of max HP mended per second
 const REPAIR_COST = 0.45;      // fraction of build cost for a 0 -> full mend
 const REPAIR_FREE_VALUE = 0.25; // priceless structures bill at this × their HP
 
+// ---------- DISPROOF (the Flat Earth economy of denial) ----------
+// The Institute of Truth does not research new toys — it proves the enemy's
+// toys are FAKE, and a disproved thing stops working on you for the rest of
+// the match. This is the faction's whole strategic layer, and unlike a meter
+// that ticks on its own it is REACTIVE: you scout what they are actually
+// fielding and deny that, so no two games research the same order. One at a
+// time, no refunds, and every Ham Radio Shack standing shortens the wait.
+const DISPROOFS = {
+  stealth:    { name: 'Stealth Is a Psyop',      cost: 260, time: 45,
+                desc: 'Nothing can hide from you. Cloaked, stealthed, burrowed and disguised units are all plainly visible, permanently, with no detector needed.' },
+  armour:     { name: 'Armour Is Propaganda',    cost: 240, time: 40,
+                desc: 'Plate is a story they tell. Your weapons ignore enemy armour entirely — riot shields, tank plating, tripod hulls all count as bare.' },
+  ballistics: { name: 'Ballistics Is a Theory',  cost: 220, time: 38,
+                desc: 'Shells cannot arc over a flat earth. Enemy artillery and other lobbed weapons scatter wildly when they fire at anything of yours.' },
+  nukes:      { name: 'Nukes Are Fake',          cost: 320, time: 55,
+                desc: 'The mushroom cloud was a film set. Enemy superweapons do HALF damage to everything you own.' },
+  sky:        { name: 'The Sky Is Closed',       cost: 340, time: 60,
+                desc: 'The firmament is shut for good. Enemy aircraft over your base take 9 damage a second and fly at half speed — your own wing floats, so it never touches them.' },
+};
+const DISPROOF_SKY_R = 340;   // how far the closed sky reaches from your structures
+
 // ---------- Quantitative Easing (Globalist passive) ----------
 // The printer pays a slice of the power the base actually DRAWS. Left uncapped
 // that is a runaway loop — every structure raises upkeep, upkeep IS the
@@ -376,21 +397,16 @@ const UNIT_TYPES = {
   mechanic:     { name: 'Repair Truck',       role: 'combat', builtAt: 'factory',  hp: 180, speed: 82,  dmg: 0, atkRange: 0, cooldown: 1, sight: 200, cost: 100, r: 12, buildTime: 8, repair: 9, shape: 'square' },
   menderorb:    { name: 'Mender Orb',         role: 'combat', builtAt: 'factory',  hp: 90,  speed: 100, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 110, r: 9,  buildTime: 8, repair: 8, flying: true, shape: 'blimp' },
   // specialist infantry
-  // Megaphone Prophet: the voice of the movement — ONE per player, pricey,
-  // no gun. Nearby enemies fire weaker (debuffAura); standing still he
-  // preaches, feeding the Conviction meter (sermon — faster with a crowd of
-  // friendly infantry around him, and a Revival Tent he stands in doubles its
-  // output); and killing him only proves him right (martyr: Conviction surge).
-  // THE faction. He is not a meter accessory — he is a walking field hospital,
-  // a rally banner, a demoralising racket and a recruiter, all at once, and he
-  // does every bit of it ON THE MOVE. Standing him still additionally stokes
-  // Conviction (sermon), which is now the bonus layer rather than the point.
-  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 260, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 250, cost: 300, r: 9, buildTime: 13, limit: 1,
-             mendAura: { r: 155, rate: 11 },        // patches up the faithful around him
-             buffAura: { r: 155 },                  // ...and they hit 25% harder for it
-             debuffAura: { r: 165, weaken: 0.45 },  // the racket puts the enemy off their aim
-             convert: { every: 15, r: 140 },        // and every so often one of them walks over
-             sermon: { rate: 0.18, crowdR: 150, per: 0.04, max: 5 }, martyr: 25 },
+  // Megaphone Prophet: a walking field hospital, rally banner, demoralising
+  // racket and recruiter, all on the move and all with no gun. You may field
+  // THREE, each individually much weaker than the single super-Prophet he
+  // replaced — the faction's support is a chorus you position across the line,
+  // not one irreplaceable man you dare not lose.
+  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 190, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 200, r: 9, buildTime: 10, limit: 3,
+             mendAura: { r: 118, rate: 5 },         // patches up the faithful around him
+             buffAura: { r: 118 },                  // ...and they hit 25% harder for it
+             debuffAura: { r: 130, weaken: 0.28 },  // the racket puts the enemy off their aim
+             convert: { every: 30, r: 105 } },      // and now and then one of them walks over
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
@@ -567,7 +583,6 @@ const UNIT_TYPES = {
   // Flat Earth air: the Pigeon Drone ("birds aren't real") is a cheap robo-bird
   // scout that pecks at ground targets; the Barrage Balloon is a tethered
   // area-denial anti-air balloon whose cables shred any aircraft nearby (aaAura)
-  pigeon:   { name: 'Pigeon Drone',     role: 'scout',  builtAt: 'airpad', hp: 55, speed: 128, dmg: 5, atkRange: 75, cooldown: 0.7, sight: 320, cost: 45, r: 8, buildTime: 5, flying: true, shape: 'tri', detector: true },
   barrageballoon: { name: 'Barrage Balloon', role: 'combat', builtAt: 'airpad', hp: 220, speed: 30, dmg: 0, atkRange: 0, cooldown: 1, sight: 220, cost: 95, r: 12, buildTime: 8, flying: true, shape: 'blimp', aaAura: { r: 135, dps: 15 } },
   // globalist rotorcraft roll out of the Motor Pool alongside the SUVs
   drone:    { name: 'Black Drone',      role: 'combat', builtAt: 'factory', hp: 55,  speed: 135, dmg: 8,  atkRange: 130, cooldown: 0.7,  sight: 280, cost: 85,  r: 8,  buildTime: 7,  flying: true, shape: 'tri' },
@@ -697,11 +712,10 @@ const ASCEND = {
 };
 
 // ---------- conversion tiers ----------
-// Documentary Drops (and any future conversion effect) climb a 3-rung ladder:
-// tier 1 flips at any Conviction, tier 2 only at high Conviction, tier 3
-// NEVER flips — elite kit stays bought (PMCs, Abrams crews, Nephilim, the
-// whole tech-gated shelf). Derived from cost/req, with overrides where the
-// sticker price undersells the tier.
+// A 3-rung ladder used by any effect that takes a unit off its owner — today
+// that is the Deep State's sleeper recruitment. Tier 3 NEVER flips: elite kit
+// stays bought (PMCs, Abrams crews, Nephilim, the whole tech-gated shelf).
+// Derived from cost/req, with overrides where the sticker price undersells it.
 const TIER_OVERRIDE = { pmc: 3, abrams: 3, bradley: 3, himars: 3, apache: 3, f35: 3, a10: 3, b1: 3, tr3b: 3 };
 function unitTier(type) {
   const t = UNIT_TYPES[type];
@@ -801,14 +815,13 @@ const BUILDING_TYPES = {
   // the superweapon slot: same structure everywhere, very different payloads
   // (see SUPER_DEFS); expensive, power-hungry, one per player
   superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },
-  // ---------- flat-earth conviction infrastructure ----------
-  // The Revival Tent is the generator: each finished tent feeds the Conviction
-  // meter (convictionRate/s), doubled while the Prophet preaches inside, and
-  // its canvas shade slowly mends the flock (healAura). The Ham Radio is the
-  // local booster: friendly units fighting inside its broadcast radius count
-  // as MORE convicted than the meter says (convictionAura.bonus).
-  revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, convictionRate: 0.2, healAura: { r: 150, rate: 4 } },
-  hamradio:    { name: 'Ham Radio',    hp: 220, w: 36, h: 36, cost: 90,  buildTime: 9,  sight: 260, power: -10, cap: 4, convictionAura: { r: 240, bonus: 25 } },
+  // ---------- flat-earth compound infrastructure ----------
+  // The Revival Tent is the field hospital the compound gathers at: its canvas
+  // shade mends anything of yours standing under it (healAura). The Ham Radio
+  // Shack is the research annexe — every one still standing shortens whatever
+  // the Institute of Truth is currently disproving (research).
+  revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, healAura: { r: 190, rate: 7 } },
+  hamradio:    { name: 'Ham Radio',    hp: 220, w: 36, h: 36, cost: 90,  buildTime: 9,  sight: 260, power: -10, cap: 4, research: 0.25 },
   // the deployed Front Company. Never built from a menu — an unmarked van
   // establishes it (see UNIT_TYPES.frontco). thief.cut is the share taken from
   // every enemy delivery to a drop-off within thief.r.

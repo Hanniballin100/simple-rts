@@ -96,11 +96,11 @@ body {
 
 #powertext { font-size: 11px; color: #a9b4c0; white-space: nowrap; }
 
-/* ---------- flat-earth Conviction meter (hidden for every other faction) ---------- */
-#convwrap { display: none; align-items: center; gap: 8px; }
-#convwrap.on { display: flex; }
+/* ---------- flat-earth DISPROOF research strip (hidden for everyone else) ---------- */
+#reswrap { display: none; align-items: center; gap: 8px; }
+#reswrap.on { display: flex; }
 
-#convbar {
+#resbar {
   position: relative;
   flex: 1;
   height: 10px;
@@ -110,24 +110,18 @@ body {
   overflow: hidden;
 }
 
-/* the meter fills toward fervour; it cools to grey when doubt is winning */
-#convfill { height: 100%; width: 0%; background: #ffb43f; transition: width 0.3s; }
-#convfill.falling { background: #7d6a4a; }
-#convfill.hot { background: #ff8a3f; }
+/* the bar fills toward the next proof; grey while nothing is being proved */
+#resfill { height: 100%; width: 0%; background: #ffb43f; transition: width 0.3s; }
+#resfill.falling { background: #7d6a4a; }
+#resfill.hot { background: #ff8a3f; }
 
-/* the tier-2 gate, marked ON the bar so the number 60 means something */
-#convtier {
-  position: absolute; top: -1px; bottom: -1px; left: 60%;
-  width: 2px; background: #e8eef5; opacity: 0.55;
-}
-#convtier.passed { background: #5fce5f; opacity: 0.9; }
 
-#convtext { font-size: 11px; color: #ffcf7f; white-space: nowrap; }
+#restext { font-size: 11px; color: #ffcf7f; white-space: nowrap; }
 
-#convwhy { display: none; font-size: 10px; line-height: 1.45; color: #8d97a4; padding: 0 2px; }
-#convwhy.on { display: block; }
-#convwhy b { color: #ffcf7f; font-weight: normal; }
-#convwhy .bad { color: #d98d8d; }
+#reswhy { display: none; font-size: 10px; line-height: 1.45; color: #8d97a4; padding: 0 2px; }
+#reswhy.on { display: block; }
+#reswhy b { color: #ffcf7f; font-weight: normal; }
+#reswhy .bad { color: #d98d8d; }
 
 .side-h {
   font-size: 10px;
