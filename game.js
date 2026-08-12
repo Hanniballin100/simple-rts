@@ -125,7 +125,7 @@ function updateClosedSky(dt) {
       if (!mine.some(b => dist(b, u) <= DISPROOF_SKY_R)) continue;
       dealDamage(null, u, 9 * 0.25, {});
       u.slowUntil = state.time + 0.4;
-      if (Math.random() < 0.25) Particles.pulse(u.x, u.y - (u.alt || 0), 10, [169, 195, 204]);
+      if (fxRandom() < 0.25) Particles.pulse(u.x, u.y - (u.alt || 0), 10, [169, 195, 204]);
     }
   }
 }
@@ -147,11 +147,14 @@ const relicCount = owner => (state.relics[owner] || []).length;
 function seedDigSites() {
   state.digSites = [];
   const hqs = state.buildings.filter(b => b.type === 'hq');
-  const keys = Object.keys(RELIC_DEFS).sort(() => Math.random() - 0.5);
+  // Fisher-Yates, not sort-by-random-comparator: a random comparator gives an
+  // engine-dependent permutation (V8, SpiderMonkey and JSC all disagree), which
+  // is exactly the kind of thing that desyncs a lockstep match.
+  const keys = simShuffle(Object.keys(RELIC_DEFS));
   const want = Math.min(keys.length, OWNERS.length <= 2 ? 6 : 8);
   let tries = 0;
   while (state.digSites.length < want && tries++ < 4000) {
-    const x = 140 + Math.random() * (WORLD_W - 280), y = 140 + Math.random() * (WORLD_H - 280);
+    const x = 140 + simRandom() * (WORLD_W - 280), y = 140 + simRandom() * (WORLD_H - 280);
     if (hqs.some(h => Math.hypot(h.x - x, h.y - y) < 430)) continue;   // never in a starting camp
     if (state.digSites.some(s => Math.hypot(s.x - x, s.y - y) < 280)) continue;
     if (state.patches.some(p => Math.hypot(p.x - x, p.y - y) < 90)) continue;
@@ -209,7 +212,7 @@ const canGarrison = u => {
 const hostilesOf = owner => OWNERS.filter(o => o !== owner); // free-for-all
 const randomHostile = owner => {
   const hs = hostilesOf(owner);
-  return hs[Math.floor(Math.random() * hs.length)];
+  return hs[Math.floor(simRandom() * hs.length)];
 };
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -297,7 +300,7 @@ function sfx(kind) {
   } else if (kind === 'boom') {
     const len = 0.35, buf = audioCtx.createBuffer(1, audioCtx.sampleRate * len, audioCtx.sampleRate);
     const d = buf.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+    for (let i = 0; i < d.length; i++) d[i] = (fxRandom() * 2 - 1) * (1 - i / d.length);
     const src = audioCtx.createBufferSource();
     src.buffer = buf;
     const lp = audioCtx.createBiquadFilter();
@@ -525,7 +528,7 @@ function makeUnit(owner, type, x, y) {
   // slaves are worked to death on a staggered clock — the whole workforce
   // must never expire in one synchronized wave. The work regime (Drive
   // button) stretches or slashes the lifespans of NEW slaves.
-  if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + Math.random() * 0.5) * driveLifeMul(owner);
+  if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + simRandom() * 0.5) * driveLifeMul(owner);
   state.units.push(u);
   return u;
 }
@@ -543,7 +546,7 @@ function makeBuilding(owner, type, x, y) {
   markPathDirty(); // footprints reshape the walkable grid
   // a Refinery ships with a free miner (and lifts the mining cap — see trainUnit)
   if (t.dropoff && facOf(owner) && facOf(owner).worker) {
-    makeUnit(owner, facOf(owner).worker, x + (Math.random() - 0.5) * 24, y + t.h / 2 + 22);
+    makeUnit(owner, facOf(owner).worker, x + (simRandom() - 0.5) * 24, y + t.h / 2 + 22);
   }
   return b;
 }
@@ -590,8 +593,8 @@ function setupWorld(map) {
     if (state.factions[owner] === 'resistance') {
       // sleeper cells: hidden observation camps scattered around the map
       for (let i = 0, tries = 0; i < 3 && tries < 60; tries++) {
-        const sx = 120 + Math.random() * (WORLD_W - 240);
-        const sy = 120 + Math.random() * (WORLD_H - 240);
+        const sx = 120 + simRandom() * (WORLD_W - 240);
+        const sy = 120 + simRandom() * (WORLD_H - 240);
         if (map.starts.some(st => dist(st, { x: sx, y: sy }) < 350)) continue;
         makeBuilding(owner, 'sleepercell', sx, sy);
         i++;
@@ -600,7 +603,7 @@ function setupWorld(map) {
     if (state.factions[owner] === 'reptilian') {
       // one random enemy worker was always ours (skips worker-less factions)
       const pool = state.units.filter(u => u.owner !== owner && UNIT_TYPES[u.type].role === 'worker');
-      if (pool.length) state.infiltrator[owner] = pool[Math.floor(Math.random() * pool.length)].id;
+      if (pool.length) state.infiltrator[owner] = pool[Math.floor(simRandom() * pool.length)].id;
     }
   }
 
@@ -799,11 +802,11 @@ function fireSuperweapon(b, x, y) {
     // harder-hitting than the Resistance barrage but over a tighter footprint
     const N = 8, scatterR = 100;
     for (let i = 0; i < N; i++) {
-      const a = Math.random() * Math.PI * 2, rr = Math.sqrt(Math.random()) * scatterR;
+      const a = simRandom() * Math.PI * 2, rr = Math.sqrt(simRandom()) * scatterR;
       const px = clamp(x + Math.cos(a) * rr, 10, WORLD_W - 10);
       const py = clamp(y + Math.sin(a) * rr, 10, WORLD_H - 10);
       state.projectiles.push({ kind: 'superrocket', x: px, y: py, tx: px, ty: py, owner, t: 0,
-        dur: 1.5 + Math.random() * 1.5, hgt: 0, stats: { dmg: 95, splash: 54, bldgBonus: 1.5, sup: true } });
+        dur: 1.5 + simRandom() * 1.5, hgt: 0, stats: { dmg: 95, splash: 54, bldgBonus: 1.5, sup: true } });
     }
     if (seen) sfx('boom');
   } else if (kind === 'orbital') {
@@ -904,10 +907,10 @@ function noteHqLost(owner) {
 // somewhere legal, near what's left of the owner's base
 function pickRelocateSpot(owner) {
   const anchors = state.buildings.filter(b => b.owner === owner && b.hp > 0);
-  const around = anchors.length ? anchors[Math.floor(Math.random() * anchors.length)]
+  const around = anchors.length ? anchors[Math.floor(simRandom() * anchors.length)]
     : { x: WORLD_W / 2, y: WORLD_H / 2 };
   for (let i = 0; i < 300; i++) {
-    const a = Math.random() * Math.PI * 2, r = 120 + Math.random() * 320;
+    const a = simRandom() * Math.PI * 2, r = 120 + simRandom() * 320;
     const x = clamp(around.x + Math.cos(a) * r, 80, WORLD_W - 80);
     const y = clamp(around.y + Math.sin(a) * r, 80, WORLD_H - 80);
     if (!placementBlocked(owner, 'hq', x, y)) return { x, y };
@@ -1087,8 +1090,8 @@ function castRecall(owner, x, y) {
     Particles.pulse(u.x, u.y, 30, [125, 255, 214]);
     // fan them out below the HQ so a recalled squad doesn't land in one heap
     const spread = (i - (picks.length - 1) / 2) * 22;
-    u.x = hq.x + spread + (Math.random() - 0.5) * 10;
-    u.y = hq.y + hq.h / 2 + 26 + (Math.random() - 0.5) * 12;
+    u.x = hq.x + spread + (simRandom() - 0.5) * 10;
+    u.y = hq.y + hq.h / 2 + 26 + (simRandom() - 0.5) * 12;
     u.order = { type: 'idle' };
     delete u.dodge; delete u.veer;
     Particles.pulse(u.x, u.y, 30, [125, 255, 214]);
@@ -1123,7 +1126,7 @@ function spawnSmuggler(owner) {
     { x: 20, y: WORLD_H / 2 }, { x: WORLD_W - 20, y: WORLD_H / 2 },
     { x: WORLD_W / 2, y: 20 }, { x: WORLD_W / 2, y: WORLD_H - 20 },
   ];
-  const e = edges[Math.floor(Math.random() * edges.length)];
+  const e = edges[Math.floor(simRandom() * edges.length)];
   const u = makeUnit(owner, 'smuggler', e.x, e.y);
   const run = smuggleRun(owner);
   u.payload = run.pay;   // banked at dispatch: what you held when it set out
@@ -1168,7 +1171,7 @@ function recruitSleeper(owner) {
     !u.sleeperFor && !u.garrisoned && !u.transit && moleEligible(u.type) &&
     !disproved(u.owner, 'actors'));   // Crisis Actors: none of theirs is recruitable
   if (!pool.length) return;
-  const u = pool[Math.floor(Math.random() * pool.length)];
+  const u = pool[Math.floor(simRandom() * pool.length)];
   u.sleeperFor = owner;
   if (owner === PLAYER) eva('An asset is in place');
 }
@@ -1232,7 +1235,7 @@ function updateAbilities(dt) {
       u.type = to;
       u.maxHp = nt.hp; u.hp = nt.hp;
       u.garrisoned = false;
-      if (b) { u.x = b.x + (Math.random() - 0.5) * 20; u.y = b.y + b.h / 2 + 16; }
+      if (b) { u.x = b.x + (simRandom() - 0.5) * 20; u.y = b.y + b.h / 2 + 16; }
       u.order = { type: 'idle' };
       u.bornT = state.time;
       delete u.ascension;
@@ -2085,7 +2088,7 @@ function spawnProjectile(kind, x, y, tx, ty, owner, stats) {
     arc: kind === 'bomb' ? 26 : clamp(d * 0.18, 18, 55),
     angle: Math.atan2(ty - y, tx - x),
   };
-  if (kind === 'firework') p.col = FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)];
+  if (kind === 'firework') p.col = FIREWORK_COLORS[Math.floor(fxRandom() * FIREWORK_COLORS.length)];
   state.projectiles.push(p);
   return p;   // callers may tune the shot after the fact (see the carpet stick)
 }
@@ -2140,13 +2143,13 @@ function updateProjectiles(dt) {
       if (p.trail <= 0) { p.trail = 0.04; Particles.smoke(p.x, p.y, 1.4, p.hgt || 0); }
     } else if (p.kind === 'firework') {
       p.trail = (p.trail || 0) - dt;
-      if (p.trail <= 0) { p.trail = 0.03; Particles.spawn({ kind: 'spark', x: p.x, y: p.y, z: p.hgt || 0, vx: (Math.random() - 0.5) * 30, vy: (Math.random() - 0.5) * 30, drag: 3, life: 0.3, col: p.col }); }
+      if (p.trail <= 0) { p.trail = 0.03; Particles.spawn({ kind: 'spark', x: p.x, y: p.y, z: p.hgt || 0, vx: (fxRandom() - 0.5) * 30, vy: (fxRandom() - 0.5) * 30, drag: 3, life: 0.3, col: p.col }); }
     }
     if (p.t >= p.dur) {
       p.done = true;
       const s = p.stats;
       splashDamage(p.tx, p.ty, s.splash || 36, s.dmg, p.owner, s);
-      if (p.kind === 'firework') { Particles.pulse(p.tx, p.ty, 34, p.col); for (let i = 0; i < 10; i++) { const a = Math.random() * Math.PI * 2, sp = 40 + Math.random() * 90; Particles.spawn({ kind: 'spark', x: p.tx, y: p.ty, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, drag: 3, life: 0.4 + Math.random() * 0.3, col: p.col }); } }
+      if (p.kind === 'firework') { Particles.pulse(p.tx, p.ty, 34, p.col); for (let i = 0; i < 10; i++) { const a = fxRandom() * Math.PI * 2, sp = 40 + fxRandom() * 90; Particles.spawn({ kind: 'spark', x: p.tx, y: p.ty, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, drag: 3, life: 0.4 + fxRandom() * 0.3, col: p.col }); } }
       else Particles.boom(p.tx, p.ty, p.kind === 'bomb' ? 1.1 : 0.85);
       if (tileState(p.tx, p.ty) === 2) sfx('boom');
       if (s.groundEffect) {
@@ -2197,14 +2200,14 @@ function updateZones(dt) {
           if (!UNIT_TYPES[u.type].flying || dist(z, u) > z.r) continue;
           dealDamage(null, u, z.dps * 0.25, {});
           u.slowUntil = state.time + 0.4;
-          if (Math.random() < 0.3) Particles.pulse(u.x, u.y - (u.alt || 0), 12, [169, 195, 204]);
+          if (fxRandom() < 0.3) Particles.pulse(u.x, u.y - (u.alt || 0), 12, [169, 195, 204]);
         }
       }
     } else if (z.kind === 'storm') {
       z.tick = (z.tick || 0.1) - dt;
       if (z.tick <= 0) {
         z.tick = 0.55;
-        const a = Math.random() * Math.PI * 2, rad = Math.random() * z.r;
+        const a = simRandom() * Math.PI * 2, rad = simRandom() * z.r;
         const bx = z.x + Math.cos(a) * rad, by = z.y + Math.sin(a) * rad;
         Particles.bolt(bx + 8, by - 6, bx, by, [255, 245, 180], 55); // strike from the sky
         splashDamage(bx, by, 24, z.dmg || 15, z.caster, { sup: z.sup }, true); // the storm doesn't care what flies
@@ -2220,7 +2223,7 @@ function updateZones(dt) {
         }
         // a tremor kicks up dust while it shakes
         if (z.kind === 'tremor') {
-          const a = Math.random() * Math.PI * 2, rad = Math.random() * z.r;
+          const a = fxRandom() * Math.PI * 2, rad = fxRandom() * z.r;
           Particles.pulse(z.x + Math.cos(a) * rad, z.y + Math.sin(a) * rad, 8, [150, 128, 96]);
         }
       }
@@ -2244,14 +2247,14 @@ function updateZones(dt) {
         if (tileState(z.tx, z.ty) === 2) sfx('boom');
       } else {
         z.x += dx / d * step; z.y += dy / d * step;
-        Particles.pulse(z.x + (Math.random() - 0.5) * 10, z.y + (Math.random() - 0.5) * 10, 9, [166, 142, 104]);
+        Particles.pulse(z.x + (fxRandom() - 0.5) * 10, z.y + (fxRandom() - 0.5) * 10, 9, [166, 142, 104]);
       }
     } else if (z.kind === 'barrage') {
       // loitering munitions: a small blast lands somewhere in the zone each tick
       z.tick -= dt;
       if (z.tick <= 0) {
         z.tick = 0.35;
-        const a = Math.random() * Math.PI * 2, rad = Math.sqrt(Math.random()) * z.r;
+        const a = simRandom() * Math.PI * 2, rad = Math.sqrt(simRandom()) * z.r;
         const bx = z.x + Math.cos(a) * rad, by = z.y + Math.sin(a) * rad;
         splashDamage(bx, by, 40, z.dmg, z.caster, { bldgBonus: 1.2, sup: z.sup });
         Particles.boom(bx, by, 0.8);
@@ -2263,7 +2266,7 @@ function updateZones(dt) {
       if (z.tick <= 0) {
         z.tick = 0.25;
         splashDamage(z.x, z.y, z.r, z.dmg, z.caster, { bldgBonus: 1.5 }, true);
-        Particles.boom(z.x + (Math.random() - 0.5) * z.r, z.y + (Math.random() - 0.5) * z.r, 0.7);
+        Particles.boom(z.x + (fxRandom() - 0.5) * z.r, z.y + (fxRandom() - 0.5) * z.r, 0.7);
         if (tileState(z.x, z.y) === 2) sfx('boom');
       }
     } else if (z.kind === 'singularity') {
@@ -2354,7 +2357,7 @@ function planeAttack(u, target, t, dt) {
         // wrench into a bank on top of the target
         ix = u.x + Math.cos(u.facing) * R; iy = u.y + Math.sin(u.facing) * R;
       } else {
-        const back = Math.atan2(u.y - target.y, u.x - target.x) + (Math.random() - 0.5) * 1.3;
+        const back = Math.atan2(u.y - target.y, u.x - target.x) + (simRandom() - 0.5) * 1.3;
         ix = target.x + Math.cos(back) * R; iy = target.y + Math.sin(back) * R;
       }
       u.runIP = { x: clamp(ix, 40, WORLD_W - 40), y: clamp(iy, 40, WORLD_H - 40), tid: target.id };
@@ -2407,7 +2410,7 @@ function fireAt(u, target, t) {
       // ballistics makes every lobbed shot aimed at them wander badly
       let scat = t.scatter || 0;
       if (target.owner !== undefined && disproved(target.owner, 'ballistics')) scat += 95;
-      if (scat) { const sa = Math.random() * Math.PI * 2, sr = Math.random() * scat; ptx += Math.cos(sa) * sr; pty += Math.sin(sa) * sr; }
+      if (scat) { const sa = simRandom() * Math.PI * 2, sr = simRandom() * scat; ptx += Math.cos(sa) * sr; pty += Math.sin(sa) * sr; }
       spawnProjectile(wkind === 'bomb' ? 'bomb' : (t.projectile || 'rock'),
         u.x, u.y, ptx, pty, u.owner, t);
       if (visible) sfx('shot');
@@ -2432,7 +2435,7 @@ function fireAt(u, target, t) {
       const n = t.burstShells || 5;
       for (let i = 0; i < n; i++) {
         const along = ((i / Math.max(1, n - 1)) - 0.4) * (t.beatenLen || 140);
-        const off = (Math.random() - 0.5) * (t.beatenWidth || 30);
+        const off = (simRandom() - 0.5) * (t.beatenWidth || 30);
         const ix = target.x + dirX * along - dirY * off;
         const iy = target.y + dirY * along + dirX * off;
         const p = spawnProjectile('bomb', u.x + dirX * along * 0.35, u.y + dirY * along * 0.35, ix, iy, u.owner,
@@ -2454,8 +2457,8 @@ function fireAt(u, target, t) {
       for (let i = 0; i < (t.burstShells || 3); i++) {
         // the first shell of each burst flies true; the rest walk the
         // beaten zone ahead of the aim point
-        const along = i === 0 ? (Math.random() - 0.5) * 10 : (Math.random() - 0.35) * (t.beatenLen || 55);
-        const off = (Math.random() - 0.5) * (i === 0 ? 6 : (t.beatenWidth || 14));
+        const along = i === 0 ? (simRandom() - 0.5) * 10 : (simRandom() - 0.35) * (t.beatenLen || 55);
+        const off = (simRandom() - 0.5) * (i === 0 ? 6 : (t.beatenWidth || 14));
         const ix = target.x + dirX * along - dirY * off;
         const iy = target.y + dirY * along + dirX * off;
         splashDamage(ix, iy, t.splash || 13, dmg, -99, t); // -99: no IFF, ground only
@@ -2580,9 +2583,9 @@ function updateVolley(u, t, dt) {
   const V = t.volley;
   if (u.transit || u.burrowed || u.petrifiedUntil > state.time) return;
   const rollGap = () => Array.isArray(V.every)
-    ? V.every[0] + Math.random() * (V.every[1] - V.every[0])
+    ? V.every[0] + simRandom() * (V.every[1] - V.every[0])
     : V.every;
-  if (u.volT === undefined) u.volT = rollGap() * (0.3 + Math.random() * 0.7); // stagger the first one
+  if (u.volT === undefined) u.volT = rollGap() * (0.3 + simRandom() * 0.7); // stagger the first one
   // fire any shots whose moment has come
   if (u.volQ && u.volQ.length) {
     const brawling = inBrawl(u, t);
@@ -2591,7 +2594,7 @@ function updateVolley(u, t, dt) {
       const tgt = findEntity(shot.tid);
       if (!tgt || tgt.hp <= 0 || tgt.garrisoned) continue;
       const acc = brawling ? shot.meleeAcc : shot.acc;
-      const hit = Math.random() < acc;
+      const hit = simRandom() < acc;
       const a = Math.atan2(tgt.y - u.y, tgt.x - u.x);
       if (shot.rocket) {
         // a real missile off the shoulder rack: a miss carries a dud warhead
@@ -2603,7 +2606,7 @@ function updateVolley(u, t, dt) {
         });
       } else {
         u.firingT = state.time; // muzzle flash (art)
-        const spread = hit ? 0 : (10 + Math.random() * 26) * (Math.random() < 0.5 ? -1 : 1);
+        const spread = hit ? 0 : (10 + simRandom() * 26) * (simRandom() < 0.5 ? -1 : 1);
         const ex = tgt.x + Math.cos(a + Math.PI / 2) * spread;
         const ey = tgt.y + Math.sin(a + Math.PI / 2) * spread;
         if (hit) dealDamage(u, tgt, shot.dmg, t);
@@ -2774,7 +2777,7 @@ function updateBrood(u, stats, dt) {
     if (!u.broodInit) {
       u.broodInit = true;
       for (let i = 0; i < stats.brood.count; i++) {
-        const h = makeUnit(u.owner, broodType, u.x + (Math.random() - 0.5) * 30, u.y + 12 + i * 3);
+        const h = makeUnit(u.owner, broodType, u.x + (simRandom() - 0.5) * 30, u.y + 12 + i * 3);
         h.broodOf = u.id;
       }
     } else {
@@ -2782,7 +2785,7 @@ function updateBrood(u, stats, dt) {
       u.broodT = (u.broodT || 0) + dt;
       if (alive < stats.brood.count && u.broodT >= stats.brood.regen) {
         u.broodT = 0;
-        makeUnit(u.owner, broodType, u.x + (Math.random() - 0.5) * 24, u.y + 14).broodOf = u.id;
+        makeUnit(u.owner, broodType, u.x + (simRandom() - 0.5) * 24, u.y + 14).broodOf = u.id;
       }
     }
   }
@@ -2861,7 +2864,7 @@ function updateAuras(u, stats, dt) {
         if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned || a.transit) continue;
         if (a.hp >= a.maxHp || dist(a, u) > stats.mendAura.r) continue;
         a.hp = Math.min(a.maxHp, a.hp + stats.mendAura.rate * 0.5);
-        if (Math.random() < 0.22) Particles.bolt(u.x, u.y, a.x, a.y, [140, 255, 170], 8);
+        if (fxRandom() < 0.22) Particles.bolt(u.x, u.y, a.x, a.y, [140, 255, 170], 8);
       }
     }
   }
@@ -2930,11 +2933,11 @@ function updateAuras(u, stats, dt) {
         if (!UNIT_TYPES[e.type].flying) continue;
         if (dist(e, u) <= stats.aaAura.r) { dealDamage(u, e, stats.aaAura.dps * 0.25, {}); struck = e; }
       }
-      if (struck && stats.aaRockets && Math.random() < 0.55) {
+      if (struck && stats.aaRockets && simRandom() < 0.55) {
         // a rocket streaks off one of the shoulder racks (visual — the aura
         // damage is already booked; the rocket lands with a dry warhead)
         state.projectiles.push({
-          kind: 'missile', x: u.x + (Math.random() < 0.5 ? -7 : 6), y: u.y - 3,
+          kind: 'missile', x: u.x + (simRandom() < 0.5 ? -7 : 6), y: u.y - 3,
           targetId: struck.id, owner: u.owner, stats: { dmg: 0 },
           angle: Math.atan2(struck.y - u.y, struck.x - u.x), speed: 280, life: 1.8,
         });
@@ -3321,7 +3324,7 @@ function updateUnit(u, dt) {
         Particles.pulse(u.x, u.y, 34, [125, 255, 214]);
         const hq = state.buildings.find(b => b.owner === u.owner && b.type === 'hq' && b.hp > 0);
         if (hq) {
-          u.x = hq.x + (Math.random() - 0.5) * 30;
+          u.x = hq.x + (simRandom() - 0.5) * 30;
           u.y = hq.y + hq.h / 2 + 26;
           delete u.dodge; delete u.veer;
           Particles.pulse(u.x, u.y, 34, [125, 255, 214]);
@@ -3730,7 +3733,7 @@ function updateBuilding(b, dt) {
         if (ut.builtAt !== 'factory' && !ut.flying) continue;
         if (rectDist(u, b) <= 30) {
           u.hp = Math.min(u.maxHp, u.hp + bt.repairRate * 0.5);
-          if (Math.random() < 0.3) Particles.smoke(u.x + (Math.random() - 0.5) * 14, u.y, 1.5, 6);
+          if (fxRandom() < 0.3) Particles.smoke(u.x + (fxRandom() - 0.5) * 14, u.y, 1.5, 6);
         }
       }
     }
@@ -3754,13 +3757,13 @@ function updateBuilding(b, dt) {
   // an aircraft while the tower is dark).
   if (isOffline(b)) {
     if (b.beamId) b.beamId = null;
-    if (Math.random() < 0.25) Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.6, b.y - b.h / 2, 2);
+    if (fxRandom() < 0.25) Particles.smoke(b.x + (fxRandom() - 0.5) * b.w * 0.6, b.y - b.h / 2, 2);
     return;
   }
 
   // damaged buildings smolder
-  if (b.hp < b.maxHp * 0.5 && Math.random() < 0.04) {
-    Particles.smoke(b.x + (Math.random() - 0.5) * b.w * 0.7, b.y - b.h / 2, 3);
+  if (b.hp < b.maxHp * 0.5 && fxRandom() < 0.04) {
+    Particles.smoke(b.x + (fxRandom() - 0.5) * b.w * 0.7, b.y - b.h / 2, 3);
   }
 
   // garrisoned civilian structures fight for their occupier
@@ -3847,7 +3850,7 @@ function updateCapturedAuras(b, bt, dt) {
       b.spawnT = (b.spawnT || 0) + dt;
       if (b.spawnT >= bt.spawns.every) {
         b.spawnT = 0;
-        const u = makeUnit(b.owner, bt.spawns.type, b.x + (Math.random() - 0.5) * 20, b.y + b.h / 2 + 22);
+        const u = makeUnit(b.owner, bt.spawns.type, b.x + (simRandom() - 0.5) * 20, b.y + b.h / 2 + 22);
         u.spawnedBy = b.id;
         if (b.owner === PLAYER) eva('Reinforcements salvaged');
       }
@@ -3863,7 +3866,7 @@ function updateCapturedAuras(b, bt, dt) {
         u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' &&
         !disproved(u.owner, 'actors') && dist(u, b) <= bt.convert.r);
       if (pool.length) {
-        const v = pool[Math.floor(Math.random() * pool.length)];
+        const v = pool[Math.floor(simRandom() * pool.length)];
         v.owner = b.owner; v.disguised = false; v.order = { type: 'idle' };
         Particles.pulse(v.x, v.y, 30, [150, 200, 255]);
       }
@@ -4971,7 +4974,7 @@ function cancelRite(u) {
   if (b && b.rites) b.rites = b.rites.filter(id => id !== u.id);
   if (u.hp > 0) {
     u.garrisoned = false;
-    if (b) { u.x = b.x + (Math.random() - 0.5) * 30; u.y = b.y + b.h / 2 + 20; }
+    if (b) { u.x = b.x + (simRandom() - 0.5) * 30; u.y = b.y + b.h / 2 + 20; }
     u.order = { type: 'idle' };
   }
 }
@@ -5446,7 +5449,14 @@ function refreshSidebar() {
   }
 }
 
-function startGame(faction) {
+function startGame(faction, seed) {
+  // ONE seed drives every sim-side roll for the whole match: map layout, AI
+  // faction picks, spawn jitter, damage rolls. Pass one in (tests, replays, a
+  // future lobby handshake) or let the clock pick one. Nothing else may seed
+  // the sim stream after this point.
+  state.seed = (seed !== undefined ? seed : Date.now()) >>> 0;
+  RNG.seedSim(state.seed);
+  state.tick = 0;
   document.getElementById('faction-select').classList.add('hidden');
   const size = MAP_SIZES[selectedSize];
   const numEnemies = clamp(selectedOpponents, 1, size.maxPlayers - 1);
@@ -5462,8 +5472,8 @@ function startGame(faction) {
     state.infiltrator[owner] = null;
     state.eco[owner] = 0;
     if (owner !== PLAYER) {
-      state.factions[owner] = others[Math.floor(Math.random() * others.length)];
-      ais[owner] = { attackWaveSize: 5, thinkTimer: Math.random(), time: 0 };
+      state.factions[owner] = others[Math.floor(simRandom() * others.length)];
+      ais[owner] = { attackWaveSize: 5, thinkTimer: simRandom(), time: 0 };
     }
     // worker-less factions get a head start while their income ramps up
     state.minerals[owner] = 300 + (facOf(owner).economy.start || 0);
@@ -6761,8 +6771,8 @@ function drawProjectilesIso() {
       ctx.fillRect(-4.5, -3, 2, 6);
       ctx.fillStyle = '#c0392b'; // warhead
       ctx.beginPath(); ctx.moveTo(4, -1.4); ctx.lineTo(7, 0); ctx.lineTo(4, 1.4); ctx.closePath(); ctx.fill();
-      ctx.fillStyle = `rgba(255,${170 + Math.floor(Math.random() * 60)},70,0.9)`; // exhaust
-      ctx.beginPath(); ctx.moveTo(-4.5, -1.1); ctx.lineTo(-8 - Math.random() * 3, 0); ctx.lineTo(-4.5, 1.1); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = `rgba(255,${170 + Math.floor(fxRandom() * 60)},70,0.9)`; // exhaust
+      ctx.beginPath(); ctx.moveTo(-4.5, -1.1); ctx.lineTo(-8 - fxRandom() * 3, 0); ctx.lineTo(-4.5, 1.1); ctx.closePath(); ctx.fill();
       ctx.restore();
       continue;
     }
@@ -6782,9 +6792,9 @@ function drawProjectilesIso() {
       ctx.beginPath(); ctx.moveTo(0, 10); ctx.lineTo(-3, 3); ctx.lineTo(3, 3); ctx.closePath(); ctx.fill();
       ctx.fillStyle = '#8b939e';
       ctx.fillRect(-5, -9, 3, 5); ctx.fillRect(2, -9, 3, 5);
-      ctx.fillStyle = `rgba(255,${170 + Math.floor(Math.random() * 60)},70,0.9)`;
+      ctx.fillStyle = `rgba(255,${170 + Math.floor(fxRandom() * 60)},70,0.9)`;
       ctx.beginPath();
-      ctx.moveTo(-3, -8); ctx.lineTo(0, -18 - Math.random() * 8); ctx.lineTo(3, -8);
+      ctx.moveTo(-3, -8); ctx.lineTo(0, -18 - fxRandom() * 8); ctx.lineTo(3, -8);
       ctx.closePath(); ctx.fill();
       ctx.restore();
       continue;
@@ -6806,8 +6816,8 @@ function drawProjectilesIso() {
       ctx.fillStyle = '#d8dce2'; ctx.fillRect(-6, -1.7, 12, 3.4);
       ctx.fillStyle = '#8b939e'; ctx.fillRect(-6.5, -3.4, 2.2, 6.8); // tail fins
       ctx.fillStyle = '#c0392b'; ctx.beginPath(); ctx.moveTo(6, -1.7); ctx.lineTo(10, 0); ctx.lineTo(6, 1.7); ctx.closePath(); ctx.fill(); // warhead
-      ctx.fillStyle = `rgba(255,${170 + Math.floor(Math.random() * 60)},70,0.9)`;
-      ctx.beginPath(); ctx.moveTo(-6, -1.3); ctx.lineTo(-11 - Math.random() * 4, 0); ctx.lineTo(-6, 1.3); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = `rgba(255,${170 + Math.floor(fxRandom() * 60)},70,0.9)`;
+      ctx.beginPath(); ctx.moveTo(-6, -1.3); ctx.lineTo(-11 - fxRandom() * 4, 0); ctx.lineTo(-6, 1.3); ctx.closePath(); ctx.fill();
       ctx.restore();
     } else if (p.kind === 'rock') {
       ctx.fillStyle = '#8a7f6e';

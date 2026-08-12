@@ -56,10 +56,10 @@
         life, col: ws.color,
       });
       this.spawn({
-        kind: 'spark', x: x2 + (Math.random() - 0.5) * 6, y: y2 + (Math.random() - 0.5) * 6,
+        kind: 'spark', x: x2 + (fxRandom() - 0.5) * 6, y: y2 + (fxRandom() - 0.5) * 6,
         z: z2,
-        vx: -Math.cos(a) * 40 + (Math.random() - 0.5) * 50,
-        vy: -Math.sin(a) * 40 + (Math.random() - 0.5) * 50,
+        vx: -Math.cos(a) * 40 + (fxRandom() - 0.5) * 50,
+        vy: -Math.sin(a) * 40 + (fxRandom() - 0.5) * 50,
         drag: 4, life: 0.3, delay: d / ws.speed, col: ws.color,
       });
     },
@@ -67,7 +67,7 @@
     smoke(x, y, r = 3, z = 0) {
       // vz is a SCREEN-space rise: smoke climbs straight up regardless of
       // where "up" points in projected world coordinates
-      this.spawn({ kind: 'smoke', x, y, z, vx: (Math.random() - 0.5) * 8, vz: 12, r, grow: 9, life: 1.1 });
+      this.spawn({ kind: 'smoke', x, y, z, vx: (fxRandom() - 0.5) * 8, vz: 12, r, grow: 9, life: 1.1 });
     },
 
     // z1: screen altitude of the bolt's origin (storm strikes come from the sky)
@@ -84,12 +84,12 @@
       this.spawn({ kind: 'flash', x, y, r: 13 * big, life: 0.16, col: [255, 240, 170] });
       this.spawn({ kind: 'ring', x, y, r: 5, grow: 30 * big, life: 0.45 });
       for (let i = 0; i < 12 * big; i++) {
-        const a = Math.random() * TAU, s = 40 + Math.random() * 120 * big;
-        this.spawn({ kind: 'debris', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, drag: 3, life: 0.4 + Math.random() * 0.4 });
+        const a = fxRandom() * TAU, s = 40 + fxRandom() * 120 * big;
+        this.spawn({ kind: 'debris', x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, drag: 3, life: 0.4 + fxRandom() * 0.4 });
       }
       for (let i = 0; i < 7 * big; i++) {
-        const a = Math.random() * TAU, s = 8 + Math.random() * 26;
-        this.spawn({ kind: 'smoke', x: x + Math.cos(a) * 5, y: y + Math.sin(a) * 5, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 8, r: 3.5 + Math.random() * 4, grow: 11, life: 0.8 + Math.random() * 0.7 });
+        const a = fxRandom() * TAU, s = 8 + fxRandom() * 26;
+        this.spawn({ kind: 'smoke', x: x + Math.cos(a) * 5, y: y + Math.sin(a) * 5, vx: Math.cos(a) * s, vy: Math.sin(a) * s, vz: 8, r: 3.5 + fxRandom() * 4, grow: 11, life: 0.8 + fxRandom() * 0.7 });
       }
     },
 
@@ -155,7 +155,7 @@
           const dx = qx - px, dy = qy - sy;
           for (let i = 1; i <= 4; i++) {
             const seg = i / 5;
-            ctx.lineTo(px + dx * seg + (Math.random() - 0.5) * 9, sy + dy * seg + (Math.random() - 0.5) * 9);
+            ctx.lineTo(px + dx * seg + (fxRandom() - 0.5) * 9, sy + dy * seg + (fxRandom() - 0.5) * 9);
           }
           ctx.lineTo(qx, qy);
           ctx.stroke();
@@ -2026,7 +2026,7 @@
       ctx.save(); ctx.translate(-8, 20); ctx.rotate(Math.PI / 4);
       ctx.fillRect(-3, -3, 6, 6);
       ctx.restore();
-      if (o.on && Math.random() < 0.3 && window.Particles) Particles.smoke(o.wx + 15, o.wy - 12, 2, 22);
+      if (o.on && fxRandom() < 0.3 && window.Particles) Particles.smoke(o.wx + 15, o.wy - 12, 2, 22);
     } else if (o.fam === 'glob') {
       // fusion hall with the torus standing UPRIGHT in a cradle on the roof
       const pulse = o.on ? 0.5 + 0.5 * Math.sin(t * 3) : 0.08;
@@ -2140,8 +2140,8 @@
         rr(ctx, -2.4, -H2 + 10 + drop, 4.8, 4, 1);
         ctx.fill();
       });
-      if (o.on && Math.random() < 0.4 && window.Particles) {
-        Particles.spawn({ kind: 'smoke', x: o.wx + (Math.random() - 0.5) * 8, y: o.wy, vx: 0, vz: 20, r: 2.5, grow: 7, life: 0.9, maxLife: 0.9 });
+      if (o.on && fxRandom() < 0.4 && window.Particles) {
+        Particles.spawn({ kind: 'smoke', x: o.wx + (fxRandom() - 0.5) * 8, y: o.wy, vx: 0, vz: 20, r: 2.5, grow: 7, life: 0.9, maxLife: 0.9 });
       }
     } else {
       // zero-point core: orb levitating over a triad of standing crystals
@@ -2442,7 +2442,7 @@
         ctx.fillStyle = '#20242a';
         ctx.beginPath(); ctx.ellipse(0, -26, 2.4, 1, 0, 0, TAU); ctx.fill();
       });
-      if (o.on && Math.random() < 0.25 && window.Particles) Particles.smoke(o.wx - 24, o.wy - 14, 2, 26);
+      if (o.on && fxRandom() < 0.25 && window.Particles) Particles.smoke(o.wx - 24, o.wy - 14, 2, 26);
       ctx.fillStyle = 'rgba(18,16,12,0.55)';
       ctx.beginPath(); ctx.ellipse(-4, 16, 7, 3.5, 0.4, 0, TAU); ctx.fill();
       drum3d(ctx, -20, 18, 4, '#23262b', 2);
@@ -2530,7 +2530,7 @@
       }
       // smokestack off the far corner, puffing while the line runs
       ctx.fillStyle = '#3f3c33'; ctx.fillRect(-24 - 14, -30 - 14, 5, 12);
-      if (o.on && Math.random() < 0.3 && window.Particles) {
+      if (o.on && fxRandom() < 0.3 && window.Particles) {
         Particles.spawn({ kind: 'smoke', x: o.wx - 22, y: o.wy - 24, vx: 2, vz: 26, r: 2.4, grow: 7, life: 1, maxLife: 1 });
       }
       // mine-mouth door on the SW wall + ore cart rail out of it
@@ -3662,8 +3662,8 @@
       ctx.fillStyle = `rgba(120,215,208,${(0.3 + shim * 0.45).toFixed(2)})`;
       ctx.beginPath(); ctx.ellipse(0, -H, 3.2, 1.1, 0, 0, TAU); ctx.fill();
     });
-    if (o.on && Math.random() < 0.4 && window.Particles) {
-      Particles.spawn({ kind: 'smoke', x: o.wx, y: o.wy, vx: (Math.random() - 0.5) * 6, vz: 30, r: 2, grow: 6, life: 0.8, maxLife: 0.8 });
+    if (o.on && fxRandom() < 0.4 && window.Particles) {
+      Particles.spawn({ kind: 'smoke', x: o.wx, y: o.wy, vx: (fxRandom() - 0.5) * 6, vz: 30, r: 2, grow: 6, life: 0.8, maxLife: 0.8 });
     }
   };
   B.tractor = (ctx, t, o) => {

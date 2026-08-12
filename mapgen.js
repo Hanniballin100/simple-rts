@@ -7,16 +7,24 @@
 // Loaded after data.js, before art.js and game.js.
 // ============================================================
 
-// deterministic per-obstacle jitter so terrain blobs draw the same every frame
+// deterministic per-obstacle jitter so terrain blobs draw the same every frame.
+// Integer hash (lowbias32), NOT the classic `fract(sin(x) * 43758.5)`: that
+// idiom amplifies a one-ulp disagreement in Math.sin — which is not specified
+// to be identical across JS engines — into a completely different value, and
+// this function decides where city blocks and landmarks go. Pure imul/xorshift
+// is bit-identical everywhere. Every caller passes an integer.
 function prand(seed) {
-  const v = Math.sin(seed * 127.1 + 311.7) * 43758.5453;
-  return v - Math.floor(v);
+  let h = (seed | 0) >>> 0;
+  h ^= h >>> 16; h = Math.imul(h, 0x7feb352d);
+  h ^= h >>> 15; h = Math.imul(h, 0x846ca68b);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
 }
 
 function generateMap(sizeKey, numPlayers, settingKey) {
   const size = MAP_SIZES[sizeKey] || MAP_SIZES.medium;
   const setting = MAP_SETTINGS[settingKey] ? settingKey
-    : ['urban', 'town', 'town', 'country'][Math.floor(Math.random() * 4)];
+    : ['urban', 'town', 'town', 'country'][Math.floor(simRandom() * 4)];
   WORLD_W = size.w;
   WORLD_H = size.h;
   TERRAIN = [];
@@ -25,12 +33,12 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   const area = WORLD_W * WORLD_H;
   const dist2 = (x1, y1, x2, y2) => Math.hypot(x1 - x2, y1 - y2);
   const farFrom = (list, x, y, pad) => list.every(p => dist2(p.x, p.y, x, y) > pad + (p.r || 0));
-  let seed = Math.floor(Math.random() * 1e6);
+  let seed = Math.floor(simRandom() * 1e6);
 
   // ---- start positions: evenly spaced on an inset ring, random rotation ----
   const starts = [];
   const ringX = WORLD_W / 2 - 380, ringY = WORLD_H / 2 - 330;
-  const offset = Math.random() * Math.PI * 2;
+  const offset = simRandom() * Math.PI * 2;
   for (let i = 0; i < numPlayers; i++) {
     const a = offset + (i / numPlayers) * Math.PI * 2;
     starts.push({ x: cx + Math.cos(a) * ringX, y: cy + Math.sin(a) * ringY });
@@ -41,16 +49,16 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   for (const s of starts) {
     const home = Math.atan2(cy - s.y, cx - s.x); // toward map center
     // close cluster: guaranteed safe economy
-    const a1 = home + (Math.random() - 0.5) * 1.6;
+    const a1 = home + (simRandom() - 0.5) * 1.6;
     patchSpots.push({ x: s.x + Math.cos(a1) * 190, y: s.y + Math.sin(a1) * 190, amount: 900 });
     // natural expansion: a bit further out, contestable
-    const a2 = home + (Math.random() - 0.5) * 2.4;
+    const a2 = home + (simRandom() - 0.5) * 2.4;
     patchSpots.push({ x: s.x + Math.cos(a2) * 450, y: s.y + Math.sin(a2) * 450, amount: 1100 });
   }
   const nExpansions = Math.round(area / 1.2e6) + numPlayers;
   for (let i = 0, tries = 0; i < nExpansions && tries < 500; tries++) {
-    const x = 180 + Math.random() * (WORLD_W - 360);
-    const y = 180 + Math.random() * (WORLD_H - 360);
+    const x = 180 + simRandom() * (WORLD_W - 360);
+    const y = 180 + simRandom() * (WORLD_H - 360);
     if (!farFrom(starts, x, y, 480)) continue;
     if (!farFrom(patchSpots, x, y, 360)) continue;
     patchSpots.push({ x, y, amount: 1300 });
@@ -71,23 +79,23 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     TERRAIN.push({ x, y, r, type: 'water', seed: seed++ });
     return true;
   };
-  const styleRoll = Math.random();
+  const styleRoll = simRandom();
   const waterStyle = styleRoll < 0.3 ? 'coastal' : styleRoll < 0.6 ? 'river' : styleRoll < 0.85 ? 'lakes' : 'landlocked';
 
   if (waterStyle === 'coastal') {
     // an ocean hugging one edge, with an irregular coastline and a few bays
-    const edge = Math.floor(Math.random() * 4); // 0 top, 1 right, 2 bottom, 3 left
+    const edge = Math.floor(simRandom() * 4); // 0 top, 1 right, 2 bottom, 3 left
     const len = (edge % 2 === 0) ? WORLD_W : WORLD_H;
     for (let s = 0; s < len; s += 90) {
-      const r = 100 + Math.random() * 70;
-      const inland = r * 0.35 + Math.random() * 50;
+      const r = 100 + simRandom() * 70;
+      const inland = r * 0.35 + simRandom() * 50;
       const pos = [
         [s, inland], [WORLD_W - inland, s],
         [s, WORLD_H - inland], [inland, s],
       ][edge];
       addWater(pos[0], pos[1], r);
       // occasional bay pushing further inland
-      if (Math.random() < 0.22) {
+      if (simRandom() < 0.22) {
         const bay = [
           [s + 40, inland + r * 0.8], [WORLD_W - inland - r * 0.8, s + 40],
           [s + 40, WORLD_H - inland - r * 0.8], [inland + r * 0.8, s + 40],
@@ -97,15 +105,15 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     }
   } else if (waterStyle === 'river') {
     // one winding river crossing the whole map, with 2 fords carved out
-    const vertical = Math.random() < 0.5;
-    let x = vertical ? WORLD_W * (0.3 + Math.random() * 0.4) : -20;
-    let y = vertical ? -20 : WORLD_H * (0.3 + Math.random() * 0.4);
+    const vertical = simRandom() < 0.5;
+    let x = vertical ? WORLD_W * (0.3 + simRandom() * 0.4) : -20;
+    let y = vertical ? -20 : WORLD_H * (0.3 + simRandom() * 0.4);
     let heading = vertical ? Math.PI / 2 : 0;
     const segs = [];
     for (let i = 0; i < 200; i++) {
-      const r = 60 + Math.random() * 28;
+      const r = 60 + simRandom() * 28;
       segs.push({ x, y, r });
-      heading += (Math.random() - 0.5) * 0.5;
+      heading += (simRandom() - 0.5) * 0.5;
       // keep it flowing across, not doubling back
       const want = vertical ? Math.PI / 2 : 0;
       heading = want + Math.max(-0.9, Math.min(0.9, heading - want));
@@ -116,21 +124,21 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     // fords: skip a couple of stretches so armies can cross
     const fords = new Set();
     for (let f = 0; f < 2; f++) {
-      const at = 3 + Math.floor(Math.random() * Math.max(1, segs.length - 6));
+      const at = 3 + Math.floor(simRandom() * Math.max(1, segs.length - 6));
       fords.add(at); fords.add(at + 1);
     }
     segs.forEach((sg, i) => { if (!fords.has(i)) addWater(sg.x, sg.y, sg.r); });
   } else if (waterStyle === 'lakes') {
     // 1-2 big blobby lakes built from overlapping circles
-    const nLakes = 1 + (Math.random() < 0.5 ? 1 : 0);
+    const nLakes = 1 + (simRandom() < 0.5 ? 1 : 0);
     for (let l = 0; l < nLakes; l++) {
-      const lx = WORLD_W * (0.3 + Math.random() * 0.4);
-      const ly = WORLD_H * (0.3 + Math.random() * 0.4);
-      const pieces = 5 + Math.floor(Math.random() * 4);
+      const lx = WORLD_W * (0.3 + simRandom() * 0.4);
+      const ly = WORLD_H * (0.3 + simRandom() * 0.4);
+      const pieces = 5 + Math.floor(simRandom() * 4);
       for (let i = 0; i < pieces; i++) {
-        const a = Math.random() * Math.PI * 2;
-        const d = Math.random() * 130;
-        addWater(lx + Math.cos(a) * d, ly + Math.sin(a) * d, 70 + Math.random() * 55);
+        const a = simRandom() * Math.PI * 2;
+        const d = simRandom() * 130;
+        addWater(lx + Math.cos(a) * d, ly + Math.sin(a) * d, 70 + simRandom() * 55);
       }
     }
   }
@@ -233,11 +241,11 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   const placeTown = (x, y, n) => {
     let placed = 0;
     for (let h = 0; h < n; h++) {
-      const a = (h / n) * Math.PI * 2 + Math.random() * 0.5;
-      const d = 85 + Math.random() * 60;
+      const a = (h / n) * Math.PI * 2 + simRandom() * 0.5;
+      const d = 85 + simRandom() * 60;
       const hx = x + Math.cos(a) * d, hy = y + Math.sin(a) * d;
       if (!clearForNeutral(hx, hy, 330)) continue;
-      const roll = Math.random();
+      const roll = simRandom();
       neutrals.push({
         type: roll < 0.1 ? 'apartment' : roll < 0.24 ? 'shop' : roll < 0.32 ? 'church' : 'house',
         x: hx, y: hy,
@@ -255,37 +263,37 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     const onMap = (px, py, m) => px > m && py > m && px < WORLD_W - m && py < WORLD_H - m &&
       farFrom(starts, px, py, 300) && farFrom(TERRAIN, px, py, 70);
     neutrals.push({ type: 'barn', x, y });
-    const side = Math.random() < 0.5 ? -1 : 1;
+    const side = simRandom() < 0.5 ? -1 : 1;
     // farmhouse off to one side
-    const hx = x + 102 + (Math.random() - 0.5) * 30, hy = y + (Math.random() - 0.5) * 70;
+    const hx = x + 102 + (simRandom() - 0.5) * 30, hy = y + (simRandom() - 0.5) * 70;
     if (clearForNeutral(hx, hy, 320)) neutrals.push({ type: 'house', x: hx, y: hy });
     // a cluster of grain silos beside the barn
-    const nSilo = 1 + Math.floor(Math.random() * 3);
+    const nSilo = 1 + Math.floor(simRandom() * 3);
     for (let s = 0; s < nSilo; s++) {
-      const sx = x + side * (56 + s * 30), sy = y - 32 + (Math.random() - 0.5) * 22;
+      const sx = x + side * (56 + s * 30), sy = y - 32 + (simRandom() - 0.5) * 22;
       if (onMap(sx, sy, 120)) neutrals.push({ type: 'silo', x: sx, y: sy });
     }
     // a windmill catching the breeze on the far side
-    if (Math.random() < 0.42) {
-      const wx = x - side * (98 + Math.random() * 40), wy = y + (Math.random() - 0.5) * 60;
+    if (simRandom() < 0.42) {
+      const wx = x - side * (98 + simRandom() * 40), wy = y + (simRandom() - 0.5) * 60;
       if (onMap(wx, wy, 120)) neutrals.push({ type: 'windmill', x: wx, y: wy });
     }
     // crop fields fanning out from the yard — varied count and size
-    const nField = 2 + Math.floor(Math.random() * 3);
+    const nField = 2 + Math.floor(simRandom() * 3);
     for (let f = 0; f < nField; f++) {
-      const fx = x + (Math.random() - 0.5) * 210;
-      const fy = y + 95 + (f % 2) * 100 + Math.floor(f / 2) * 22 + (Math.random() - 0.5) * 30;
+      const fx = x + (simRandom() - 0.5) * 210;
+      const fy = y + 95 + (f % 2) * 100 + Math.floor(f / 2) * 22 + (simRandom() - 0.5) * 30;
       if (fx > 150 && fy > 150 && fx < WORLD_W - 150 && fy < WORLD_H - 150 &&
           farFrom(starts, fx, fy, 280) && farFrom(TERRAIN, fx, fy, 80)) {
-        decor.push({ kind: 'field', x: fx, y: fy, w: 115 + Math.random() * 85, h: 72 + Math.random() * 38, seed: seed++ });
+        decor.push({ kind: 'field', x: fx, y: fy, w: 115 + simRandom() * 85, h: 72 + simRandom() * 38, seed: seed++ });
       }
     }
     // an orchard grove or a farm pond for character
-    if (Math.random() < 0.5) {
-      const ox = x + (Math.random() - 0.5) * 170, oy = y - 105 - Math.random() * 70;
-      const kind = Math.random() < 0.62 ? 'forest' : 'water';
+    if (simRandom() < 0.5) {
+      const ox = x + (simRandom() - 0.5) * 170, oy = y - 105 - simRandom() * 70;
+      const kind = simRandom() < 0.62 ? 'forest' : 'water';
       if (onMap(ox, oy, 130) && farFrom(TERRAIN, ox, oy, 90)) {
-        TERRAIN.push({ x: ox, y: oy, r: 42 + Math.random() * 26, type: kind, seed: seed++ });
+        TERRAIN.push({ x: ox, y: oy, r: 42 + simRandom() * 26, type: kind, seed: seed++ });
       }
     }
     return 1;
@@ -293,7 +301,7 @@ function generateMap(sizeKey, numPlayers, settingKey) {
 
   const scatterSpots = (count, pad, place) => {
     for (let i = 0, tries = 0; i < count && tries < 400; tries++) {
-      const x = Math.random() * WORLD_W, y = Math.random() * WORLD_H;
+      const x = simRandom() * WORLD_W, y = simRandom() * WORLD_H;
       if (!clearForNeutral(x, y, pad)) continue;
       if (place(x, y)) i++;
     }
@@ -309,21 +317,21 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     placeCity(cx, cy, bw, bh);
   } else if (setting === 'urban') {
     // one metropolis near the middle of the map...
-    const big = Math.random() < 0.5 ? [5, 3] : [4, 4];
+    const big = simRandom() < 0.5 ? [5, 3] : [4, 4];
     for (let tries = 0; tries < 40; tries++) {
-      const x = WORLD_W * (0.3 + Math.random() * 0.4);
-      const y = WORLD_H * (0.3 + Math.random() * 0.4);
+      const x = WORLD_W * (0.3 + simRandom() * 0.4);
+      const y = WORLD_H * (0.3 + simRandom() * 0.4);
       if (placeCity(x, y, big[0], big[1]) >= 5) break;
     }
     // ...plus satellite districts, and lone roadside stops in the sticks
     scatterSpots(1 + Math.round(area / 5.5e6), 400, (x, y) => placeCity(x, y, 2, 2) >= 3 ? 1 : 0);
     scatterSpots(Math.round(area / 6e6), 340, (x, y) => {
-      neutrals.push({ type: Math.random() < 0.3 ? 'gasstation' : 'house', x, y });
+      neutrals.push({ type: simRandom() < 0.3 ? 'gasstation' : 'house', x, y });
       return 1;
     });
   } else if (setting === 'town') {
-    scatterSpots(1 + Math.round(area / 6e6), 400, (x, y) => placeTown(x, y, 5 + Math.floor(Math.random() * 4)));
-    scatterSpots(1 + Math.round(area / 5e6), 360, (x, y) => placeTown(x, y, 2 + Math.floor(Math.random() * 2)));
+    scatterSpots(1 + Math.round(area / 6e6), 400, (x, y) => placeTown(x, y, 5 + Math.floor(simRandom() * 4)));
+    scatterSpots(1 + Math.round(area / 5e6), 360, (x, y) => placeTown(x, y, 2 + Math.floor(simRandom() * 2)));
   } else { // country
     scatterSpots(2 + Math.round(area / 2.6e6), 360, placeFarm);
     scatterSpots(Math.round(area / 7e6), 340, (x, y) => (neutrals.push({ type: 'house', x, y }), 1));
@@ -333,7 +341,7 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   const derrickDiv = setting === 'country' ? 5e6 : setting === 'town' ? 7e6 : 9e6;
   const nDerrick = numPlayers + Math.round(area / derrickDiv);
   for (let i = 0, tries = 0; i < nDerrick && tries < 300; tries++) {
-    const x = Math.random() * WORLD_W, y = Math.random() * WORLD_H;
+    const x = simRandom() * WORLD_W, y = simRandom() * WORLD_H;
     if (!clearForNeutral(x, y, 430)) continue;
     if (!neutrals.filter(n => n.type === 'derrick').every(n => dist2(n.x, n.y, x, y) > 550)) continue;
     neutrals.push({ type: 'derrick', x, y });
@@ -346,15 +354,15 @@ function generateMap(sizeKey, numPlayers, settingKey) {
     const LANDMARKS = ['hospital', 'bank', 'radiotower', 'radar', 'researchlab', 'substation', 'mast5g', 'tvstation', 'monument', 'fueldepot', 'blacksite'];
     const nLandmark = 2 + Math.round(area / 3.5e6);
     for (let i = 0, tries = 0; i < nLandmark && tries < 400; tries++) {
-      const x = 200 + Math.random() * (WORLD_W - 400), y = 200 + Math.random() * (WORLD_H - 400);
+      const x = 200 + simRandom() * (WORLD_W - 400), y = 200 + simRandom() * (WORLD_H - 400);
       if (!clearForNeutral(x, y, 430)) continue;
-      neutrals.push({ type: LANDMARKS[Math.floor(Math.random() * LANDMARKS.length)], x, y });
+      neutrals.push({ type: LANDMARKS[Math.floor(simRandom() * LANDMARKS.length)], x, y });
       i++;
     }
     // the rural mystery: a downed saucer — hold it and salvaged UFO tech is yours
     const nUfo = 1 + (area > 8e6 ? 1 : 0);
     for (let i = 0, tries = 0; i < nUfo && tries < 200; tries++) {
-      const x = 220 + Math.random() * (WORLD_W - 440), y = 220 + Math.random() * (WORLD_H - 440);
+      const x = 220 + simRandom() * (WORLD_W - 440), y = 220 + simRandom() * (WORLD_H - 440);
       if (!clearForNeutral(x, y, 460)) continue;
       neutrals.push({ type: 'ufocrash', x, y });
       i++;
@@ -371,16 +379,16 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   const addObstacle = (x, y, r, type) => TERRAIN.push({ x, y, r, type, seed: seed++ });
 
   // a rocky ridge partway across the map
-  if (Math.random() < 0.55) {
-    const vertical = Math.random() < 0.5;
-    let x = vertical ? WORLD_W * (0.25 + Math.random() * 0.5) : 60;
-    let y = vertical ? 60 : WORLD_H * (0.25 + Math.random() * 0.5);
+  if (simRandom() < 0.55) {
+    const vertical = simRandom() < 0.5;
+    let x = vertical ? WORLD_W * (0.25 + simRandom() * 0.5) : 60;
+    let y = vertical ? 60 : WORLD_H * (0.25 + simRandom() * 0.5);
     let heading = vertical ? Math.PI / 2 : 0;
-    const steps = 7 + Math.floor(Math.random() * 6);
+    const steps = 7 + Math.floor(simRandom() * 6);
     for (let i = 0; i < steps; i++) {
-      const r = 48 + Math.random() * 32;
+      const r = 48 + simRandom() * 32;
       if (okSpot(x, y, r)) addObstacle(x, y, r, 'rock');
-      heading += (Math.random() - 0.5) * 0.7;
+      heading += (simRandom() - 0.5) * 0.7;
       x += Math.cos(heading) * (r * 1.7 + 20);
       y += Math.sin(heading) * (r * 1.7 + 20);
       if (x < 60 || y < 60 || x > WORLD_W - 60 || y > WORLD_H - 60) break;
@@ -388,10 +396,10 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   }
 
   // central feature: a mesa forcing a flank (skipped on lake maps — they have one)
-  if (waterStyle !== 'lakes' && Math.random() < 0.55) {
-    const r = 100 + Math.random() * 60;
-    const x = cx + (Math.random() - 0.5) * 300;
-    const y = cy + (Math.random() - 0.5) * 240;
+  if (waterStyle !== 'lakes' && simRandom() < 0.55) {
+    const r = 100 + simRandom() * 60;
+    const x = cx + (simRandom() - 0.5) * 300;
+    const y = cy + (simRandom() - 0.5) * 240;
     if (okSpot(x, y, r)) addObstacle(x, y, r, 'rock');
   }
 
@@ -401,18 +409,18 @@ function generateMap(sizeKey, numPlayers, settingKey) {
   const waterChance = waterStyle === 'landlocked' ? 0.3 : 0.1;
   const forestShare = setting === 'urban' ? 0.25 : setting === 'town' ? 0.42 : 0.55;
   for (let i = 0, tries = 0; i < nScatter && tries < 900; tries++) {
-    const roll = Math.random();
+    const roll = simRandom();
     const type = roll < waterChance ? 'water' : roll < 1 - forestShare ? 'rock' : 'forest';
-    const r = type === 'rock' ? 45 + Math.random() * 45 : 55 + Math.random() * 55;
-    const x = Math.random() * WORLD_W;
-    const y = Math.random() * WORLD_H;
+    const r = type === 'rock' ? 45 + simRandom() * 45 : 55 + simRandom() * 55;
+    const x = simRandom() * WORLD_W;
+    const y = simRandom() * WORLD_H;
     if (!okSpot(x, y, r)) continue;
     addObstacle(x, y, r, type);
     // forests like company: sprinkle 1-2 sibling groves alongside
     if (type === 'forest') {
-      for (let k = 0; k < 2 && Math.random() < 0.6; k++) {
-        const a = Math.random() * Math.PI * 2;
-        const rr = 40 + Math.random() * 40;
+      for (let k = 0; k < 2 && simRandom() < 0.6; k++) {
+        const a = simRandom() * Math.PI * 2;
+        const rr = 40 + simRandom() * 40;
         const gx = x + Math.cos(a) * (r + rr + 30), gy = y + Math.sin(a) * (r + rr + 30);
         if (okSpot(gx, gy, rr)) addObstacle(gx, gy, rr, 'forest');
       }
