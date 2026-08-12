@@ -59,7 +59,11 @@ const WEAPON_STYLE = {
 };
 
 // which building-art family each faction uses
-const FAMILY_STYLE = { flat: 'flat', resistance: 'flat', glob: 'glob', deep: 'glob', hollow: 'hollow', grey: 'alien', reptilian: 'alien' };
+// ART style key — NOT the lore family. The Resistance used to borrow the flat
+// compound's sprites, so two factions that are opposites in fiction read as the
+// same base on screen; they have their own 'scrap' language now (containers,
+// scaffold, tarps, aerials) the way hollow has its own despite sharing EARTHERS.
+const FAMILY_STYLE = { flat: 'flat', resistance: 'scrap', glob: 'glob', deep: 'glob', hollow: 'hollow', grey: 'alien', reptilian: 'alien' };
 
 // build hotkeys. NOTE: 'm' is taken globally by mute and 'h' by centre-on-home,
 // so the Mechanicum answers to 'c' (consecration) rather than its own initial.
@@ -860,13 +864,14 @@ const MAP_SETTINGS = {
 // income: minerals granted per 10 seconds while the building stands — the
 // alien economy runs on this instead of miners.
 const BUILDING_MODS = {
-  flat: { // cheap, flimsy, quick to raise; big workforce keeps them fueled
-    hq:         { hp: 850,  power: 55 },
-    powerplant: { cost: 60,  hp: 240, power: 70,  buildTime: 8,  w: 52, h: 52 },
-    barracks:   { cost: 80,  hp: 380, buildTime: 10, w: 50, h: 50 },
-    factory:    { cost: 130, hp: 440, buildTime: 14 },
-    airpad:     { cost: 110, hp: 380, buildTime: 14, req: 'tech' }, // the sky must be proven fake first
-    tech:       { cost: 240, hp: 420 },
+  flat: { // DUG IN. The compound is slow to raise and hard to shift: sandbags,
+          // poured slab and plywood, built by a big workforce that stays put.
+    hq:         { hp: 980,  power: 55 },
+    powerplant: { cost: 70,  hp: 300, power: 70,  buildTime: 10, w: 52, h: 52 },
+    barracks:   { cost: 90,  hp: 470, buildTime: 12, w: 50, h: 50 },
+    factory:    { cost: 145, hp: 540, buildTime: 17 },
+    airpad:     { cost: 120, hp: 460, buildTime: 17, req: 'tech' }, // the sky must be proven fake first
+    tech:       { cost: 250, hp: 510 },
     mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
     // OFF THE GRID BY DOCTRINE. The compound's guns run on diesel, car
     // batteries and distrust — never the mains. Mechanically this is the
@@ -876,13 +881,15 @@ const BUILDING_MODS = {
     pillbox:      { power: 0 },
     laserpointer: { power: 0 },
   },
-  resistance: { // guerrilla salvage: cheapest structures in the game
-    hq:         { hp: 800,  power: 55 },
-    powerplant: { cost: 55,  hp: 220, power: 65,  buildTime: 7,  w: 52, h: 52 },
-    barracks:   { cost: 70,  hp: 340, buildTime: 9,  w: 50, h: 50 },
-    factory:    { cost: 115, hp: 400, buildTime: 13 },
-    airpad:     { cost: 90,  hp: 350, buildTime: 12 }, // the Drone Shop: no proof-of-sky required
-    tech:       { cost: 220, hp: 400 },
+  resistance: { // NOTHING STAYS PUT. Containers dragged into place and wired up
+                // in minutes: the cheapest and by far the FASTEST structures in
+                // the game, and the flimsiest. The cell expects to lose them.
+    hq:         { hp: 700,  power: 55 },
+    powerplant: { cost: 50,  hp: 175, power: 65,  buildTime: 5,  w: 52, h: 52 },
+    barracks:   { cost: 60,  hp: 250, buildTime: 6,  w: 50, h: 50 },
+    factory:    { cost: 105, hp: 300, buildTime: 9 },
+    airpad:     { cost: 80,  hp: 260, buildTime: 8 }, // the Drone Shop: no proof-of-sky required
+    tech:       { cost: 200, hp: 300 },
     // same doctrine, harder: a cell that plugs its guns into the mains is a
     // cell that can be switched off. Scrounged generators only (see the flat
     // note above — both off-grid factions pay for it with a low power cap)

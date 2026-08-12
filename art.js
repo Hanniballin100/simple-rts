@@ -1673,6 +1673,70 @@
   const B = {};
 
   // footprints the drawings below were authored for (scaled to actual size at draw time)
+  // ---------- the Resistance "scrap" style ----------
+  // Flat Earthers and the Resistance used to share every core sprite (both
+  // mapped to FAMILY_STYLE 'flat'), so two whole factions read as one base.
+  // They are opposites in fiction, so make them opposites on screen: the
+  // compound is bleached tan plywood, tin and sandbags, DUG IN. The cell is
+  // stolen shipping containers, scaffold pipe, tarps and antennas, all of it
+  // temporary — rust and olive against the compound's sun-bleached tan.
+  const SCRAP = {
+    rust: '#8f5236', olive: '#586048', steel: '#666d75',
+    dark: '#33373d', tarp: '#3f7a72', mark: '#4fb3a5',
+  };
+  // a stacked container: corrugated ribs down the lit flank, cargo doors,
+  // and a spray-painted slash so no two read as the same box
+  function crate(ctx, x, y, w, h, hgt, col, opt = {}) {
+    const [rx, ry] = isoBox(ctx, x, y, w, h, hgt, col, opt);
+    ctx.save();
+    ctx.strokeStyle = shade(col, -0.42);
+    ctx.lineWidth = 0.7;
+    for (let s = 3; s < h - 1; s += 3.4) {          // ribs on the SE flank
+      ctx.beginPath();
+      ctx.moveTo(rx + w, ry + s); ctx.lineTo(x + w, y + s);
+      ctx.stroke();
+    }
+    for (let s = 3; s < w - 1; s += 3.4) {          // ...and the SW flank
+      ctx.beginPath();
+      ctx.moveTo(rx + s, ry + h); ctx.lineTo(x + s, y + h);
+      ctx.stroke();
+    }
+    if (!opt.noPaint) {                              // graffiti slash on the roof
+      ctx.strokeStyle = `rgba(79,179,165,0.5)`;
+      ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      ctx.moveTo(rx + w * 0.22, ry + h * 0.72); ctx.lineTo(rx + w * 0.7, ry + h * 0.26);
+      ctx.stroke();
+    }
+    ctx.restore();
+    return [rx, ry];
+  }
+  // scaffold pipe leg-and-brace frame, the cell's answer to a foundation
+  function scaffold(ctx, x, y, w, h, hgt) {
+    ctx.strokeStyle = SCRAP.steel;
+    ctx.lineWidth = 1.3;
+    for (const [cx, cy] of [[x, y], [x + w, y], [x, y + h], [x + w, y + h]]) {
+      ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx - hgt, cy - hgt); ctx.stroke();
+    }
+    ctx.lineWidth = 0.8;
+    ctx.strokeStyle = shade(SCRAP.steel, -0.2);
+    ctx.beginPath();
+    ctx.moveTo(x, y - hgt * 0.5); ctx.lineTo(x + w - hgt * 0.5, y - hgt * 0.5);
+    ctx.moveTo(x + w - hgt * 0.5, y - hgt * 0.5); ctx.lineTo(x + w - hgt * 0.5, y + h - hgt * 0.5);
+    ctx.stroke();
+  }
+  // a tarp guyed over a frame — the cell roofs everything this way
+  function tarp(ctx, x, y, w, h, col = SCRAP.tarp) {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(x, y + h * 0.5); ctx.lineTo(x + w * 0.5, y);
+    ctx.lineTo(x + w, y + h * 0.5); ctx.lineTo(x + w * 0.5, y + h);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = shade(col, -0.4); ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.strokeStyle = shade(col, 0.2); ctx.lineWidth = 0.6;
+    ctx.beginPath(); ctx.moveTo(x, y + h * 0.5); ctx.lineTo(x + w, y + h * 0.5); ctx.stroke();
+  }
+
   const BUILDING_DESIGN = {
     hq: [84, 84], powerplant: [56, 56], barracks: [64, 64], factory: [74, 62],
     mechanicum: [58, 54],
@@ -1681,7 +1745,29 @@
   // ================= HQ =================
   B.hq = (ctx, t, o) => {
     pad(ctx, o);
-    if (o.fam === 'flat') {
+    if (o.fam === 'scrap') {
+      // Pirate Radio Bunker: containers stacked around a transmitter mast,
+      // ringed with tyres and drums instead of the compound's neat sandbags
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * TAU;
+        ctx.fillStyle = i % 3 ? '#2b2b2e' : '#33333a';
+        ctx.beginPath(); ctx.ellipse(Math.cos(a) * 34, Math.sin(a) * 34, 4.2, 2.6, 0, 0, TAU); ctx.fill();
+      }
+      crate(ctx, -26, -20, 30, 22, 13, SCRAP.rust, { doorSE: { w: 7, h: 9 } });
+      crate(ctx, 2, -14, 22, 20, 11, SCRAP.olive);
+      crate(ctx, -8, 4, 24, 18, 22, SCRAP.steel, { noPaint: true });
+      tarp(ctx, -32, 4, 22, 14);
+      for (const [dx, dy] of [[26, -24], [30, -16], [22, 20]]) fuelDrum(ctx, dx, dy, '#7a4a2c');
+      // it is a RADIO outfit — say so loudly
+      billboard(ctx, 4, -6, () => {
+        lattice(ctx, 46, 13, 4, SCRAP.steel, 5);
+        ctx.strokeStyle = SCRAP.mark; ctx.lineWidth = 0.9;
+        for (const yy of [-18, -28, -38]) { ctx.beginPath(); ctx.moveTo(-7, yy); ctx.lineTo(7, yy - 3); ctx.stroke(); }
+        ctx.fillStyle = '#9aa2ac';
+        ctx.beginPath(); ctx.ellipse(-5, -32, 3, 3.8, -0.4, 0, TAU); ctx.fill();
+        blinker(ctx, t, 0, -47, '#ff5f5f', 2);
+      });
+    } else if (o.fam === 'flat') {
       // sandbag perimeter, two staggered rows
       for (let i = 0; i < 16; i++) {
         const a = (i / 16) * TAU;
@@ -1883,7 +1969,27 @@
   // ================= POWER PLANT =================
   B.powerplant = (ctx, t, o) => {
     pad(ctx, o);
-    if (o.fam === 'flat') {
+    if (o.fam === 'scrap') {
+      // a stolen genset under a tarp lean-to, fuel drums alongside
+      crate(ctx, -18, -10, 26, 20, 9, SCRAP.olive, { noPaint: true });
+      ctx.fillStyle = SCRAP.dark;
+      rr(ctx, -24, -18, 9, 15, 1); ctx.fill();
+      ctx.strokeStyle = shade(SCRAP.dark, 0.35); ctx.lineWidth = 0.7;
+      for (let i = 0; i < 5; i++) { ctx.beginPath(); ctx.moveTo(-23, -17 + i * 3); ctx.lineTo(-16, -17 + i * 3); ctx.stroke(); }
+      tarp(ctx, -28, -30, 34, 16);
+      for (const [dx, dy] of [[14, 8], [21, 12], [14, 16]]) fuelDrum(ctx, dx, dy, '#8a6a2c');
+      billboard(ctx, 2, -12, () => {
+        ctx.fillStyle = SCRAP.steel; ctx.fillRect(-2, 0, 4, -20);
+        ctx.fillStyle = shade(SCRAP.steel, -0.3); ctx.fillRect(-3.2, -20, 6.4, 3);
+      });
+      if (o.on) {
+        const puff = (t * 0.8) % 1;
+        ctx.fillStyle = 'rgba(60,60,64,' + (0.34 * (1 - puff)).toFixed(2) + ')';
+        ctx.beginPath(); ctx.arc(2 - puff * 5, -34 - puff * 13, 3 + puff * 5, 0, TAU); ctx.fill();
+      }
+      ctx.strokeStyle = SCRAP.mark; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(8, 6); ctx.quadraticCurveTo(18, 12, 26, 8); ctx.stroke();
+    } else if (o.fam === 'flat') {
       // diesel shack with a corrugated roof and a proper door
       const rt = isoBox(ctx, -23, -14, 32, 28, 11, '#77644a',
         { doorSE: { w: 8, h: 8 }, win: { rows: 1, paneH: 3.5, inset: 3 } });
@@ -2087,7 +2193,30 @@
   // ================= BARRACKS =================
   B.barracks = (ctx, t, o) => {
     pad(ctx, o);
-    if (o.fam === 'flat') {
+    if (o.fam === 'scrap') {
+      // Safehouse: a container barracks with a tarp awning and a burn barrel
+      crate(ctx, -22, -16, 30, 24, 11, SCRAP.rust, { doorSE: { w: 6, h: 8 } });
+      crate(ctx, 8, -4, 16, 16, 8, SCRAP.olive, { noPaint: true });
+      tarp(ctx, -32, 6, 26, 14);
+      ctx.strokeStyle = SCRAP.steel; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(-30, 20); ctx.lineTo(-30, 13); ctx.moveTo(-8, 20); ctx.lineTo(-8, 13); ctx.stroke();
+      // washing line: people actually live here
+      ctx.strokeStyle = 'rgba(180,180,170,0.5)'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(12, 14); ctx.lineTo(30, 6); ctx.stroke();
+      for (let i = 0; i < 3; i++) {
+        ctx.fillStyle = ['#8a8f7a', '#7a6a5a', '#5a6a72'][i];
+        ctx.fillRect(16 + i * 5, 12 - i * 2.2, 3.4, 4);
+      }
+      ctx.fillStyle = '#4a3a2a';
+      ctx.beginPath(); ctx.ellipse(26, 20, 4, 2.6, 0, 0, TAU); ctx.fill();
+      billboard(ctx, 26, 19, () => {
+        const fl = 0.5 + 0.5 * Math.sin(t * 9);
+        ctx.fillStyle = 'rgba(255,' + Math.round(140 + fl * 70) + ',60,' + (0.6 + fl * 0.4).toFixed(2) + ')';
+        ctx.beginPath();
+        ctx.moveTo(-2, 0); ctx.quadraticCurveTo(-1.6, -3 - fl * 2, 0, -4.5 - fl * 2.5);
+        ctx.quadraticCurveTo(1.6, -3 - fl * 2, 2, 0); ctx.closePath(); ctx.fill();
+      });
+    } else if (o.fam === 'flat') {
       // stakes + guy ropes
       ctx.strokeStyle = 'rgba(122,108,79,0.8)';
       ctx.lineWidth = 1;
@@ -2239,7 +2368,32 @@
   // ================= FACTORY =================
   B.factory = (ctx, t, o) => {
     pad(ctx, o);
-    if (o.fam === 'flat') {
+    if (o.fam === 'scrap') {
+      // Chop Shop: an open scaffold shed over an oil-stained pit
+      ctx.fillStyle = '#2a2c30';
+      ctx.beginPath(); ctx.ellipse(-6, 8, 22, 12, 0, 0, TAU); ctx.fill();
+      scaffold(ctx, -26, -20, 50, 38, 16);
+      tarp(ctx, -32, -36, 58, 26, '#3d6b64');
+      crate(ctx, 8, -4, 20, 18, 10, SCRAP.rust, { noPaint: true });
+      // an engine block on a hoist chain, swinging as they work
+      const swg = Math.sin(t * 1.3) * 3;
+      ctx.strokeStyle = '#8a8f96'; ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(-6, -26); ctx.lineTo(-6 + swg, -8); ctx.stroke();
+      ctx.fillStyle = SCRAP.steel;
+      rr(ctx, -11 + swg, -8, 10, 8, 1.2); ctx.fill();
+      ctx.strokeStyle = shade(SCRAP.steel, -0.45); ctx.lineWidth = 0.8; ctx.stroke();
+      for (const [px, py, pw, pc] of [[-30, 12, 9, '#6a4a3a'], [-26, 18, 7, '#4a5a52'], [20, 16, 8, '#7a6a4a']]) {
+        ctx.fillStyle = pc; rr(ctx, px, py, pw, 4, 0.8); ctx.fill();
+      }
+      for (const [wx, wy] of [[24, 6], [28, 11]]) {
+        ctx.fillStyle = '#2b2b2e';
+        ctx.beginPath(); ctx.ellipse(wx, wy, 4, 2.5, 0, 0, TAU); ctx.fill();
+      }
+      if (Math.sin(t * 14) > 0.6) {
+        ctx.fillStyle = 'rgba(255,225,140,0.6)';
+        ctx.beginPath(); ctx.arc(-8, 2, 3.4, 0, TAU); ctx.fill();
+      }
+    } else if (o.fam === 'flat') {
       // machine shop: tall hall with a sawtooth roof and a roll-up bay door
       const rt = isoBox(ctx, -30, -24, 60, 48, 15, '#6a6352',
         { win: { rows: 1, paneH: 4, inset: 3, seed: 1 } });
@@ -2558,20 +2712,66 @@
   // Resistance Drone Shop: a corrugated shed with a rack of quad-drones, a
   // workbench with parts, a tire stack and welding sparks
   function airpadDroneShop(ctx, t, o, W, H) {
-    airpadGround(ctx, W, H, '#3a352c');
-    isoBox(ctx, -W / 2 + 8, -H / 2 + 9, 32, H - 22, 15, '#5a5348', { r: 1 });
+    // No runway and no tarmac — nothing the cell flies needs either. It is a
+    // netted yard: a container workshop, a charging rack of quadcopters, and a
+    // launch mat, all under camo netting slung on scaffold poles.
+    ctx.fillStyle = '#3a3a30';                                  // bare compacted dirt
+    rr(ctx, -W / 2 + 4, -H / 2 + 4, W - 8, H - 8, 4); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.14)';
+    rr(ctx, -W / 2 + 4, H / 2 - 22, W - 8, 18, 4); ctx.fill();
+
+    // container workshop along the west end, doors onto the yard
+    crate(ctx, -W / 2 + 10, -H / 2 + 12, 30, H - 30, 14, SCRAP.rust, { r: 1, doorSE: { w: 7, h: 9 } });
+
+    // charging rack: four quads on shelves, props idle, status lamps alive
     for (let i = 0; i < 4; i++) {
-      const dx = -W / 2 + 15 + (i % 2) * 11, dy = -H / 2 + 17 + ((i / 2) | 0) * 12;
-      ctx.strokeStyle = '#2c3128'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(dx - 2.5, dy - 2.5); ctx.lineTo(dx + 2.5, dy + 2.5); ctx.moveTo(dx - 2.5, dy + 2.5); ctx.lineTo(dx + 2.5, dy - 2.5); ctx.stroke();
-      ctx.fillStyle = 'rgba(160,170,150,0.5)'; for (const [px, py] of [[-2.5, -2.5], [2.5, -2.5], [-2.5, 2.5], [2.5, 2.5]]) { ctx.beginPath(); ctx.arc(dx + px, dy + py, 1.3, 0, TAU); ctx.fill(); }
-      ctx.fillStyle = '#8a5c2f'; ctx.fillRect(dx - 1, dy - 0.8, 2.2, 1.6);
+      const dx = -6 + (i % 2) * 26, dy = -H / 2 + 22 + ((i / 2) | 0) * 24;
+      ctx.fillStyle = SCRAP.dark; rr(ctx, dx - 9, dy - 6, 18, 12, 1.5); ctx.fill();
+      ctx.strokeStyle = shade(SCRAP.dark, 0.3); ctx.lineWidth = 0.7; ctx.stroke();
+      ctx.strokeStyle = '#2c3128'; ctx.lineWidth = 1.1;           // the X frame
+      ctx.beginPath();
+      ctx.moveTo(dx - 4.5, dy - 3.5); ctx.lineTo(dx + 4.5, dy + 3.5);
+      ctx.moveTo(dx - 4.5, dy + 3.5); ctx.lineTo(dx + 4.5, dy - 3.5);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(170,180,160,0.55)';                   // prop discs
+      for (const [px, py] of [[-4.5, -3.5], [4.5, -3.5], [-4.5, 3.5], [4.5, 3.5]]) {
+        ctx.beginPath(); ctx.ellipse(dx + px, dy + py, 2.6, 1.5, 0, 0, TAU); ctx.fill();
+      }
+      ctx.fillStyle = '#8a5c2f'; ctx.fillRect(dx - 1.2, dy - 1, 2.6, 2);  // payload
+      if (o.on) blinker(ctx, t, dx + 7.5, dy - 4.5, i % 2 ? '#5fce5f' : '#ffb43f', 1.5 + i * 0.5);
     }
-    ctx.fillStyle = '#4a4438'; rr(ctx, W / 2 - 32, -6, 20, 12, 1); ctx.fill();
-    ctx.fillStyle = '#6a6252'; ctx.fillRect(W / 2 - 29, -4, 5, 3); ctx.fillRect(W / 2 - 20, -3, 6, 2);
-    for (let i = 0; i < 3; i++) { ctx.fillStyle = '#22252a'; ctx.beginPath(); ctx.ellipse(W / 2 - 16, H / 2 - 13 - i * 2.2, 4, 2.4, 0, 0, TAU); ctx.fill(); }
-    if (o.on && Math.sin(t * 6) > 0.6) { ctx.fillStyle = 'rgba(255,240,170,0.9)'; ctx.beginPath(); ctx.arc(W / 2 - 22, 1, 1.4, 0, TAU); ctx.fill(); }
-    if (o.on) blinker(ctx, t, -W / 2 + 10, H / 2 - 10, '#ff5f5f', 2.4);
+
+    // launch mat at the east end, corner-marked
+    ctx.strokeStyle = 'rgba(79,179,165,0.55)'; ctx.lineWidth = 1.4;
+    const mx = W / 2 - 30, my = 0;
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      ctx.beginPath();
+      ctx.moveTo(mx + sx * 13, my + sy * 9 - sy * 5); ctx.lineTo(mx + sx * 13, my + sy * 9);
+      ctx.lineTo(mx + sx * 13 - sx * 6, my + sy * 9);
+      ctx.stroke();
+    }
+
+    // workbench and a spares crate against the south fence
+    ctx.fillStyle = '#4a4438'; rr(ctx, W / 2 - 34, H / 2 - 20, 22, 9, 1); ctx.fill();
+    ctx.fillStyle = SCRAP.olive; rr(ctx, W / 2 - 30, H / 2 - 18, 6, 4, 0.8); ctx.fill();
+    for (let i = 0; i < 3; i++) crateBox(ctx, W / 2 - 16, H / 2 - 14 - i * 3.4, 4);
+
+    // camo netting on scaffold poles, slung over the whole yard
+    ctx.strokeStyle = 'rgba(130,150,125,0.42)'; ctx.lineWidth = 0.7;
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(i * 22, -H / 2 + 8); ctx.lineTo(i * 22, H / 2 - 8); ctx.stroke();
+    }
+    for (let i = -2; i <= 2; i++) {
+      ctx.beginPath(); ctx.moveTo(-W / 2 + 8, i * 16); ctx.lineTo(W / 2 - 8, i * 16); ctx.stroke();
+    }
+    ctx.fillStyle = 'rgba(90,110,85,0.20)';                       // netting shade
+    rr(ctx, -W / 2 + 8, -H / 2 + 8, W - 16, H - 16, 3); ctx.fill();
+    ctx.strokeStyle = SCRAP.steel; ctx.lineWidth = 1.2;           // corner poles
+    for (const [sx, sy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) {
+      const px = sx * (W / 2 - 9), py = sy * (H / 2 - 9);
+      ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(px - 9, py - 9); ctx.stroke();
+    }
+    if (o.on) blinker(ctx, t, -W / 2 + 12, H / 2 - 12, '#ff5f5f', 2.4);
   }
   // Hollow Cavern Roost: a rocky rim around a dark cave mouth with a vril glow
   function airpadCavernRoost(ctx, t, o, W, H) {
@@ -4173,7 +4373,32 @@
   // ================= TECH LAB (research site, one look per family) =================
   B.tech = (ctx, t, o) => {
     pad(ctx, o);
-    if (o.fam === 'flat') {
+    if (o.fam === 'scrap') {
+      // Numbers Station: a container hut buried in scrounged aerials
+      ctx.fillStyle = '#2a2c30';
+      ctx.beginPath(); ctx.ellipse(0, 16, 20, 9, 0, 0, TAU); ctx.fill();
+      crate(ctx, -20, -14, 28, 22, 11, SCRAP.dark, { doorSE: { w: 6, h: 8 }, noPaint: true });
+      crate(ctx, 10, 2, 14, 13, 7, SCRAP.olive, { noPaint: true });
+      billboard(ctx, -6, -8, () => {
+        lattice(ctx, 34, 11, 3.5, SCRAP.steel, 4);
+        ctx.strokeStyle = '#9aa2ac'; ctx.lineWidth = 0.8;
+        for (const [ax, ah] of [[-13, 20], [12, 26], [17, 14]]) {
+          ctx.beginPath(); ctx.moveTo(ax, 0); ctx.lineTo(ax, -ah); ctx.stroke();
+          for (let k = 1; k <= 3; k++) {
+            const yy = -ah * (k / 4);
+            ctx.beginPath(); ctx.moveTo(ax - 3.4, yy); ctx.lineTo(ax + 3.4, yy); ctx.stroke();
+          }
+        }
+        ctx.fillStyle = '#8a9098';
+        ctx.beginPath(); ctx.ellipse(9, -30, 5.5, 6.5, -0.5, 0, TAU); ctx.fill();
+        ctx.strokeStyle = shade('#8a9098', -0.4); ctx.lineWidth = 0.8; ctx.stroke();
+        blinker(ctx, t, 0, -35, '#ff5f5f', 1.1);
+      });
+      ctx.strokeStyle = SCRAP.mark; ctx.lineWidth = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-6, -8); ctx.lineTo(-24, 10); ctx.moveTo(-6, -8); ctx.lineTo(22, 12);
+      ctx.stroke();
+    } else if (o.fam === 'flat') {
       // conspiracy research camp: shack, corkboard wall, giant tinfoil dish
       isoBox(ctx, -24, -8, 24, 24, 9, '#6a6352', { doorSE: { w: 7, h: 7 } });
       // corkboard of TRUTH standing on posts (red string included)
