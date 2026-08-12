@@ -137,6 +137,9 @@ function hashState() {
   hu32(state.seed);
   hu32(nextId);
   hval(OWNERS, 0);
+  // which seats are people: sim state, because it decides who gets a brain.
+  // localOwner is deliberately NOT here — it is the thing being tested.
+  hval([...humanOwners].sort((a, b) => a - b), 0);
 
   const keys = Object.keys(state).sort();
   for (const k of keys) {
@@ -180,17 +183,17 @@ const Desync = {
   begin(cfg) {
     this.cfg = Object.assign({
       seed: 12345, faction: 'flat', size: 'medium', opponents: 3,
-      supers: true, setting: 'town', script: null, as: PLAYER,
+      supers: true, setting: 'town', script: null, as: PLAYER, humans: null,
     }, cfg || {});
     const c = this.cfg;
     selectedSize = c.size;
     selectedOpponents = c.opponents;
     superweaponsOn = c.supers;
     if (typeof selectedSetting !== 'undefined') selectedSetting = c.setting;
-    startGame(c.faction, c.seed);
-    // `as` is which seat the local screen is sitting in. It must change
-    // nothing that the hash can see — that is the whole point of viewpointTest.
-    localOwner = c.as;
+    // `humans` is the lobby's seat assignment and IS sim state — every client
+    // must agree. `as` is which of those seats this screen is in, and must
+    // change nothing the hash can see; that is what viewpointTest asserts.
+    startGame(c.faction, c.seed, { humans: c.humans, as: c.as });
     this.log = [hashState()]; // tick 0: the world as generated, before any step
     return { tick: state.tick, hash: this.log[0] };
   },

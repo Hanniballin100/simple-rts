@@ -90,6 +90,30 @@ sequence number — never by insertion order. Commands carry ids, never object
 references. Selection, camera, zoom, control groups and the placement cursor
 stay client-side and never enter the queue.
 
+### Seats
+
+Three separate ideas that used to all be spelled `PLAYER`:
+
+| | what it is | who may read it |
+|---|---|---|
+| `PLAYER` | the constant `0`. Just an owner id. | anyone |
+| `localOwner` | which seat this screen is sitting in | view only — rendering, the panel, the announcer, sound, fog display |
+| `humanOwners` | which seats are driven by a person instead of `updateAI()` | sim — it is hashed, because every client has to agree who gets a brain |
+
+`startGame(faction, seed, opts)` takes the lobby's seat assignment:
+
+```js
+startGame('flat', 909, {
+  humans: [{ owner: 0, faction: 'flat' }, { owner: 2, faction: 'grey' }],
+  as: 2,                       // this screen is player two
+})
+```
+
+Single player is the one-element case and needs no `opts`.
+
+The rule the whole design rests on: **nothing derived from `localOwner` may
+reach sim state.** `viewpointTest` is what enforces it.
+
 ### Proving it
 
 `desync.js` provides `hashState()` — a uint32 fold of every sim-relevant field,

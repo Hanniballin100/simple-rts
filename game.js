@@ -13,12 +13,15 @@ const mmCtx = mmCanvas.getContext('2d');
 
 let nextId = 1;
 let started = false;
-let OWNERS = [PLAYER, ENEMY]; // owner 0 is the human; startGame appends extra AIs
+// every seat in the match, human or AI. PLAYER is just owner zero — which seat
+// a person is sitting in is localOwner, and which seats are people at all is
+// humanOwners; see below.
+let OWNERS = [PLAYER, ENEMY];
 const state = {
   factions: {},     // owner -> faction key
   minerals: {},     // owner -> bank
   loosh: {},        // owner -> reptilian blood-currency (harvested from death)
-  construction: {}, // owner -> {type,t,duration,ready,announced} | null
+  construction: {}, // owner -> {type,t,duration,ready} | null
   units: [],
   buildings: [],
   patches: [],
@@ -50,6 +53,13 @@ const keys = {};
 const mouse = { x: 0, y: 0, sel: null };
 let selection = [];
 let pings = [];              // minimap ping ripples: view-only, never hashed
+// "has the announcer already said this?" flags. Every one of these used to
+// live on a sim object — state.skimSeen, state.construction[o].announced,
+// b.announcedReady — which meant a hashed field was being written according to
+// who happened to be watching. They are view state and they live out here now.
+let skimHintSeen = false;
+let announcedBuild = {};        // owner -> the construction job already announced
+let announcedSuper = new Set(); // building ids whose "ready" line has played
 let placing = null;          // building type being placed
 let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
@@ -100,7 +110,7 @@ function startResearch(owner, key) {
   if (!D || state.minerals[owner] < D.cost) return false;
   state.minerals[owner] -= D.cost;
   state.research[owner] = { key, t: 0, dur: D.time };
-  if (owner === PLAYER) { sfx('click'); eva('The research begins'); }
+  if (owner === localOwner) { sfx('click'); eva('The research begins'); }
   return true;
 }
 function tickResearch(owner, dt) {
@@ -110,7 +120,7 @@ function tickResearch(owner, dt) {
   if (r.t < r.dur) return;
   state.research[owner] = null;
   (state.disproof[owner] = state.disproof[owner] || {})[r.key] = true;
-  if (owner === PLAYER) { sfx('boom'); eva(DISPROOFS[r.key].name + ' — proven'); }
+  if (owner === localOwner) { sfx('boom'); eva(DISPROOFS[r.key].name + ' — proven'); }
 }
 // "The Sky Is Closed": enemy aircraft loitering over a denier's base grind
 // against a firmament that, as far as its owner is concerned, was always there
@@ -178,7 +188,7 @@ function seedDigSites() {
 }
 function bankRelic(owner, key) {
   (state.relics[owner] = state.relics[owner] || []).push(key);
-  if (owner === PLAYER) eva('Relic recovered: ' + RELIC_DEFS[key].name);
+  if (owner === localOwner) eva('Relic recovered: ' + RELIC_DEFS[key].name);
 }
 // ascension fee, halved when a salvaged suit of that tier waits in the bank
 // (the Priest rite has no tier — there is no armor to inherit)
@@ -255,6 +265,12 @@ let visAll = [];             // owner -> Uint8Array(FW * FH)
 // the panel, the announcer, sound. If a value derived from localOwner ever
 // reaches sim state, Desync.viewpointTest() will catch it.
 let localOwner = PLAYER;
+// Which seats are driven by a person rather than by updateAI(). This is SIM
+// state: every client must agree on it, or one machine runs an AI brain the
+// others do not. It is NOT the same question as localOwner — in a two-human
+// match both clients have the same humanOwners and different localOwners.
+const humanOwners = new Set([PLAYER]);
+const isHuman = o => humanOwners.has(o);
 let fogImg = null;           // ImageData reused every frame (fillRect per tile is too slow on big maps)
 const fogCanvas = document.createElement('canvas');
 const fogCtx = fogCanvas.getContext('2d');
@@ -656,7 +672,7 @@ function setupWorld(map) {
 }
 
 function centerCameraOnHome() {
-  const hq = state.buildings.find(b => b.owner === PLAYER && b.type === 'hq');
+  const hq = state.buildings.find(b => b.owner === localOwner && b.type === 'hq');
   if (!hq) return;
   cam.x = isoX(hq.x, hq.y) - canvas.width / cam.zoom / 2;
   cam.y = isoY(hq.x, hq.y) - canvas.height / cam.zoom / 2;
@@ -706,7 +722,7 @@ function startConstruction(owner, type) {
   const cost = bstats(owner, type).cost;
   if (state.minerals[owner] < cost) return false;
   state.minerals[owner] -= cost;
-  state.construction[owner] = { type, t: 0, duration: bstats(owner, type).buildTime, ready: false, announced: false };
+  state.construction[owner] = { type, t: 0, duration: bstats(owner, type).buildTime, ready: false };
   return true;
 }
 
@@ -814,7 +830,12 @@ function tickConstruction(owner, dt) {
   c.t += dt * (powerOf(owner).low ? 0.5 : 1);
   if (c.t >= c.duration) {
     c.ready = true;
-    if (owner === PLAYER && !c.announced) { c.announced = true; eva('Construction complete'); }
+    // keyed on the job object, so a second building of the same type announces
+    // again — and so nothing about the announcement touches `c` itself
+    if (owner === localOwner && announcedBuild[owner] !== c) {
+      announcedBuild[owner] = c;
+      eva('Construction complete');
+    }
   }
 }
 
@@ -878,18 +899,18 @@ function fireSuperweapon(b, x, y) {
       if (dist(t, { x, y }) <= 260) t.empUntil = state.time + 20;
     }
     state.zones.push({ x, y, r: 260, until: state.time + 20, caster: owner, kind: 'emp' });
-    if (owner === PLAYER) eva('Blackout deployed');
+    if (owner === localOwner) eva('Blackout deployed');
   } else if (kind === 'barrage') {
     // loitering-munition swarm: a cloud of drones circles in, then a rolling
     // series of small strikes rains across the zone (weaker, on brand)
     state.zones.push({ x, y, r: 170, until: state.time + 8, caster: owner, kind: 'barrage',
       tick: 0.2, dmg: 55, sup: true });
-    if (owner === PLAYER) eva('Munitions inbound');
+    if (owner === localOwner) eva('Munitions inbound');
   } else if (kind === 'ray') {
     // Pyramid Death Ray: a sustained beam grinds the zone to nothing
     state.zones.push({ x, y, r: 120, until: state.time + 5, caster: owner, kind: 'ray',
       tick: 0.25, dmg: 70, srcId: b.id, sup: true });
-    if (owner === PLAYER) eva('Death ray firing');
+    if (owner === localOwner) eva('Death ray firing');
   } else if (kind === 'coup') {
     // Bloodline Coup: fired on BLOOD — consumes 60 loosh minimum and drinks
     // up to 200; every point past the minimum widens the zone. Enemy units
@@ -911,9 +932,9 @@ function fireSuperweapon(b, x, y) {
       }
     }
     state.zones.push({ x, y, r, until: state.time + 1.5, caster: owner, kind: 'coup' });
-    if (owner === PLAYER) eva('The bloodline commands them');
+    if (owner === localOwner) eva('The bloodline commands them');
   }
-  if (owner === PLAYER && kind !== 'emp' && kind !== 'barrage' && kind !== 'ray' && kind !== 'coup') {
+  if (owner === localOwner && kind !== 'emp' && kind !== 'barrage' && kind !== 'ray' && kind !== 'coup') {
     eva('Superweapon fired');
   }
 }
@@ -945,7 +966,7 @@ function noteHqLost(owner) {
   const def = hqRebuildDef(owner);
   if (!def || state.hqRebuilt[owner] || state.hqGrace[owner]) return;
   state.hqGrace[owner] = { until: state.time + def.grace, at: state.time };
-  if (owner === PLAYER) {
+  if (owner === localOwner) {
     eva(def.auto ? 'HQ lost — continuity protocol running' : `HQ lost — rebuild within ${def.grace}s`);
   }
 }
@@ -965,14 +986,14 @@ function pickRelocateSpot(owner) {
 function rebuildHq(owner, x, y) {
   const def = hqRebuildDef(owner);
   if (!def || state.hqRebuilt[owner] || hasHq(owner)) return false;
-  if (state.minerals[owner] < def.cost) { if (owner === PLAYER) eva('Insufficient funds'); return false; }
-  if (placementBlocked(owner, 'hq', x, y)) { if (owner === PLAYER) eva('No room there'); return false; }
+  if (state.minerals[owner] < def.cost) { if (owner === localOwner) eva('Insufficient funds'); return false; }
+  if (placementBlocked(owner, 'hq', x, y)) { if (owner === localOwner) eva('No room there'); return false; }
   state.minerals[owner] -= def.cost;
   state.hqRebuilt[owner] = true;
   state.hqGrace[owner] = null;
   const b = makeBuilding(owner, 'hq', x, y);
   Particles.pulse(x, y, 60, [125, 255, 214]);
-  if (owner === PLAYER) eva(def.auto ? 'Continuity of government restored' : 'Headquarters re-established');
+  if (owner === localOwner) eva(def.auto ? 'Continuity of government restored' : 'Headquarters re-established');
   else if (isPlayerVisible(x, y)) eva('The enemy has re-established a headquarters');
   return b;
 }
@@ -991,7 +1012,7 @@ function updateHqContinuity(dt) {
     // own too, since it has no sidebar to click
     const elapsed = state.time - g.at;
     const autoNow = def.auto !== undefined && elapsed >= def.auto;
-    if (autoNow || (owner !== PLAYER && elapsed >= 4)) {
+    if (autoNow || (!isHuman(owner) && elapsed >= 4)) {
       const spot = pickRelocateSpot(owner);
       if (spot) rebuildHq(owner, spot.x, spot.y);
     }
@@ -1005,11 +1026,11 @@ function playLeverage(owner, key, target) {
   const play = LEVERAGE_PLAYS[key];
   if (!play || !target || target.kind !== 'building' || target.hp <= 0) return false;
   if (target.owner === owner || target.owner === NEUTRAL) {
-    if (owner === PLAYER) eva('Point it at THEIR property');
+    if (owner === localOwner) eva('Point it at THEIR property');
     return false;
   }
   if ((state.leverage[owner] || 0) < play.cost) {
-    if (owner === PLAYER) eva('Not enough leverage');
+    if (owner === localOwner) eva('Not enough leverage');
     return false;
   }
   const victim = target.owner;
@@ -1022,16 +1043,16 @@ function playLeverage(owner, key, target) {
     state.books[owner] = { on: victim, until: state.time + play.dur };
   } else if (key === 'margin') {
     if (!state.construction[victim]) {
-      if (owner === PLAYER) eva('They have nothing on the books right now');
+      if (owner === localOwner) eva('They have nothing on the books right now');
       return false;                       // nothing to call in — no charge
     }
     state.construction[victim] = null;    // cancelled, and no refund
     Particles.pulse(target.x, target.y, 40, [190, 140, 255]);
   }
   state.leverage[owner] -= play.cost;
-  if (owner === PLAYER) eva(play.name + ' — executed');
+  if (owner === localOwner) eva(play.name + ' — executed');
   // the victim is told only what they could work out for themselves
-  if (victim === PLAYER) {
+  if (victim === localOwner) {
     eva(key === 'freeze' ? buildingName(target) + ' has gone dark'
       : key === 'margin' ? 'Construction cancelled — the paperwork fell through'
       : 'Someone is reading our files');
@@ -1061,13 +1082,13 @@ function castFirmament(owner, x, y) {
   state.zones.push({ kind: 'firmament', x, y, r: pk.r, until: state.time + pk.dur,
                      caster: owner, dps: pk.dps });
   state.sig[owner].cd = pk.cd;
-  if (owner === PLAYER) { sfx('laser'); eva('The firmament holds'); }
+  if (owner === localOwner) { sfx('laser'); eva('The firmament holds'); }
 }
 
 function castWeather(owner, x, y) {
   state.zones.push({ x, y, r: 150, until: state.time + 15, caster: owner, kind: 'rain' });
   state.sig[owner].cd = FACTIONS[state.factions[owner]].powers.sig.cd;
-  if (owner === PLAYER) eva('Weather modification deployed');
+  if (owner === localOwner) eva('Weather modification deployed');
 }
 
 function castClone(owner, unit) {
@@ -1078,7 +1099,7 @@ function castClone(owner, unit) {
   if (!home) return false;
   makeUnit(owner, unit.type, home.x + 20, home.y + home.h / 2 + 22);
   state.sig[owner].cd = FACTIONS[state.factions[owner]].powers.sig.cd;
-  if (owner === PLAYER) eva('Clone ready');
+  if (owner === localOwner) eva('Clone ready');
   return true;
 }
 
@@ -1092,7 +1113,7 @@ function castGaslight(owner) {
     p.expires = state.time + 20;
   }
   state.sig[owner].cd = FACTIONS[state.factions[owner]].powers.sig.cd;
-  if (owner === PLAYER) eva('They are chasing ghosts');
+  if (owner === localOwner) eva('They are chasing ghosts');
 }
 
 function castRevealInfiltrator(owner) {
@@ -1100,11 +1121,11 @@ function castRevealInfiltrator(owner) {
   if (sig.used) return false;
   const u = state.units.find(x => x.id === state.infiltrator[owner] && x.hp > 0);
   sig.used = true;
-  if (!u) { if (owner === PLAYER) eva('The infiltrator was lost'); return false; }
-  const wasPlayers = u.owner === PLAYER;
+  if (!u) { if (owner === localOwner) eva('The infiltrator was lost'); return false; }
+  const wasPlayers = u.owner === localOwner;
   u.owner = owner;
   u.order = { type: 'idle' };
-  if (owner === PLAYER) eva('The infiltrator answers the call');
+  if (owner === localOwner) eva('The infiltrator answers the call');
   else if (wasPlayers) eva('One of our workers was never ours');
   return true;
 }
@@ -1128,7 +1149,7 @@ function castRecall(owner, x, y) {
   if (!hq) return;
   const picks = recallTargets(owner, x, y);
   // an empty circle doesn't burn the cooldown — a misclick shouldn't cost 90s
-  if (!picks.length) { if (owner === PLAYER) eva('Nothing of yours stands there'); return; }
+  if (!picks.length) { if (owner === localOwner) eva('Nothing of yours stands there'); return; }
   const S = recallDef(owner);
   Particles.pulse(x, y, S.r, [125, 255, 214]);   // the circle collapses inward
   picks.forEach((u, i) => {
@@ -1142,7 +1163,7 @@ function castRecall(owner, x, y) {
     Particles.pulse(u.x, u.y, 30, [125, 255, 214]);
   });
   state.sig[owner].cd = S.cd;
-  if (owner === PLAYER) eva(`Recall complete — ${picks.length} home`);
+  if (owner === localOwner) eva(`Recall complete — ${picks.length} home`);
 }
 
 // ---------- what the smuggling run is worth ----------
@@ -1176,7 +1197,7 @@ function spawnSmuggler(owner) {
   const run = smuggleRun(owner);
   u.payload = run.pay;   // banked at dispatch: what you held when it set out
   u.order = { type: 'deliver' };
-  if (owner === PLAYER) {
+  if (owner === localOwner) {
     eva(run.areas ? `Supply truck inbound — $${run.pay} (${run.areas} districts held)`
                   : `Supply truck inbound — $${run.pay}`);
   }
@@ -1218,7 +1239,7 @@ function recruitSleeper(owner) {
   if (!pool.length) return;
   const u = pool[Math.floor(simRandom() * pool.length)];
   u.sleeperFor = owner;
-  if (owner === PLAYER) eva('An asset is in place');
+  if (owner === localOwner) eva('An asset is in place');
 }
 // wake one: it turns on the spot, right where it stands
 function wakeSleeper(u) {
@@ -1232,8 +1253,8 @@ function wakeSleeper(u) {
   u.order = { type: 'idle' };
   delete u.homeId; delete u.slot;          // no longer welcome at its old airfield
   Particles.pulse(u.x, u.y, 34, [190, 140, 255]);
-  if (handler === PLAYER) eva(UNIT_TYPES[u.type].name + ' was always ours');
-  else if (wasOwner === PLAYER) eva('One of ours was never ours');
+  if (handler === localOwner) eva(UNIT_TYPES[u.type].name + ' was always ours');
+  else if (wasOwner === localOwner) eva('One of ours was never ours');
   return true;
 }
 // the handler sees through every asset — this feeds the fog reveal
@@ -1268,7 +1289,7 @@ function updateAbilities(dt) {
     const head = b.rites.length ? findEntity(b.rites[0]) : null;
     if (head && head.ascension.at === undefined) {
       head.ascension.at = state.time + ASCEND[head.ascension.to].time;
-      if (b.owner === PLAYER) eva('The slab takes the ' + UNIT_TYPES[head.ascension.to].name);
+      if (b.owner === localOwner) eva('The slab takes the ' + UNIT_TYPES[head.ascension.to].name);
     }
   }
   for (const u of state.units) {
@@ -1286,7 +1307,7 @@ function updateAbilities(dt) {
       delete u.ascension;
       delete u.volQ; delete u.volT; // the new body starts its fire cycle fresh
       Particles.pulse(u.x, u.y, 30, [125, 255, 214]);
-      if (u.owner === PLAYER) eva(RITE_DONE[to] || 'The rite is complete');
+      if (u.owner === localOwner) eva(RITE_DONE[to] || 'The rite is complete');
     }
   }
   state.armorWrecks = state.armorWrecks.filter(w => w.until > state.time);
@@ -1324,7 +1345,7 @@ function updateAbilities(dt) {
     }
     // AIs cast their manual powers on simple rules (throttled so the cluster
     // scans don't run every frame)
-    if (owner !== PLAYER) {
+    if (!isHuman(owner)) {
       sig.tryT = (sig.tryT || 0) - dt;
       if (sig.tryT <= 0) {
         sig.tryT = 2;
@@ -2100,7 +2121,7 @@ function dealDamage(attacker, target, dmg, stats) {
       target.order = { type: 'move', x: home.x, y: home.y + home.h / 2 + 30 };
     }
   }
-  if (target.owner === PLAYER) {
+  if (target.owner === localOwner) {
     const now = performance.now();
     if (now - lastUnderAttack > 20000) {
       lastUnderAttack = now;
@@ -2534,8 +2555,8 @@ function fireAt(u, target, t) {
           state.minerals[u.owner] = (state.minerals[u.owner] || 0) + (t.abductBounty || 20);
           Particles.pulse(target.x, target.y, 45, [190, 140, 255]);
           u.abductId = null; u.abductHold = 0;
-          if (u.owner === PLAYER) eva('Specimen acquired');
-          else if (target.owner === PLAYER) eva('They took one of ours');
+          if (u.owner === localOwner) eva('Specimen acquired');
+          else if (target.owner === localOwner) eva('They took one of ours');
         }
       }
       if (visible) sfx('laser');
@@ -2900,7 +2921,7 @@ function updateAuras(u, stats, dt) {
         const h = makeUnit(u.owner, stats.spawns.type, u.x + (i - 0.5) * 20, u.y + 16);
         h.expires = state.time + stats.spawns.expires;
       }
-      if (u.owner === PLAYER) sfx('click');
+      if (u.owner === localOwner) sfx('click');
     }
   }
   // a walking field hospital: mends anything of yours nearby, including
@@ -3230,7 +3251,7 @@ function updateUnit(u, dt) {
               !state.buildings.some(b => b.owner === u.owner && b.hp > 0 && bstatsOf(b).trip && dist(b, u) < 90) &&
               !placementBlocked(u.owner, 'mine', u.x, u.y)) {
             makeBuilding(u.owner, 'mine', u.x, u.y);
-            if (tileState(u.x, u.y) === 2 && u.owner === PLAYER) Particles.smoke(u.x, u.y, 2.5);
+            if (tileState(u.x, u.y) === 2 && u.owner === localOwner) Particles.smoke(u.x, u.y, 2.5);
           }
         }
       }
@@ -3257,7 +3278,7 @@ function updateUnit(u, dt) {
       if (o.tx === undefined || o.tx === null || tileStateFor(u.owner, o.tx, o.ty) >= 1 || o.reT <= 0) {
         o.reT = 0.6;
         const spot = nearestUnexplored(u.owner, u.x, u.y);
-        if (!spot) { u.order = { type: 'idle' }; if (u.owner === PLAYER) eva('Area explored'); break; }
+        if (!spot) { u.order = { type: 'idle' }; if (u.owner === localOwner) eva('Area explored'); break; }
         o.tx = spot.x; o.ty = spot.y;
       }
       if (stats.plane) { if (flyToward(u, o.tx, o.ty, dt, 40)) o.tx = null; }
@@ -3355,7 +3376,7 @@ function updateUnit(u, dt) {
       if (s.progress >= DIG_TIME) {
         s.progress = DIG_TIME;
         Particles.pulse(s.x, s.y, 26, [125, 255, 214]);
-        if (u.owner === PLAYER) eva('Relic exposed — send a Tech Priest');
+        if (u.owner === localOwner) eva('Relic exposed — send a Tech Priest');
         u.order = { type: 'idle' };
       }
       break;
@@ -3396,7 +3417,7 @@ function updateUnit(u, dt) {
         state.armorWrecks = state.armorWrecks.filter(z => z !== w);
         state.armorBank[u.owner][w.tier]++;
         Particles.pulse(w.x, w.y, 26, [125, 255, 214]);
-        if (u.owner === PLAYER) eva('Armor recovered — the next suit comes cheaper');
+        if (u.owner === localOwner) eva('Armor recovered — the next suit comes cheaper');
         u.order = { type: 'idle' };
       }
       break;
@@ -3412,7 +3433,7 @@ function updateUnit(u, dt) {
       }
       if (!moveToward(u, b.x, b.y + b.h / 2 + 14, dt, 12, b.id)) break;
       const fee = ascendFee(u.owner, o.key);
-      if (state.minerals[u.owner] < fee) { if (u.owner === PLAYER) eva('Insufficient funds'); u.order = { type: 'idle' }; break; }
+      if (state.minerals[u.owner] < fee) { if (u.owner === localOwner) eva('Insufficient funds'); u.order = { type: 'idle' }; break; }
       state.minerals[u.owner] -= fee;
       // remember what this rite cost so it can be refunded if it never happens
       const salvaged = !!(A.tier && state.armorBank[u.owner][A.tier] > 0);
@@ -3433,14 +3454,14 @@ function updateUnit(u, dt) {
       // park and become the building. It can go anywhere — deep in their
       // territory is the point — but not on top of something else.
       if (placementBlocked(u.owner, stats.establishes, u.x, u.y)) {
-        if (u.owner === PLAYER) eva('No room to open here');
+        if (u.owner === localOwner) eva('No room to open here');
         u.order = { type: 'idle' }; break;
       }
       const b = makeBuilding(u.owner, stats.establishes, u.x, u.y);
       b.done = true;
       u.abducted = true; u.hp = 0;    // consumed, no wreck
       Particles.pulse(b.x, b.y, 30, [190, 140, 255]);
-      if (u.owner === PLAYER) eva('Front company open for business');
+      if (u.owner === localOwner) eva('Front company open for business');
       break;
     }
 
@@ -3460,7 +3481,7 @@ function updateUnit(u, dt) {
         tgt.designatedUntil = state.time + 20;
         u.order = { type: 'idle' };
         Particles.pulse(tgt.x, tgt.y, 30, [125, 255, 214]);
-        if (u.owner === PLAYER) eva('Target designated');
+        if (u.owner === localOwner) eva('Target designated');
       }
       break;
     }
@@ -3488,13 +3509,13 @@ function updateUnit(u, dt) {
           }
           b.garrison = [];
         }
-        const wasPlayers = b.owner === PLAYER;
+        const wasPlayers = b.owner === localOwner;
         b.owner = u.owner;
         b.queue = [];
         b.rally = null;
         b.beamId = null;
         u.hp = 0; // the engineer stays behind to run the place
-        if (u.owner === PLAYER) eva('Structure captured');
+        if (u.owner === localOwner) eva('Structure captured');
         else if (wasPlayers) eva('They have taken one of our structures');
       }
       break;
@@ -3590,7 +3611,7 @@ function updateUnit(u, dt) {
           rectDist(u, hq) <= UNIT_TYPES[u.type].r + 14) {
         state.minerals[u.owner] += u.payload || SMUGGLE_BASE;
         u.hp = 0;
-        if (u.owner === PLAYER) eva('Supplies delivered — $' + (u.payload || SMUGGLE_BASE));
+        if (u.owner === localOwner) eva('Supplies delivered — $' + (u.payload || SMUGGLE_BASE));
       }
       break;
     }
@@ -3624,8 +3645,8 @@ function updateUnit(u, dt) {
           skimmer.skimT = state.time;                 // the plaque flickers (art)
           skimmer.skimAmt = cut;
           state.floats.push({ x: skimmer.x, y: skimmer.y - 18, text: '+' + cut, t: state.time, col: '#c9a7ff' });
-          if (skimmer.owner === PLAYER && !state.skimSeen) {
-            state.skimSeen = true;
+          if (skimmer.owner === localOwner && !skimHintSeen) {
+            skimHintSeen = true;
             eva('First cut banked — spend LEVERAGE from your HQ or any front company');
           }
         }
@@ -3742,7 +3763,7 @@ function updateBuilding(b, dt) {
       if (due > state.minerals[b.owner]) {
         b.repairing = false;
         b.repairOwed = 0;
-        if (b.owner === PLAYER) eva('Repairs stopped — out of minerals');
+        if (b.owner === localOwner) eva('Repairs stopped — out of minerals');
       } else {
         if (due > 0) { state.minerals[b.owner] -= due; b.repairOwed -= due; }
         b.hp = Math.min(b.maxHp, b.hp + repairRateOf(b) * mult * dt);
@@ -3750,7 +3771,7 @@ function updateBuilding(b, dt) {
         if (b.hp >= b.maxHp) {
           b.repairing = false;
           b.repairOwed = 0; // the last part-mineral is forgiven, not carried
-          if (b.owner === PLAYER) eva(buildingName(b) + ' restored');
+          if (b.owner === localOwner) eva(buildingName(b) + ' restored');
         }
       }
     }
@@ -3796,10 +3817,10 @@ function updateBuilding(b, dt) {
       // loosh is spent at FIRING time: 60 minimum, up to 200 for a wider coup)
       b.charge = Math.min(superChargeOf(b), (b.charge || 0) + dt);
     }
-    if (b.owner === PLAYER && !b.announcedReady && superReady(b)) {
-      b.announcedReady = true; eva('Superweapon ready');
+    if (b.owner === localOwner && !announcedSuper.has(b.id) && superReady(b)) {
+      announcedSuper.add(b.id); eva('Superweapon ready');
     }
-    if ((b.charge || 0) < superChargeOf(b)) b.announcedReady = false;
+    if ((b.charge || 0) < superChargeOf(b)) announcedSuper.delete(b.id);
   }
 
   // blacked-out structures do nothing: no fire, no production. A tractor beam
@@ -3902,7 +3923,7 @@ function updateCapturedAuras(b, bt, dt) {
         b.spawnT = 0;
         const u = makeUnit(b.owner, bt.spawns.type, b.x + (simRandom() - 0.5) * 20, b.y + b.h / 2 + 22);
         u.spawnedBy = b.id;
-        if (b.owner === PLAYER) eva('Reinforcements salvaged');
+        if (b.owner === localOwner) eva('Reinforcements salvaged');
       }
     }
   }
@@ -4085,7 +4106,7 @@ function advanceProduction(b, power, dt) {
         orderMove(u, b.x + Math.sin(nextId) * 24 + bi * 9, b.y + b.h / 2 + 48 + bi * 6); // clear the doorway
       }
     }
-    if (b.owner === PLAYER) eva('Unit ready');
+    if (b.owner === localOwner) eva('Unit ready');
   }
 }
 
@@ -4798,9 +4819,9 @@ function onScreen(u) {
 // These read the selection and the placement cursor — client-only state — and
 // post a command. They never touch the simulation directly.
 const selectedUnitIds = pred => idsOf(selection.filter(e =>
-  e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER && (!pred || pred(e))));
+  e.kind === 'unit' && e.hp > 0 && e.owner === localOwner && (!pred || pred(e))));
 const selectedBuildingIds = pred => idsOf(selection.filter(e =>
-  e.kind === 'building' && e.hp > 0 && e.owner === PLAYER && (!pred || pred(e))));
+  e.kind === 'building' && e.hp > 0 && e.owner === localOwner && (!pred || pred(e))));
 
 function burrowCmd() {
   const u = selectedUnitIds(e => UNIT_TYPES[e.type].burrow && !e.transit);
@@ -4813,18 +4834,18 @@ function exploreCmd() {
 // right-click a structure cameo: stop placing it, and scrap whatever is queued
 function cancelStructureCmd(type) {
   if (placing === type) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
-  if (!bstats(PLAYER, type).instant) cmd('cancelbuild', { t: type });
+  if (!bstats(localOwner, type).instant) cmd('cancelbuild', { t: type });
 }
 
 function selectAt(x, y) {
-  const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, x, y, 4));
-  const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
+  const u = state.units.find(u => u.owner === localOwner && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, x, y, 4));
+  const b = state.buildings.find(b => b.owner === localOwner && b.hp > 0 &&
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   // no own entity under the cursor: inspect a visible enemy instead
   // (disguised infiltrators are excluded — clicking would blow their cover)
-  const eu = !u && !b && state.units.find(un => un.owner !== PLAYER && un.hp > 0 && !hiddenFrom(un, PLAYER) && !un.garrisoned &&
+  const eu = !u && !b && state.units.find(un => un.owner !== localOwner && un.hp > 0 && !hiddenFrom(un, localOwner) && !un.garrisoned &&
     visibleToPlayer(un) && clickHitsUnit(un, x, y, 4));
-  const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== PLAYER && bd.hp > 0 &&
+  const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== localOwner && bd.hp > 0 &&
     visibleToPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
   selection = u ? [u] : b ? [b] : eu ? [eu] : eb ? [eb] : [];
 }
@@ -4833,12 +4854,12 @@ function selectAt(x, y) {
 // into ids, and posts a command. It does not touch the sim.
 function rightCommand(x, y) {
   // rally point when a single production building is selected
-  if (selection.length === 1 && selection[0].kind === 'building' && selection[0].owner === PLAYER) {
+  if (selection.length === 1 && selection[0].kind === 'building' && selection[0].owner === localOwner) {
     cmd('rally', { b: selection[0].id, x, y });
     sfx('click');
     return;
   }
-  const u = idsOf(selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER));
+  const u = idsOf(selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner));
   if (u.length) cmd('move', { u, x, y });
 }
 
@@ -4946,20 +4967,20 @@ function issueCommand(owner, unitIds, x, y) {
 // cursor reticle so the player sees "attack / repair / capture / ..." on hover.
 function hoverContext(x, y) {
   if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || wallDrag) return null;
-  const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER);
+  const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner);
   if (!units.length) return null;
   // hollow tunnel node
-  if (state.factions[PLAYER] === 'hollow') {
-    const node = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 && b.done && TUNNEL_NODES.includes(b.type) &&
+  if (state.factions[localOwner] === 'hollow') {
+    const node = state.buildings.find(b => b.owner === localOwner && b.hp > 0 && b.done && TUNNEL_NODES.includes(b.type) &&
       Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
     if (node && units.some(u => !UNIT_TYPES[u.type].flying)) return { kind: 'tunnel', x: node.x, y: node.y, size: entityRadius(node) };
   }
   // garrisonable civilian structure
-  const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots && (b.owner === NEUTRAL || b.owner === PLAYER) &&
+  const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots && (b.owner === NEUTRAL || b.owner === localOwner) &&
     visibleToPlayer(b) && Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   if (gb && units.some(canGarrison)) return { kind: 'garrison', x: gb.x, y: gb.y, size: entityRadius(gb) };
   // enemy under the cursor
-  const foe = enemiesOf(PLAYER).find(e => visibleToPlayer(e) &&
+  const foe = enemiesOf(localOwner).find(e => visibleToPlayer(e) &&
     (e.kind === 'unit' ? clickHitsUnit(e, x, y, 6) : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
   if (foe) {
     if (foe.kind === 'building' && units.some(u => UNIT_TYPES[u.type].captures)) return { kind: 'capture', x: foe.x, y: foe.y, size: entityRadius(foe) };
@@ -4967,7 +4988,7 @@ function hoverContext(x, y) {
     if (units.some(u => canTarget(UNIT_TYPES[u.type], foe))) return { kind: 'attack', x: foe.x, y: foe.y, size: entityRadius(foe) };
   }
   // a damaged ally for repair units
-  const ally = state.units.find(a => a.owner === PLAYER && a.hp > 0 && !a.garrisoned && a.hp < a.maxHp && clickHitsUnit(a, x, y, 6));
+  const ally = state.units.find(a => a.owner === localOwner && a.hp > 0 && !a.garrisoned && a.hp < a.maxHp && clickHitsUnit(a, x, y, 6));
   if (ally && units.some(u => UNIT_TYPES[u.type].repair && u !== ally)) return { kind: 'repair', x: ally.x, y: ally.y, size: entityRadius(ally) };
   // a mineral patch for workers
   const patch = state.patches.find(p => p.amount > 0 && dist(p, { x, y }) <= 20 && tileState(p.x, p.y) >= 1);
@@ -5032,7 +5053,7 @@ function minimapCommand(e) {
   const r = mmCanvas.getBoundingClientRect();
   const wx = clamp((e.clientX - r.left) / r.width * WORLD_W, 10, WORLD_W - 10);
   const wy = clamp((e.clientY - r.top) / r.height * WORLD_H, 10, WORLD_H - 10);
-  const mine = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER);
+  const mine = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner);
   if (!mine.length) return;
   if (mine.some(s => UNIT_TYPES[s.type].role === 'combat')) cmd('attackmove', { u: idsOf(mine), x: wx, y: wy });
   else cmd('move', { u: idsOf(mine), x: wx, y: wy });
@@ -5063,32 +5084,37 @@ function cancelRite(u) {
 // Mechanicum panel button: send the nearest idle body of the right tier in for
 // this rite. Prefers whatever is already selected (so a hand-picked Guard gets
 // entombed rather than a random one), then falls back to the closest idle body.
-function beginRite(b, key) {
+// `preferIds` is what the player had selected when they pressed the button,
+// carried in the command. The choice of body has to be made from the command
+// payload plus world state, never from `selection` — two clients with
+// different selections would entomb different units.
+function beginRite(b, key, preferIds) {
+  const owner = b.owner;
   const A = ASCEND[key];
   // the rite's own prerequisites, checked HERE and not just on the button that
   // calls this: the Dreadnought needs the Reliquary standing, and every rung
   // needs its relics. Without this a disabled-looking rite still walked the
   // body over to the slab, where the order handler quietly refused it.
-  if (!ascendReady(PLAYER, key)) {
-    eva(relicCount(PLAYER) < A.relics
-      ? `The rite needs ${A.relics} relics — ${relicCount(PLAYER)} banked`
-      : `The rite needs the ${facOf(PLAYER).buildingNames[A.req] || A.req}`);
+  if (!ascendReady(owner, key)) {
+    if (owner === localOwner) eva(relicCount(owner) < A.relics
+      ? `The rite needs ${A.relics} relics — ${relicCount(owner)} banked`
+      : `The rite needs the ${facOf(owner).buildingNames[A.req] || A.req}`);
     return;
   }
   // the line is short on purpose: bodies in it are out of the fight, and the
   // fee is taken at the door, so a fat queue is a fat hole in your army AND
   // your bank. Five is plenty to keep the slab busy.
   const queued = (b.rites || []).length +
-    state.units.filter(u => u.owner === PLAYER && u.hp > 0 && u.order.type === 'ascend' && u.order.destId === b.id).length;
-  if (queued >= 5) { eva('The slab is backed up'); return; }
-  const free = u => u.owner === PLAYER && u.hp > 0 && u.type === A.from &&
+    state.units.filter(u => u.owner === owner && u.hp > 0 && u.order.type === 'ascend' && u.order.destId === b.id).length;
+  if (queued >= 5) { if (owner === localOwner) eva('The slab is backed up'); return; }
+  const free = u => u.owner === owner && u.hp > 0 && u.type === A.from &&
     !u.ascension && !u.garrisoned && !u.transit;
-  const picked = selection.find(e => e.kind === 'unit' && free(e) && e.order.type === 'idle') ||
-    selection.find(e => e.kind === 'unit' && free(e)) ||
+  const offered = (preferIds || []).map(id => state.units.find(u => u.id === id)).filter(u => u && free(u));
+  const picked = offered.find(u => u.order.type === 'idle') || offered[0] ||
     nearest(b, state.units, u => free(u) && u.order.type === 'idle') ||
     nearest(b, state.units, free);
-  if (!picked) { eva(`No ${UNIT_TYPES[A.from].name} to give`); return; }
-  if (state.minerals[PLAYER] < ascendFee(PLAYER, key)) { eva('Insufficient funds'); return; }
+  if (!picked) { if (owner === localOwner) eva(`No ${UNIT_TYPES[A.from].name} to give`); return; }
+  if (state.minerals[owner] < ascendFee(owner, key)) { if (owner === localOwner) eva('Insufficient funds'); return; }
   picked.order = { type: 'ascend', destId: b.id, key };
   sfx('click');
 }
@@ -5112,29 +5138,29 @@ function evacuate(b) {
 }
 
 function sidebarStructureClick(type) {
-  const st = bstats(PLAYER, type);
+  const st = bstats(localOwner, type);
   // field fortifications (walls, gates, mines): no build queue — go straight
   // into placement and pay per piece, so laying them never stalls the real
   // production queue
   if (st.instant) {
     if (placing === type) { placing = null; refreshPanel(); return; } // toggle off
-    if (atStructCap(PLAYER, type)) { eva('Build limit reached'); return; }
+    if (atStructCap(localOwner, type)) { eva('Build limit reached'); return; }
     const rq = st.req;
-    if (rq && !hasStruct(PLAYER, rq)) { eva(`Requires ${facOf(PLAYER).buildingNames[rq] || rq}`); return; }
-    if (state.minerals[PLAYER] < st.cost) { eva('Insufficient funds'); return; }
+    if (rq && !hasStruct(localOwner, rq)) { eva(`Requires ${facOf(localOwner).buildingNames[rq] || rq}`); return; }
+    if (state.minerals[localOwner] < st.cost) { eva('Insufficient funds'); return; }
     placing = type;
     sfx('click');
     refreshPanel();
     refreshSidebar();
     return;
   }
-  const c = state.construction[PLAYER];
+  const c = state.construction[localOwner];
   if (c && c.ready && c.type === type) { placing = type; refreshPanel(); return; }
   if (c) { eva('Unable to comply, building in progress'); return; }
-  if (atStructCap(PLAYER, type)) { eva('Build limit reached'); return; }
+  if (atStructCap(localOwner, type)) { eva('Build limit reached'); return; }
   const rq = st.req;
-  if (rq && !hasStruct(PLAYER, rq)) { eva(`Requires ${facOf(PLAYER).buildingNames[rq] || rq}`); return; }
-  if (state.minerals[PLAYER] < st.cost) { eva('Insufficient funds'); return; }
+  if (rq && !hasStruct(localOwner, rq)) { eva(`Requires ${facOf(localOwner).buildingNames[rq] || rq}`); return; }
+  if (state.minerals[localOwner] < st.cost) { eva('Insufficient funds'); return; }
   cmd('build', { t: type });
   sfx('click');
   refreshSidebar();
@@ -5142,13 +5168,13 @@ function sidebarStructureClick(type) {
 
 function sidebarUnitClick(type) {
   const ut = UNIT_TYPES[type];
-  const hasTrainer = state.buildings.some(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
-  if (!hasTrainer) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.builtAt] || ut.builtAt}`); return; }
-  if (ut.req && !hasStruct(PLAYER, ut.req)) { eva(`Requires ${facOf(PLAYER).buildingNames[ut.req] || ut.req}`); return; }
-  if (ut.pad && !padSlotsFree(PLAYER, ut.builtAt)) { eva('Airfields at capacity'); return; }
-  if (ut.limit && unitCount(PLAYER, type) >= minerCap(PLAYER, type)) { eva('Unit limit reached'); return; }
-  if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
-  if ((ut.loosh || 0) > (state.loosh[PLAYER] || 0)) { eva('Not enough loosh'); return; }
+  const hasTrainer = state.buildings.some(b => b.owner === localOwner && b.hp > 0 && b.done && b.type === ut.builtAt);
+  if (!hasTrainer) { eva(`Requires ${facOf(localOwner).buildingNames[ut.builtAt] || ut.builtAt}`); return; }
+  if (ut.req && !hasStruct(localOwner, ut.req)) { eva(`Requires ${facOf(localOwner).buildingNames[ut.req] || ut.req}`); return; }
+  if (ut.pad && !padSlotsFree(localOwner, ut.builtAt)) { eva('Airfields at capacity'); return; }
+  if (ut.limit && unitCount(localOwner, type) >= minerCap(localOwner, type)) { eva('Unit limit reached'); return; }
+  if (state.minerals[localOwner] < ut.cost) { eva('Insufficient funds'); return; }
+  if ((ut.loosh || 0) > (state.loosh[localOwner] || 0)) { eva('Not enough loosh'); return; }
   cmd('train', { t: type });
   sfx('click');
   refreshSidebar();
@@ -5176,7 +5202,7 @@ function cancelConstruction(owner, type) {
   if (!c || c.type !== type) return false;
   state.construction[owner] = null;
   state.minerals[owner] += bstats(owner, type).cost;
-  if (owner === PLAYER) eva('Construction canceled');
+  if (owner === localOwner) eva('Construction canceled');
   sfx('click');
   return true;
 }
@@ -5271,7 +5297,7 @@ function unitBlurb(type) {
     const A = ASCEND[type];
     b.push(`NOT trained — made in the Mechanicum out of one ${UNIT_TYPES[A.from].name} + $${A.cost}` +
       (A.relics ? ` + ${A.relics} relics` : '') +
-      (A.req ? `, and only once the ${facOf(PLAYER).buildingNames[A.req] || A.req} stands` : ''));
+      (A.req ? `, and only once the ${facOf(localOwner).buildingNames[A.req] || A.req} stands` : ''));
   }
   if (t.mendAura) b.push(`field hospital: mends everything of yours within ${t.mendAura.r} for ${t.mendAura.rate}/s, on the move`);
   if (t.convert) b.push(`every ${t.convert.every}s one enemy footsoldier within ${t.convert.r} walks over to your side`);
@@ -5293,7 +5319,7 @@ function unitBlurb(type) {
 }
 
 function buildingBlurb(type) {
-  const bt = bstats(PLAYER, type);
+  const bt = bstats(localOwner, type);
   const b = [];
   if (type === 'barracks') b.push('trains infantry');
   if (type === 'factory') b.push('builds vehicles');
@@ -5312,7 +5338,7 @@ function buildingBlurb(type) {
   if (bt.detector) b.push('DETECTOR: reveals stealth, disguise and burrowers');
   if (bt.superweapon) {
     b.push('superweapon — charges over minutes, then devastates a target zone anywhere on the map');
-    if (isReptilian(PLAYER)) b.push('the throne also deepens the slave pit by 4 while it stands');
+    if (isReptilian(localOwner)) b.push('the throne also deepens the slave pit by 4 while it stands');
   }
   if (bt.thief) b.push(`skims ${Math.round(bt.thief.cut * 100)}% of every enemy mineral load delivered within ${bt.thief.r} — silently, until a detector exposes it`);
   if (bt.trip) b.push('buried charge — detonates under enemy ground forces');
@@ -5327,7 +5353,7 @@ function buildingBlurb(type) {
     b.push('the ascension slab: Mole Servitors walk in and Tech Priests, Lantern Guards and Dreadnoughts walk out');
     b.push(Object.entries(ASCEND).map(([k, A]) =>
       `${UNIT_TYPES[k].name} $${A.cost}${A.relics ? ' + ' + A.relics + ' relics' : ''}` +
-      (A.req ? ` + ${facOf(PLAYER).buildingNames[A.req] || A.req}` : '')).join(', '));
+      (A.req ? ` + ${facOf(localOwner).buildingNames[A.req] || A.req}` : '')).join(', '));
     b.push('select it and press a rite, or right-click it with bodies already selected');
   }
   const s = b.join('; ') || 'structure';
@@ -5338,20 +5364,20 @@ function buildSidebar() {
   gridStructures.innerHTML = '';
   gridUnits.innerHTML = '';
   for (const k of Object.keys(cameoButtons)) delete cameoButtons[k];
-  const f = facOf(PLAYER);
+  const f = facOf(localOwner);
 
   let structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech', ...(f.structs || [])];
   if (!superweaponsOn) structs = structs.filter(s => s !== 'superweapon');
   for (const s of structs) {
     // a faction that never renamed a slot falls back to the base table's name
     // (Hollow has no word for "Refinery"), and only then to the raw type key
-    makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || bstats(PLAYER, s).name || s, bstats(PLAYER, s).cost,
+    makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || bstats(localOwner, s).name || s, bstats(localOwner, s).cost,
       () => sidebarStructureClick(s), () => cancelStructureCmd(s));
     cameoButtons['s:' + s].btn.title = buildingBlurb(s) +
-      (bstats(PLAYER, s).req ? `\nRequires ${f.buildingNames[bstats(PLAYER, s).req] || bstats(PLAYER, s).req}` : '');
+      (bstats(localOwner, s).req ? `\nRequires ${f.buildingNames[bstats(localOwner, s).req] || bstats(localOwner, s).req}` : '');
   }
   const unlocks = [...(f.advanced || []).map(u => UNIT_TYPES[u].name),
-    ...(bstats(PLAYER, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
+    ...(bstats(localOwner, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
   cameoButtons['s:tech'].btn.title = buildingBlurb('tech') +
     (unlocks.length ? '\nUnlocks: ' + unlocks.join(', ') : '');
   // worker-less factions have no worker cameo — their buildings pay the bills
@@ -5376,16 +5402,16 @@ function buildSidebar() {
 }
 
 function sigClick() {
-  const pk = facOf(PLAYER).powers.sig;
-  const sig = state.sig[PLAYER];
+  const pk = facOf(localOwner).powers.sig;
+  const sig = state.sig[localOwner];
   if (pk.kind === 'auto' || pk.kind === 'info') return;
   if (pk.kind === 'once') {
-    if (!sig.used) { castRevealInfiltrator(PLAYER); sfx('click'); }
+    if (!sig.used) { castRevealInfiltrator(localOwner); sfx('click'); }
     refreshSidebar();
     return;
   }
   if (sig.cd > 0) return;
-  if (pk.kind === 'instant') { castGaslight(PLAYER); sfx('click'); refreshSidebar(); return; }
+  if (pk.kind === 'instant') { castGaslight(localOwner); sfx('click'); refreshSidebar(); return; }
   abilityTargeting = pk.kind;
   refreshPanel();
 }
@@ -5393,13 +5419,13 @@ function sigClick() {
 // The research strip. Same job the Conviction meter did — tell the player what
 // is happening and what it is worth — but about a thing they chose to do.
 function refreshResearch() {
-  if (!isFlat(PLAYER)) { elResWrap.classList.remove('on'); elResWhy.classList.remove('on'); return; }
+  if (!isFlat(localOwner)) { elResWrap.classList.remove('on'); elResWhy.classList.remove('on'); return; }
   elResWrap.classList.add('on'); elResWhy.classList.add('on');
 
-  const r = state.research[PLAYER];
-  const done = Object.keys(state.disproof[PLAYER] || {});
+  const r = state.research[localOwner];
+  const done = Object.keys(state.disproof[localOwner] || {});
   const all = Object.keys(DISPROOFS);
-  const spd = researchSpeed(PLAYER);
+  const spd = researchSpeed(localOwner);
 
   if (r) {
     const left = Math.ceil((r.dur - r.t) / spd);
@@ -5431,23 +5457,23 @@ function refreshResearch() {
 function refreshSidebar() {
   if (!started) return;
   refreshResearch();
-  elCredits.textContent = '$ ' + state.minerals[PLAYER] +
-    (isReptilian(PLAYER) ? '   ☠ ' + Math.floor(state.loosh[PLAYER] || 0) : '') +
-    (isHollow(PLAYER) ? '   🗿 ' + relicCount(PLAYER) : '') +
-    (facOf(PLAYER) && facOf(PLAYER).hqRebuild && facOf(PLAYER).hqRebuild.auto !== undefined
-      ? '   🗄 ' + Math.floor(state.leverage[PLAYER] || 0) : '');
-  const power = powerOf(PLAYER);
+  elCredits.textContent = '$ ' + state.minerals[localOwner] +
+    (isReptilian(localOwner) ? '   ☠ ' + Math.floor(state.loosh[localOwner] || 0) : '') +
+    (isHollow(localOwner) ? '   🗿 ' + relicCount(localOwner) : '') +
+    (facOf(localOwner) && facOf(localOwner).hqRebuild && facOf(localOwner).hqRebuild.auto !== undefined
+      ? '   🗄 ' + Math.floor(state.leverage[localOwner] || 0) : '');
+  const power = powerOf(localOwner);
   elPowerFill.style.width = power.cap ? clamp(100 - power.used / power.cap * 100, 0, 100) + '%' : '0%';
   elPowerFill.classList.toggle('low', power.low);
   elPowerText.textContent = `⚡ ${power.used} / ${power.cap}`;
 
-  const c = state.construction[PLAYER];
+  const c = state.construction[localOwner];
   for (const [key, ui] of Object.entries(cameoButtons)) {
     const [kind, type] = [key[0], key.slice(2)];
     if (kind === 'p') {
       if (type !== 'sig') continue;
-      const pk = facOf(PLAYER).powers.sig;
-      const sig = state.sig[PLAYER];
+      const pk = facOf(localOwner).powers.sig;
+      const sig = state.sig[localOwner];
       // toggle with an explicit boolean: remove-then-maybe-add rewrote the
       // class attribute every refresh even when nothing changed
       if (pk.kind === 'auto') {
@@ -5469,49 +5495,49 @@ function refreshSidebar() {
       continue;
     }
     if (kind === 's') {
-      const st = bstats(PLAYER, type);
+      const st = bstats(localOwner, type);
       // field fortifications never enter the build queue, so they stay live
       // even while a real structure is under construction
       if (st.instant) {
-        const capped = atStructCap(PLAYER, type);
+        const capped = atStructCap(localOwner, type);
         const rq = st.req;
-        const locked = !!rq && !hasStruct(PLAYER, rq);
+        const locked = !!rq && !hasStruct(localOwner, rq);
         const active = placing === type;
-        const poor = state.minerals[PLAYER] < st.cost;
+        const poor = state.minerals[localOwner] < st.cost;
         ui.btn.classList.toggle('ready', active);
         ui.btn.classList.toggle('disabled', locked || capped || (poor && !active));
         ui.prog.style.height = '0%';
         ui.costEl.textContent = active ? 'PLACING'
-          : locked ? '🔒 ' + (facOf(PLAYER).buildingNames[rq] || rq)
+          : locked ? '🔒 ' + (facOf(localOwner).buildingNames[rq] || rq)
           : capped ? 'MAX'
           : '$' + ui.baseCost;
         continue;
       }
       const isThis = c && c.type === type;
-      const capped = atStructCap(PLAYER, type);
+      const capped = atStructCap(localOwner, type);
       const rq = st.req;
       // NB: must be a real boolean — classList.toggle(name, undefined) is a
       // plain toggle and would flip the class every refresh (sidebar strobe)
-      const locked = !!rq && !hasStruct(PLAYER, rq);
+      const locked = !!rq && !hasStruct(localOwner, rq);
       ui.btn.classList.toggle('ready', !!(isThis && c.ready));
       ui.btn.classList.toggle('disabled', !!(c && !isThis) || (capped && !isThis) || locked);
       ui.prog.style.height = isThis && !c.ready ? (c.t / c.duration * 100) + '%' : '0%';
-      const cap = bstats(PLAYER, type).cap;
+      const cap = bstats(localOwner, type).cap;
       ui.costEl.textContent = isThis && c.ready ? 'PLACE'
-        : locked ? '🔒 ' + (facOf(PLAYER).buildingNames[rq] || rq)
+        : locked ? '🔒 ' + (facOf(localOwner).buildingNames[rq] || rq)
         : capped ? 'MAX'
-        : '$' + ui.baseCost + (cap ? ` (${countStruct(PLAYER, type)}/${cap})` : '');
+        : '$' + ui.baseCost + (cap ? ` (${countStruct(localOwner, type)}/${cap})` : '');
     } else {
       const ut = UNIT_TYPES[type];
-      const trainers = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.done && b.type === ut.builtAt);
-      const locked = !!ut.req && !hasStruct(PLAYER, ut.req);
+      const trainers = state.buildings.filter(b => b.owner === localOwner && b.hp > 0 && b.done && b.type === ut.builtAt);
+      const locked = !!ut.req && !hasStruct(localOwner, ut.req);
       // the LIVE cap, not the base one — refineries lift the miner ceiling
       // (and the Gene Vault deepens the slave pit) while they stand
-      const cap = ut.limit ? minerCap(PLAYER, type) : 0;
-      const have = ut.limit ? unitCount(PLAYER, type) : 0;
+      const cap = ut.limit ? minerCap(localOwner, type) : 0;
+      const have = ut.limit ? unitCount(localOwner, type) : 0;
       const capped = !!ut.limit && have >= cap;
       ui.btn.classList.toggle('disabled', trainers.length === 0 || locked || capped);
-      ui.costEl.textContent = locked ? '🔒 ' + (facOf(PLAYER).buildingNames[ut.req] || ut.req)
+      ui.costEl.textContent = locked ? '🔒 ' + (facOf(localOwner).buildingNames[ut.req] || ut.req)
         : capped ? 'MAX'
         : '$' + ui.baseCost + (ut.loosh ? ` ☠${ut.loosh}` : '') + (ut.limit ? ` (${have}/${cap})` : '');
       const queued = trainers.reduce((n, b) => n + b.queue.filter(j => j.type === type).length, 0);
@@ -5523,7 +5549,10 @@ function refreshSidebar() {
   }
 }
 
-function startGame(faction, seed) {
+// `opts.humans` is the lobby's seat assignment: [{ owner, faction }, ...].
+// `opts.as` is which of those seats this screen is sitting in. Both default to
+// the single-player answer — one human, owner zero, watching itself.
+function startGame(faction, seed, opts) {
   // ONE seed drives every sim-side roll for the whole match: map layout, AI
   // faction picks, spawn jitter, damage rolls. Pass one in (tests, replays, a
   // future lobby handshake) or let the clock pick one. Nothing else may seed
@@ -5567,16 +5596,23 @@ function startGame(faction, seed) {
   const numEnemies = clamp(selectedOpponents, 1, size.maxPlayers - 1);
   OWNERS = Array.from({ length: numEnemies + 1 }, (_, o) => o);
 
-  // the AIs play random factions from families other than yours
+  // seat assignment. Single player is the one-element case of the lobby.
+  const seats = (opts && opts.humans && opts.humans.length)
+    ? opts.humans
+    : [{ owner: PLAYER, faction }];
+  humanOwners.clear();
+  for (const h of seats) humanOwners.add(h.owner);
+  localOwner = (opts && opts.as !== undefined) ? opts.as : seats[0].owner;
+  // the AIs play random factions from families other than the first human's
   const others = Object.keys(FACTIONS).filter(k => FACTIONS[k].family !== FACTIONS[faction].family);
-  state.factions[PLAYER] = faction;
+  for (const h of seats) state.factions[h.owner] = h.faction || faction;
   state.slaveDrive = {}; // per-owner slave work regime (defaults to Normal)
   for (const owner of OWNERS) {
     state.construction[owner] = null;
     state.sig[owner] = { cd: 0, timer: 0, used: false };
     state.infiltrator[owner] = null;
     state.eco[owner] = 0;
-    if (owner !== PLAYER) {
+    if (!isHuman(owner)) {
       state.factions[owner] = others[Math.floor(simRandom() * others.length)];
       ais[owner] = { attackWaveSize: 5, thinkTimer: simRandom(), time: 0 };
     }
@@ -5593,7 +5629,10 @@ function startGame(faction, seed) {
     state.hqRebuilt[owner] = false;
   }
   state.digSites = []; state.armorWrecks = [];
-  state.floats = []; state.skimSeen = false;
+  state.floats = [];
+  skimHintSeen = false;
+  announcedBuild = {};
+  announcedSuper.clear();
 
   setupWorld(generateMap(selectedSize, OWNERS.length, selectedSetting === 'random' ? null : selectedSetting));
   // seedDigSites() calls terrainNear(), which reads terrainIndex — and
@@ -5605,10 +5644,12 @@ function startGame(faction, seed) {
   markPathDirty();
   ensurePathGrid();
   seedDigSites(); // after bases exist — sites keep clear of every starting camp
-  const vs = OWNERS.filter(o => o !== PLAYER)
+  const vs = OWNERS.filter(o => o !== localOwner)
     .map(o => `${facOf(o).emoji} ${facOf(o).name}`).join('  +  ');
-  document.getElementById('faction-label').textContent =
-    `${FACTIONS[faction].emoji} ${FACTIONS[faction].name}  vs  ${vs}`;
+  // the header names THIS screen's side, which is not the `faction` argument
+  // once the screen can be sitting in a seat other than the first one
+  const me = facOf(localOwner);
+  document.getElementById('faction-label').textContent = `${me.emoji} ${me.name}  vs  ${vs}`;
   buildSidebar();
   started = true;
   refreshPanel();
@@ -5624,16 +5665,16 @@ function panelSignature() {
   let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
     (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (wallDrag ? 'w' : '') +
     // leverage crosses a play's price threshold -> its button enables
-    (state.leverage[PLAYER] ? 'L' + Object.values(LEVERAGE_PLAYS).filter(pl => state.leverage[PLAYER] >= pl.cost).length : '') +
-    (isReptilian(PLAYER) ? 'd' + slaveDriveOf(PLAYER) : '') +
+    (state.leverage[localOwner] ? 'L' + Object.values(LEVERAGE_PLAYS).filter(pl => state.leverage[localOwner] >= pl.cost).length : '') +
+    (isReptilian(localOwner) ? 'd' + slaveDriveOf(localOwner) : '') +
     // the Institute's buttons enable/disable as a disproof finishes, as one
     // starts, and as the bank crosses each price
-    (isFlat(PLAYER) ? 'R' + Object.keys(state.disproof[PLAYER] || {}).length +
-      (state.research[PLAYER] ? state.research[PLAYER].key : '-') +
-      Object.values(DISPROOFS).filter(D => state.minerals[PLAYER] >= D.cost).length : '') +
+    (isFlat(localOwner) ? 'R' + Object.keys(state.disproof[localOwner] || {}).length +
+      (state.research[localOwner] ? state.research[localOwner].key : '-') +
+      Object.values(DISPROOFS).filter(D => state.minerals[localOwner] >= D.cost).length : '') +
     // the HQ grace window owns the whole panel while it runs, and its
     // Re-establish button has to appear the instant the HQ falls
-    (state.hqGrace[PLAYER] && !hasHq(PLAYER) ? 'HQ!' : '') + '|';
+    (state.hqGrace[localOwner] && !hasHq(localOwner) ? 'HQ!' : '') + '|';
   for (const e of selection) {
     if (e.hp <= 0) continue;
     s += e.kind + e.id + '·';
@@ -5648,7 +5689,7 @@ function panelSignature() {
       const ut = UNIT_TYPES[e.type];
       if (ut.burrow) s += e.burrowed ? 'B1' : 'B0';
       if (ut.plantMine) s += e.planted ? 'P1' : 'P0';
-      if (e.sleeperFor === PLAYER) s += 'A1'; // asset: owns a Wake button
+      if (e.sleeperFor === localOwner) s += 'A1'; // asset: owns a Wake button
     }
   }
   return s;
@@ -5659,7 +5700,7 @@ function panelSignature() {
 // Returns true when it took over.
 function panelTargetingMode(addAction) {
   if (placing) {
-    const nm = facOf(PLAYER).buildingNames[placing] || placing;
+    const nm = facOf(localOwner).buildingNames[placing] || placing;
     elSelInfo.textContent = placing === 'gate'
       ? `Placing ${nm} — click a straight segment of your wall, Esc to cancel`
       : placing === 'hq'
@@ -5669,8 +5710,8 @@ function panelTargetingMode(addAction) {
   }
   // the grace window: HQ gone, clock running, one rebuild left. This outranks
   // every other panel state — nothing else matters while it is counting down.
-  const g = state.hqGrace[PLAYER], def = hqRebuildDef(PLAYER);
-  if (g && def && !hasHq(PLAYER)) {
+  const g = state.hqGrace[localOwner], def = hqRebuildDef(localOwner);
+  if (g && def && !hasHq(localOwner)) {
     const left = Math.max(0, Math.ceil(g.until - state.time));
     elSelInfo.style.color = '#ff9f8f';
     elSelInfo.textContent = def.auto !== undefined
@@ -5679,7 +5720,7 @@ function panelTargetingMode(addAction) {
     if (def.auto === undefined) {
       const btn = document.createElement('button');
       btn.textContent = `Re-establish HQ — ${def.cost}`;
-      btn.disabled = state.minerals[PLAYER] < def.cost;
+      btn.disabled = state.minerals[localOwner] < def.cost;
       btn.onclick = () => { placing = 'hq'; refreshPanel(); };
       addAction(btn);
     }
@@ -5691,11 +5732,11 @@ function panelTargetingMode(addAction) {
   }
   if (abilityTargeting) {
     elSelInfo.textContent =
-      abilityTargeting === 'zone' ? (isFlat(PLAYER)
+      abilityTargeting === 'zone' ? (isFlat(localOwner)
         ? 'The Firmament — click the patch of sky to make solid, Esc to cancel'
         : 'Weather Modification — click a target area, Esc to cancel')
       : abilityTargeting === 'recall'
-        ? `Vril Recall — click a patch of ground (${recallTargets(PLAYER, mouse.x, mouse.y).length}/${recallDef(PLAYER).max} in the circle), Esc to cancel`
+        ? `Vril Recall — click a patch of ground (${recallTargets(localOwner, mouse.x, mouse.y).length}/${recallDef(localOwner).max} in the circle), Esc to cancel`
         : 'Cloning Vats — click one of your infantry, Esc to cancel';
     return true;
   }
@@ -5719,7 +5760,7 @@ function panelTargetingMode(addAction) {
 // same repair control. Works on a whole box-selection of buildings at once,
 // which is how you actually use it after a raid.
 function panelRepairControls(addAction) {
-  const mine = selection.filter(e => e.kind === 'building' && e.owner === PLAYER);
+  const mine = selection.filter(e => e.kind === 'building' && e.owner === localOwner);
   const busy = mine.filter(e => e.repairing);
   const hurt = mine.filter(e => canRepair(e) && !e.repairing);
   if (busy.length) {
@@ -5735,7 +5776,7 @@ function panelRepairControls(addAction) {
     const rate = hurt.reduce((s, e) => s + repairCostPerSec(e), 0);
     btn.textContent = `Repair ${hurt.length > 1 ? `all (${hurt.length})` : ''} — $${rate.toFixed(1)}/s`.replace('  ', ' ');
     btn.title = 'Mends at ' + Math.round(REPAIR_RATE * 100) + '% of max HP per second, billed as it goes' +
-      (powerOf(PLAYER).low ? ' — HALF SPEED while the grid is browned out' : '');
+      (powerOf(localOwner).low ? ' — HALF SPEED while the grid is browned out' : '');
     btn.onclick = () => { cmd('repair', { b: idsOf(hurt), on: true }); refreshPanel(); };
     addAction(btn);
   }
@@ -5762,9 +5803,9 @@ function refreshPanel() {
       (bt.airTech ? ' — recovered UFO tech: your aircraft hit +15% and self-repair while held' : '');
     return;
   }
-  if (selection.length === 1 && first.owner !== PLAYER) {
+  if (selection.length === 1 && first.owner !== localOwner) {
     // one of ours, standing in their line: offer to wake it
-    if (first.kind === 'unit' && first.sleeperFor === PLAYER) {
+    if (first.kind === 'unit' && first.sleeperFor === localOwner) {
       elSelInfo.style.color = '#c9a7ff';
       elSelInfo.textContent = `ASSET — ${UNIT_TYPES[first.type].name} (embedded with ${facOf(first.owner).name})` +
         `  |  HP ${Math.ceil(first.hp)}/${UNIT_TYPES[first.type].hp}  |  you see what it sees`;
@@ -5827,10 +5868,10 @@ function panelForBuilding(first, addAction) {
   // the Institute of Truth: one button per disproof. This is where the flat
   // faction's whole strategic layer lives, so it is the FIRST thing offered on
   // the building rather than buried under repair.
-  if (first.type === 'tech' && first.owner === PLAYER && isFlat(PLAYER) && first.done) {
-    const r = state.research[PLAYER];
-    const done = state.disproof[PLAYER] || {};
-    const spd = researchSpeed(PLAYER);
+  if (first.type === 'tech' && first.owner === localOwner && isFlat(localOwner) && first.done) {
+    const r = state.research[localOwner];
+    const done = state.disproof[localOwner] || {};
+    const spd = researchSpeed(localOwner);
     elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
       (r ? ` — proving ${DISPROOFS[r.key].name}, ${Math.ceil((r.dur - r.t) / spd)}s left`
          : Object.keys(done).length >= Object.keys(DISPROOFS).length
@@ -5842,7 +5883,7 @@ function panelForBuilding(first, addAction) {
       else if (r && r.key === key) { btn.textContent = `… ${D.name}`; btn.disabled = true; btn.title = D.desc; }
       else {
         btn.textContent = `${D.name} — $${D.cost}`;
-        btn.disabled = !!r || state.minerals[PLAYER] < D.cost;
+        btn.disabled = !!r || state.minerals[localOwner] < D.cost;
         btn.title = D.desc + `\n\n$${D.cost}, ${D.time}s` +
           (spd > 1 ? ` (x${spd.toFixed(2)} with your Ham Radios → ${Math.ceil(D.time / spd)}s)` : '') +
           (r ? '\nThe Institute can only prove one thing at a time.' : '');
@@ -5855,14 +5896,14 @@ function panelForBuilding(first, addAction) {
   // the Mechanicum: one button per rite, then the QUEUE. Clicking a rite
   // sends the nearest idle body of the right tier walking in; bodies that
   // arrive line up and are consecrated one at a time, in arrival order.
-  if (first.type === 'mechanicum' && first.owner === PLAYER) {
+  if (first.type === 'mechanicum' && first.owner === localOwner) {
     const line = (first.rites || []).map(id => findEntity(id)).filter(Boolean);
     // the head of the line is the one actually on the slab (it has an `at`)
     const head = line[0];
     const headLeft = head && head.ascension.at !== undefined
       ? Math.max(0, Math.ceil(head.ascension.at - state.time)) : null;
     elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
-      ` — relics ${relicCount(PLAYER)}` +
+      ` — relics ${relicCount(localOwner)}` +
       (line.length
         ? ` — SLAB: ${UNIT_TYPES[head.ascension.to].name}` +
           (headLeft === null ? '' : ` ${headLeft}s`) +
@@ -5872,18 +5913,20 @@ function panelForBuilding(first, addAction) {
         : ' — slab empty');
     for (const [key, A] of Object.entries(ASCEND)) {
       const to = UNIT_TYPES[key], from = UNIT_TYPES[A.from];
-      const fee = ascendFee(PLAYER, key);
+      const fee = ascendFee(localOwner, key);
       const btn = document.createElement('button');
       btn.textContent = `${to.name} — $${fee}` + (fee < A.cost ? ' (salvaged)' : '');
-      if (relicCount(PLAYER) < A.relics) {
-        btn.textContent += ` [${relicCount(PLAYER)}/${A.relics} relics]`;
+      if (relicCount(localOwner) < A.relics) {
+        btn.textContent += ` [${relicCount(localOwner)}/${A.relics} relics]`;
         btn.disabled = true;
-      } else if (A.req && !hasStruct(PLAYER, A.req)) {
-        btn.textContent += ` [needs ${facOf(PLAYER).buildingNames[A.req] || A.req}]`;
+      } else if (A.req && !hasStruct(localOwner, A.req)) {
+        btn.textContent += ` [needs ${facOf(localOwner).buildingNames[A.req] || A.req}]`;
         btn.disabled = true;
       } else {
         btn.title = `Consumes one ${from.name}`;
-        btn.onclick = () => { cmd('rite', { b: first.id, k: key }); refreshPanel(); };
+        // the selection travels WITH the command, as a preference the sim may
+        // use; it is never read from inside the tick
+        btn.onclick = () => { cmd('rite', { b: first.id, k: key, u: selectedUnitIds() }); refreshPanel(); };
       }
       addAction(btn);
     }
@@ -5913,7 +5956,7 @@ function panelForBuilding(first, addAction) {
     else status = 'READY TO FIRE';
     elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP — ` + status;
     const ready = superReady(first);
-    if (first.owner === PLAYER && ready && !isOffline(first)) {
+    if (first.owner === localOwner && ready && !isOffline(first)) {
       const btn = document.createElement('button');
       btn.textContent = 'Launch [click target]';
       btn.onclick = () => { superTargeting = first.id; refreshPanel(); };
@@ -5923,20 +5966,20 @@ function panelForBuilding(first, addAction) {
   }
   elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
     (first.queue.length ? ` — training (${first.queue.length} queued)` : '') +
-    ((first.type === 'hq' || bstatsOf(first).thief) && facOf(PLAYER).hqRebuild &&
-      facOf(PLAYER).hqRebuild.auto !== undefined
-      ? ` — LEVERAGE ${Math.floor(state.leverage[PLAYER] || 0)}` : '') +
+    ((first.type === 'hq' || bstatsOf(first).thief) && facOf(localOwner).hqRebuild &&
+      facOf(localOwner).hqRebuild.auto !== undefined
+      ? ` — LEVERAGE ${Math.floor(state.leverage[localOwner] || 0)}` : '') +
     (bstatsOf(first).thief ? ` — skimming ${Math.round(bstatsOf(first).thief.r)} around it` : '') +
     ' — right-click to set rally point';
   // LEVERAGE: spend it from the seat of the operation OR from any front
   // company — whichever you happen to have clicked. Hiding it on one
   // building meant nobody ever found it.
-  if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === PLAYER && LEVERAGE_PLAYS) {
+  if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === localOwner && LEVERAGE_PLAYS) {
     for (const [key, play] of Object.entries(LEVERAGE_PLAYS)) {
       const btn = document.createElement('button');
       btn.textContent = `${play.name} — ${play.cost}`;
       btn.title = play.desc;
-      btn.disabled = (state.leverage[PLAYER] || 0) < play.cost;
+      btn.disabled = (state.leverage[localOwner] || 0) < play.cost;
       btn.onclick = () => { leverageTargeting = key; refreshPanel(); };
       addAction(btn);
     }
@@ -5966,7 +6009,7 @@ function panelForSelection(addAction) {
   }
   elSelInfo.textContent = info;
   // an unmarked van that can open a shopfront where it stands
-  const vans = selection.filter(e => e.kind === 'unit' && e.owner === PLAYER && e.hp > 0 &&
+  const vans = selection.filter(e => e.kind === 'unit' && e.owner === localOwner && e.hp > 0 &&
     UNIT_TYPES[e.type].establishes);
   if (vans.length) {
     const btn = document.createElement('button');
@@ -5976,7 +6019,7 @@ function panelForSelection(addAction) {
     addAction(btn);
   }
   // transports in the selection: one button dumps every rider out
-  const trs = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.cargo && s.cargo.length);
+  const trs = selection.filter(s => s.kind === 'unit' && s.owner === localOwner && s.cargo && s.cargo.length);
   if (trs.length) {
     const total = trs.reduce((n, v) => n + v.cargo.length, 0);
     const btn = document.createElement('button');
@@ -5994,7 +6037,7 @@ function panelForSelection(addAction) {
     addAction(btn);
   }
   // reptilian slaves: cull the selected ones on demand for burst loosh
-  const slaves = selection.filter(s => s.kind === 'unit' && s.owner === PLAYER && s.hp > 0 && UNIT_TYPES[s.type].looshOnDeath);
+  const slaves = selection.filter(s => s.kind === 'unit' && s.owner === localOwner && s.hp > 0 && UNIT_TYPES[s.type].looshOnDeath);
   if (slaves.length) {
     const btn = document.createElement('button');
     btn.textContent = `Harvest Loosh (${slaves.length})`;
@@ -6007,11 +6050,11 @@ function panelForSelection(addAction) {
     addAction(btn);
     // the work regime: cycle Merciful -> Normal -> Brutal for the whole pit
     const drv = document.createElement('button');
-    drv.textContent = `Drive: ${slaveDriveOf(PLAYER)}`;
+    drv.textContent = `Drive: ${slaveDriveOf(localOwner)}`;
     drv.title = 'Brutal: mine 35% faster, die twice as fast (loosh gushes). ' +
       'Merciful: live 60% longer (cheap, little loosh). Applies to newly bought slaves.';
     drv.onclick = () => {
-      const i = SLAVE_DRIVES.indexOf(slaveDriveOf(PLAYER));
+      const i = SLAVE_DRIVES.indexOf(slaveDriveOf(localOwner));
       cmd('drive', { v: SLAVE_DRIVES[(i + 1) % SLAVE_DRIVES.length] });
       sfx('click');
       refreshPanel();
@@ -6409,7 +6452,7 @@ function drawBuildingIso(b) {
   const bt = bstatsOf(b);
   // stealthed structures (mines) render ghosted — semi-visible to their
   // owner, and to enemies only once a detector has swept them
-  if (bt.stealth) ctx.globalAlpha = b.owner === PLAYER ? 0.6 : 0.45;
+  if (bt.stealth) ctx.globalAlpha = b.owner === localOwner ? 0.6 : 0.45;
   const ix = isoX(b.x, b.y), iy = isoY(b.x, b.y);
   const topY = iy - (b.w + b.h) / 4; // screen y of the footprint's north corner
   const on = !powerOf(b.owner).low;
@@ -6493,7 +6536,7 @@ function drawBuildingIso(b) {
       }
     }
     if (selection.includes(b)) {
-      ctx.strokeStyle = b.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
+      ctx.strokeStyle = b.owner === localOwner ? '#7fff9f' : '#ff8f8f';
       ctx.lineWidth = 2;
       strokeFootprint(b, 6);
       ctx.fillStyle = '#fff';
@@ -6600,13 +6643,13 @@ function drawBuildingIso(b) {
     // superweapon status, always visible on the silo so you never have to
     // select it to know: a charge bar + seconds-left countdown, becoming a
     // pulsing READY beacon when it can fire (enemy silos only while scouted)
-    if (bt.superweapon && b.done && (b.owner === PLAYER || tileState(b.x, b.y) === 2)) {
+    if (bt.superweapon && b.done && (b.owner === localOwner || tileState(b.x, b.y) === 2)) {
       const need = superChargeOf(b), have = Math.min(need, b.charge || 0);
       const ready = have >= need, off = isOffline(b);
       const bw = (b.w + b.h) / 2, qy = iy + (b.w + b.h) / 4 + 3;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
       ctx.fillRect(ix - bw / 2, qy + 7, bw, 5);
-      ctx.fillStyle = off ? '#6a6a6a' : ready ? '#5fce5f' : (b.owner === PLAYER ? '#4da3ff' : '#ff8f5f');
+      ctx.fillStyle = off ? '#6a6a6a' : ready ? '#5fce5f' : (b.owner === localOwner ? '#4da3ff' : '#ff8f5f');
       ctx.fillRect(ix - bw / 2, qy + 7, bw * clamp(have / need, 0, 1), 5);
       const pulse = 0.5 + 0.5 * Math.sin(state.time * 4);
       ctx.font = 'bold 11px sans-serif';
@@ -6615,13 +6658,13 @@ function drawBuildingIso(b) {
         ctx.fillStyle = '#8ab4ff';
         ctx.fillText('EMP — OFFLINE', ix, topY - 18);
       } else if (ready) {
-        ctx.strokeStyle = b.owner === PLAYER ? `rgba(120,255,150,${0.35 + pulse * 0.45})` : `rgba(255,120,120,${0.35 + pulse * 0.45})`;
+        ctx.strokeStyle = b.owner === localOwner ? `rgba(120,255,150,${0.35 + pulse * 0.45})` : `rgba(255,120,120,${0.35 + pulse * 0.45})`;
         ctx.lineWidth = 2 + pulse * 2.5;
         ctx.beginPath();
         ctx.ellipse(ix, iy, b.w * 0.95, b.w * 0.48, 0, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillStyle = b.owner === PLAYER ? `rgba(150,255,170,${0.65 + pulse * 0.35})` : `rgba(255,150,150,${0.65 + pulse * 0.35})`;
-        ctx.fillText(b.owner === PLAYER ? '⚠ READY TO FIRE' : '⚠ ENEMY SUPERWEAPON', ix, topY - 18);
+        ctx.fillStyle = b.owner === localOwner ? `rgba(150,255,170,${0.65 + pulse * 0.35})` : `rgba(255,150,150,${0.65 + pulse * 0.35})`;
+        ctx.fillText(b.owner === localOwner ? '⚠ READY TO FIRE' : '⚠ ENEMY SUPERWEAPON', ix, topY - 18);
       } else {
         ctx.fillStyle = 'rgba(220,230,240,0.9)';
         ctx.fillText(Math.ceil(need - have) + 's', ix, topY - 18);
@@ -6645,7 +6688,7 @@ function unitAlt(u) {
 function drawUnitIso(u) {
   const t = UNIT_TYPES[u.type];
   // reptilian skin suit: enemy infantry render in YOUR color until they attack
-  const drawCol = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
+  const drawCol = (u.disguised && u.owner !== localOwner) ? COLORS[localOwner] : COLORS[u.owner];
   const grounded = !!u.landed; // rearming on the pad
   // rotorcraft and balloons bob on the spot; fixed-wing craft hold trim;
   // anti-grav ground craft (Grey hover units) drift on a gentle cushion
@@ -6661,10 +6704,10 @@ function drawUnitIso(u) {
   const airborne = alt > 0.5;
   const sy = iy - alt;
   // your own gaslight phantoms look ghostly to you; enemy ones look real
-  if (u.type === 'phantom' && u.owner === PLAYER) ctx.globalAlpha = 0.4;
+  if (u.type === 'phantom' && u.owner === localOwner) ctx.globalAlpha = 0.4;
   // cloaked/burrowed units draw ghosted: to their owner as a reminder, to
   // the enemy only while a detector pins them (visibleToPlayer gates that)
-  if (isCloaked(u)) ctx.globalAlpha = u.owner === PLAYER ? 0.55 : 0.45;
+  if (isCloaked(u)) ctx.globalAlpha = u.owner === localOwner ? 0.55 : 0.45;
   if (airborne) {
     // shadow stays on the ground and SLIDES OUT from under the craft as it
     // climbs (sun from the upper-left): a low drone hugs its shadow, a high
@@ -6789,7 +6832,7 @@ function drawUnitIso(u) {
     ctx.fillRect(ix - 3, sy - rs - 7, 6, 5);
   }
   if (selection.includes(u)) {
-    ctx.strokeStyle = u.owner === PLAYER ? '#7fff9f' : '#ff8f8f';
+    ctx.strokeStyle = u.owner === localOwner ? '#7fff9f' : '#ff8f8f';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.ellipse(ix, sy, rs + 5, (rs + 5) * 0.55, 0, 0, Math.PI * 2);
@@ -6797,7 +6840,7 @@ function drawUnitIso(u) {
   }
   // ASSETS: a violet ring under your sleepers, drawn only for you — to their
   // own owner (and to everyone else) they look like an ordinary loyal unit
-  if (u.sleeperFor === PLAYER) {
+  if (u.sleeperFor === localOwner) {
     ctx.strokeStyle = `rgba(201,167,255,${(0.5 + 0.3 * Math.sin(state.time * 3 + u.id)).toFixed(2)})`;
     ctx.lineWidth = 1.4;
     ctx.beginPath(); ctx.ellipse(ix, sy + 2, rs + 4, (rs + 4) * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
@@ -6989,7 +7032,7 @@ function drawAuraRings() {
     if (u.hp <= 0 || u.garrisoned || selection.includes(u)) continue;
     const t = UNIT_TYPES[u.type];
     if (!t.aaAura) continue;
-    if (u.owner !== PLAYER && (hiddenFrom(u, PLAYER) || !visibleToPlayer(u))) continue;
+    if (u.owner !== localOwner && (hiddenFrom(u, localOwner) || !visibleToPlayer(u))) continue;
     auraRing(u.x, u.y, t.aaAura.r, '125,255,214', 0.15, true);
   }
   // ...and everything the player has actually selected, in full
@@ -7228,9 +7271,9 @@ function drawOverlays() {
   // highlighted — the power is a precision pull, so you must be able to see
   // exactly who is inside before you spend the cooldown
   if (abilityTargeting === 'recall') {
-    const S = recallDef(PLAYER);
+    const S = recallDef(localOwner);
     const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
-    const picks = recallTargets(PLAYER, mouse.x, mouse.y);
+    const picks = recallTargets(localOwner, mouse.x, mouse.y);
     ctx.strokeStyle = 'rgba(125,255,214,0.9)';
     ctx.lineWidth = 2;
     ctx.beginPath(); ctx.ellipse(rx, ry, S.r * Math.SQRT2, S.r * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
@@ -7263,9 +7306,9 @@ function drawOverlays() {
   if (placing) {
     ctx.save();
     isoShear(ctx); // ghost + radii are world-space ground markings
-    const t = bstats(PLAYER, placing);
-    const ok = !placementBlocked(PLAYER, placing, mouse.x, mouse.y) &&
-      (t.anywhere || withinBuildRadius(PLAYER, mouse.x, mouse.y));
+    const t = bstats(localOwner, placing);
+    const ok = !placementBlocked(localOwner, placing, mouse.x, mouse.y) &&
+      (t.anywhere || withinBuildRadius(localOwner, mouse.x, mouse.y));
     ctx.globalAlpha = 0.5;
     if (wallDrag) {
       // ghost the whole stretch of wall segments being dragged out
@@ -7274,16 +7317,16 @@ function drawOverlays() {
       const n = Math.max(0, Math.round(Math.hypot(dx, dy) / WALL_STEP));
       for (let i = 0; i <= n; i++) {
         const x = wallDrag.x0 + dx * (i / (n || 1)), y = wallDrag.y0 + dy * (i / (n || 1));
-        ctx.fillStyle = (!placementBlocked(PLAYER, 'wall', x, y) && withinBuildRadius(PLAYER, x, y)) ? '#4da3ff' : '#ff5f5f';
+        ctx.fillStyle = (!placementBlocked(localOwner, 'wall', x, y) && withinBuildRadius(localOwner, x, y)) ? '#4da3ff' : '#ff5f5f';
         ctx.fillRect(x - t.w / 2, y - t.h / 2, t.w, t.h);
       }
     } else if (placing === 'gate') {
       // highlight the wall segment under the cursor: blue = convertible to a
       // gate (straight run), red = a wall but not a straight segment
-      const wallUnder = state.buildings.find(b => b.owner === PLAYER && b.type === 'wall' && b.hp > 0 &&
+      const wallUnder = state.buildings.find(b => b.owner === localOwner && b.type === 'wall' && b.hp > 0 &&
         Math.abs(b.x - mouse.x) <= b.w / 2 + 4 && Math.abs(b.y - mouse.y) <= b.h / 2 + 4);
       if (wallUnder) {
-        ctx.fillStyle = gateTargetWall(PLAYER, mouse.x, mouse.y) ? '#4da3ff' : '#ff5f5f';
+        ctx.fillStyle = gateTargetWall(localOwner, mouse.x, mouse.y) ? '#4da3ff' : '#ff5f5f';
         ctx.fillRect(wallUnder.x - wallUnder.w / 2, wallUnder.y - wallUnder.h / 2, wallUnder.w, wallUnder.h);
       }
     } else {
@@ -7299,7 +7342,7 @@ function drawOverlays() {
     // show the buildable radius around grid anchors (HQ + power plants)
     ctx.strokeStyle = 'rgba(127,255,159,0.2)';
     for (const b of state.buildings) {
-      if (b.owner !== PLAYER || b.hp <= 0 || !b.done) continue;
+      if (b.owner !== localOwner || b.hp <= 0 || !b.done) continue;
       if (b.type !== 'hq' && b.type !== 'powerplant') continue;
       ctx.beginPath();
       ctx.arc(b.x, b.y, BUILD_RADIUS, 0, Math.PI * 2);
@@ -7322,7 +7365,7 @@ function drawMinimap() {
   mmCtx.fillRect(0, 0, mmCanvas.width, mmCanvas.height);
 
   // RA2-style radar outage when the grid is down
-  if (started && powerOf(PLAYER).low) {
+  if (started && powerOf(localOwner).low) {
     mmCtx.fillStyle = '#0a0d0a';
     mmCtx.fillRect(0, 0, mmCanvas.width, mmCanvas.height);
     for (let i = 0; i < 120; i++) {
@@ -7376,16 +7419,16 @@ function drawMinimap() {
   }
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
-    mmCtx.fillStyle = (u.disguised && u.owner !== PLAYER) ? COLORS[PLAYER] : COLORS[u.owner];
+    mmCtx.fillStyle = (u.disguised && u.owner !== localOwner) ? COLORS[localOwner] : COLORS[u.owner];
     mmCtx.fillRect(u.x * sx - 1, u.y * sy - 1, 2, 2);
   }
   // fog overlay: reuse the main fog canvas, stretched onto the minimap
   mmCtx.drawImage(fogCanvas, 0, 0, FW, FH, 0, 0, mmCanvas.width, mmCanvas.height);
   // radar intel passives pierce the fog: flat sees enemy air, hollow sees enemy ground
-  const pf = state.factions[PLAYER];
+  const pf = state.factions[localOwner];
   if (pf === 'flat' || pf === 'hollow') {
     for (const u of state.units) {
-      if (u.owner === PLAYER || u.hp <= 0 || u.disguised) continue;
+      if (u.owner === localOwner || u.hp <= 0 || u.disguised) continue;
       const fly = !!UNIT_TYPES[u.type].flying;
       if ((pf === 'flat' && fly) || (pf === 'hollow' && !fly)) {
         mmCtx.fillStyle = '#ffb45f';
@@ -7410,16 +7453,20 @@ function drawMinimap() {
   mmCtx.strokeRect(wx0 * sx, wy0 * sy, (wx1 - wx0) * sx, (wy1 - wy0) * sy);
 }
 
+// WHETHER the match is over is sim state and must be identical on every
+// client, so it may only depend on who still holds an HQ and which seats are
+// human. WHICH WORDS the overlay shows is local, and depends on localOwner.
 function checkGameOver() {
-  const playerHq = hasHqOrCanRebuild(PLAYER);
-  const enemyHq = OWNERS.some(o => o !== PLAYER && hasHqOrCanRebuild(o));
-  if (playerHq && enemyHq) return;
+  const alive = OWNERS.filter(o => hasHqOrCanRebuild(o));
+  const humanOut = OWNERS.some(o => isHuman(o) && !hasHqOrCanRebuild(o));
+  if (!humanOut && alive.length > 1) return;
   state.over = true;
+  const won = hasHqOrCanRebuild(localOwner);
   const el = document.getElementById('overlay-text');
-  el.textContent = playerHq ? 'VICTORY! The truth is yours.' : 'DEFEAT';
-  el.style.color = playerHq ? '#7fff9f' : '#ff6b5f';
+  el.textContent = won ? 'VICTORY! The truth is yours.' : 'DEFEAT';
+  el.style.color = won ? '#7fff9f' : '#ff6b5f';
   document.getElementById('overlay').classList.remove('hidden');
-  eva(playerHq ? 'Mission accomplished' : 'Battle control terminated');
+  eva(won ? 'Mission accomplished' : 'Battle control terminated');
 }
 
 // ---------- fixed timestep ----------
@@ -7475,7 +7522,7 @@ function enqueue(owner, type, payload) {
 }
 
 // the local player's commands, for brevity at the call sites
-const cmd = (type, payload) => enqueue(PLAYER, type, payload);
+const cmd = (type, payload) => enqueue(localOwner, type, payload);
 
 // Commands carry IDS, never object references. A reference means nothing on
 // another machine, and an id survives the `.filter(u => u.hp > 0)` compaction
@@ -7515,7 +7562,7 @@ const COMMANDS = {
   train:       (o, p) => trainUnit(o, p.t),
   canceltrain: (o, p) => cancelTraining(o, p.t),
   research:    (o, p) => startResearch(o, p.k),
-  rite:        (o, p) => { const b = cmdBuilding(p.b, o); if (b) beginRite(b, p.k); },
+  rite:        (o, p) => { const b = cmdBuilding(p.b, o); if (b) beginRite(b, p.k, p.u); },
   cancelrite:  (o, p) => { const u = cmdUnit(p.u, o); if (u) cancelRite(u); },
   super:       (o, p) => { const b = cmdBuilding(p.b, o); if (b && superReady(b) && !isOffline(b)) fireSuperweapon(b, p.x, p.y); },
   leverage:    (o, p) => { const t = state.buildings.find(b => b.id === p.b && b.hp > 0 && b.owner !== o && b.owner !== NEUTRAL); if (t) playLeverage(o, p.k, t); },
@@ -7612,8 +7659,9 @@ function stepSim() {
   }
   updateTransits();
   for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
-  tickConstruction(PLAYER, dt);
-  for (const o of OWNERS) if (o !== PLAYER) updateAI(o, dt);
+  // every human seat has a build queue ticking; every other seat has a brain
+  for (const o of OWNERS) if (isHuman(o)) tickConstruction(o, dt);
+  for (const o of OWNERS) if (!isHuman(o)) updateAI(o, dt);
   updateAbilities(dt);
   updateHqContinuity(dt);
   updateProjectiles(dt);
@@ -7646,7 +7694,7 @@ function stepSim() {
       }
       Particles.boom(b.x, b.y, 1.7);
       if (tileState(b.x, b.y) === 2) sfx('boom');
-      if (b.owner === PLAYER && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
+      if (b.owner === localOwner && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
       // gas stations go up in a fireball that hurts EVERYONE nearby
       // (owner -99 so not even neutral structures are spared — chain reactions!)
       const ex = bstatsOf(b).explodes;
@@ -7755,11 +7803,11 @@ function frame(now) {
     selection = selection.filter(e => e.hp > 0);
     if (selection.length !== beforeLen) refreshPanel();
 
-    const low = powerOf(PLAYER).low;
+    const low = powerOf(localOwner).low;
     if (low && !wasLowPower) eva('Low power');
     wasLowPower = low;
 
-    const mine = state.units.filter(u => u.owner === PLAYER);
+    const mine = state.units.filter(u => u.owner === localOwner);
     const w = mine.filter(u => UNIT_TYPES[u.type].role === 'worker').length;
     elSupply.textContent = `Workers: ${w}  Army: ${mine.length - w}`;
 
@@ -8048,7 +8096,7 @@ canvas.addEventListener('mousedown', e => {
   if (e.button === 0) {
     if (leverageTargeting) {
       const key = leverageTargeting;
-      const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== PLAYER && b.owner !== NEUTRAL &&
+      const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== localOwner && b.owner !== NEUTRAL &&
         Math.abs(b.x - p.x) <= b.w / 2 + 6 && Math.abs(b.y - p.y) <= b.h / 2 + 6);
       if (tgt) { cmd('leverage', { k: key, b: tgt.id }); leverageTargeting = null; sfx('click'); }
       else eva('Click one of THEIR structures');
@@ -8056,7 +8104,7 @@ canvas.addEventListener('mousedown', e => {
       return;
     }
     if (superTargeting) {
-      const sw = state.buildings.find(b => b.id === superTargeting && b.owner === PLAYER && b.hp > 0);
+      const sw = state.buildings.find(b => b.id === superTargeting && b.owner === localOwner && b.hp > 0);
       superTargeting = null;
       if (sw && superReady(sw) && !isOffline(sw)) { cmd('super', { b: sw.id, x: p.x, y: p.y }); sfx('click'); }
       refreshPanel();
@@ -8068,7 +8116,7 @@ canvas.addEventListener('mousedown', e => {
       // 'zone' is the shared targeted-area kind; the faction decides what lands
       if (mode === 'zone' || mode === 'recall') cmd('ability', { m: mode, x: p.x, y: p.y });
       if (mode === 'unit') {
-        const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
+        const target = state.units.find(u => u.owner === localOwner && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
         if (target && UNIT_TYPES[target.type].builtAt !== 'barracks') eva('Cloning Vats accept infantry only');
         else if (target) cmd('ability', { m: 'unit', u: target.id });
       }
@@ -8093,26 +8141,26 @@ canvas.addEventListener('mousedown', e => {
       }
       // gates cut into an existing straight wall segment, not open ground
       if (placing === 'gate') { cmd('gate', { x: p.x, y: p.y }); sfx('click'); return; }
-      const st = bstats(PLAYER, placing);
+      const st = bstats(localOwner, placing);
       // The placement legality check stays client-side so the cursor keeps its
       // instant feedback; the command re-checks it authoritatively at its tick.
       const legal = st.instant
-        ? !placementBlocked(PLAYER, placing, p.x, p.y) && (st.anywhere || withinBuildRadius(PLAYER, p.x, p.y)) &&
-          state.minerals[PLAYER] >= st.cost && !atStructCap(PLAYER, placing)
-        : (() => { const c = state.construction[PLAYER]; return !!c && c.ready && !placementBlocked(PLAYER, c.type, p.x, p.y) &&
-            (bstats(PLAYER, c.type).anywhere || withinBuildRadius(PLAYER, p.x, p.y)); })();
+        ? !placementBlocked(localOwner, placing, p.x, p.y) && (st.anywhere || withinBuildRadius(localOwner, p.x, p.y)) &&
+          state.minerals[localOwner] >= st.cost && !atStructCap(localOwner, placing)
+        : (() => { const c = state.construction[localOwner]; return !!c && c.ready && !placementBlocked(localOwner, c.type, p.x, p.y) &&
+            (bstats(localOwner, c.type).anywhere || withinBuildRadius(localOwner, p.x, p.y)); })();
       if (legal) {
         cmd('place', { t: placing, x: p.x, y: p.y });
         sfx('click');
         // field structures stay armed so you can drop several; stop when dry or capped
-        if (!st.instant || state.minerals[PLAYER] < st.cost * 2 || atStructCap(PLAYER, placing)) placing = null;
+        if (!st.instant || state.minerals[localOwner] < st.cost * 2 || atStructCap(localOwner, placing)) placing = null;
         refreshPanel(); refreshSidebar();
       }
       return;
     }
     if (attackMoveArmed) {
       attackMoveArmed = false;
-      const u = idsOf(selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER &&
+      const u = idsOf(selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner &&
         UNIT_TYPES[e.type].role === 'combat'));
       if (u.length) cmd('attackmove', { u, x: p.x, y: p.y });
       refreshPanel();
@@ -8174,8 +8222,8 @@ window.addEventListener('mouseup', e => {
   if (wallDrag) {
     cmd('wallline', { x0: wallDrag.x0, y0: wallDrag.y0, x1: mouse.x, y1: mouse.y });
     wallDrag = null;
-    const wst = bstats(PLAYER, 'wall');
-    if (state.minerals[PLAYER] < wst.cost || atStructCap(PLAYER, 'wall')) placing = null;
+    const wst = bstats(localOwner, 'wall');
+    if (state.minerals[localOwner] < wst.cost || atStructCap(localOwner, 'wall')) placing = null;
     refreshPanel(); refreshSidebar();
     return;
   }
@@ -8194,9 +8242,9 @@ window.addEventListener('mouseup', e => {
     const now = state.time;
     const dbl = now - lastClick.t < 0.35 && Math.abs(x1 - lastClick.x) < 10 && Math.abs(y1 - lastClick.y) < 10;
     lastClick = { t: now, x: x1, y: y1 };
-    const hit = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, w.x, w.y, 4));
+    const hit = state.units.find(u => u.owner === localOwner && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, w.x, w.y, 4));
     if (dbl && hit) {
-      selection = state.units.filter(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && u.type === hit.type && onScreen(u));
+      selection = state.units.filter(u => u.owner === localOwner && u.hp > 0 && !u.garrisoned && u.type === hit.type && onScreen(u));
       sfx('click');
     } else {
       selectAt(w.x, w.y);
@@ -8205,7 +8253,7 @@ window.addEventListener('mouseup', e => {
     // the box is iso-screen-aligned: test each unit's DRAWN position
     // (airborne sprites ride FLY_H above their ground point)
     let picked = state.units.filter(u => {
-      if (u.owner !== PLAYER || u.hp <= 0 || u.garrisoned) return false;
+      if (u.owner !== localOwner || u.hp <= 0 || u.garrisoned) return false;
       const alt = (UNIT_TYPES[u.type].flying && !u.landed) ? FLY_H : 0;
       const px = isoX(u.x, u.y), py = isoY(u.x, u.y) - alt;
       return px >= x1 && px <= x2 && py >= y1 && py <= y2;
@@ -8217,7 +8265,7 @@ window.addEventListener('mouseup', e => {
     selection = picked;
     // also grab your garrisoned civilian structures under the box, so the
     // panel can offer to evacuate them
-    const gbld = state.buildings.filter(b => b.owner === PLAYER && b.hp > 0 && b.garrison && b.garrison.length && bstatsOf(b).slots &&
+    const gbld = state.buildings.filter(b => b.owner === localOwner && b.hp > 0 && b.garrison && b.garrison.length && bstatsOf(b).slots &&
       (() => { const px = isoX(b.x, b.y), py = isoY(b.x, b.y); return px >= x1 && px <= x2 && py >= y1 && py <= y2; })());
     if (gbld.length) selection = selection.concat(gbld);
   }
@@ -8235,8 +8283,8 @@ window.addEventListener('keydown', e => {
 
   if (STRUCT_HOTKEYS[k]) {
     let type = STRUCT_HOTKEYS[k];
-    if (type === 'TOWER') type = facOf(PLAYER).tower;
-    if (type === 'AATOWER') type = facOf(PLAYER).aaTower;
+    if (type === 'TOWER') type = facOf(localOwner).tower;
+    if (type === 'AATOWER') type = facOf(localOwner).aaTower;
     sidebarStructureClick(type);
   }
 
