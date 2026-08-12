@@ -184,6 +184,16 @@ function ascendFee(owner, key) {
 // the fee? Used by the Mechanicum panel, the right-click order and the AI.
 function ascendReady(owner, key) {
   const A = ASCEND[key];
+  // apexes cap at 2 across the board, and the Dreadnought reaches the field by
+  // rite rather than by purchase — so its ceiling has to be enforced HERE
+  // (trainUnit never sees it) or the Mechanicum would out-produce every other
+  // faction's heavy simply by not going through a factory.
+  const cap = UNIT_TYPES[key] && UNIT_TYPES[key].limit;
+  if (cap) {
+    const have = state.units.reduce((n, u) => n + (u.owner === owner && u.hp > 0 &&
+      (u.type === key || (u.ascension && u.ascension.to === key)) ? 1 : 0), 0);
+    if (have >= cap) return false;
+  }
   return relicCount(owner) >= A.relics && (!A.req || hasStruct(owner, A.req));
 }
 const buildingName = b => (facOf(b.owner) && facOf(b.owner).buildingNames[b.type])
@@ -327,7 +337,7 @@ function nearest(from, list, filter) {
 function supportBias(e) {
   if (e.kind !== 'unit') return 0;
   const t = UNIT_TYPES[e.type];
-  return (t.repair || t.buffAura || t.hardenAura || t.debuffAura) ? 170 : 0;
+  return (t.repair || t.mendAura || t.buffAura || t.hardenAura || t.debuffAura) ? 170 : 0;
 }
 
 function nearestTarget(from, list, filter) {
@@ -992,36 +1002,6 @@ function canRepair(b) {
 // quotes, so the price you read is the price you pay
 const repairRateOf = b => b.maxHp * REPAIR_RATE;
 const repairCostPerSec = b => repairValueOf(b) * REPAIR_COST * REPAIR_RATE;
-
-// ---------- THE REVELATION: spend the meter, take their army ----------
-// Conviction's problem was that it was only ever READ — a passive multiplier
-// you could not act on. This is the verb. Everything banked goes at once, and
-// the radius is the payoff for having held out for more than the 75 minimum.
-const revelationReady = owner => isFlat(owner) && convictionOf(owner) >= CONVICTION_REVELATION;
-const revelationRadius = cv => 150 + (cv - CONVICTION_REVELATION) * 6; // 150 at 75, 300 at 100
-function castRevelation(owner, x, y) {
-  if (!revelationReady(owner)) return false;
-  const cv = convictionOf(owner);
-  const r = revelationRadius(cv);
-  // elites never turn — same bar the old Documentary Drops used
-  const converts = state.units.filter(u => u.owner !== owner && u.owner !== NEUTRAL && u.hp > 0 &&
-    !u.garrisoned && u.type !== 'phantom' && unitTier(u.type) <= 2 && dist(u, { x, y }) <= r);
-  state.conviction[owner] = 0;   // spent to the last drop, believer
-  state.despairT[owner] = 0;     // and the crash does not instantly cost you people
-  for (const u of converts) {
-    const wasPlayers = u.owner === PLAYER;
-    u.owner = owner; u.disguised = false; u.carrying = 0; u.order = { type: 'idle' };
-    Particles.pulse(u.x, u.y, 26, [255, 226, 140]);
-    if (wasPlayers && owner !== PLAYER) eva('They are taking our people');
-  }
-  state.zones.push({ kind: 'revelation', x, y, r, until: state.time + 1.6, caster: owner });
-  Particles.pulse(x, y, r, [255, 215, 120]);
-  if (owner === PLAYER) {
-    sfx('boom');
-    eva(converts.length ? `${converts.length} have seen the truth` : 'The truth fell on deaf ears');
-  }
-  return true;
-}
 
 // ---------- THE FIRMAMENT: the dome, made briefly non-negotiable ----------
 function castFirmament(owner, x, y) {
@@ -2130,6 +2110,7 @@ function spawnProjectile(kind, x, y, tx, ty, owner, stats) {
   };
   if (kind === 'firework') p.col = FIREWORK_COLORS[Math.floor(Math.random() * FIREWORK_COLORS.length)];
   state.projectiles.push(p);
+  return p;   // callers may tune the shot after the fact (see the carpet stick)
 }
 
 function updateProjectiles(dt) {
@@ -2467,13 +2448,18 @@ function fireAt(u, target, t) {
       // the warning), and unlike the A-10 they respect IFF — this is a bomb
       // run on coordinates, not a strafe over a melee.
       const dirX = Math.cos(u.facing), dirY = Math.sin(u.facing);
-      for (let i = 0; i < (t.burstShells || 5); i++) {
-        const along = ((i / Math.max(1, (t.burstShells || 5) - 1)) - 0.4) * (t.beatenLen || 140);
+      const n = t.burstShells || 5;
+      for (let i = 0; i < n; i++) {
+        const along = ((i / Math.max(1, n - 1)) - 0.4) * (t.beatenLen || 140);
         const off = (Math.random() - 0.5) * (t.beatenWidth || 30);
         const ix = target.x + dirX * along - dirY * off;
         const iy = target.y + dirY * along + dirX * off;
-        spawnProjectile('bomb', u.x + dirX * along * 0.35, u.y + dirY * along * 0.35, ix, iy, u.owner,
+        const p = spawnProjectile('bomb', u.x + dirX * along * 0.35, u.y + dirY * along * 0.35, ix, iy, u.owner,
           { dmg, splash: t.splash || 38, bldgBonus: t.bldgBonus || 1 });
+        // the bay opens once and the stick WALKS: each bomb in the train falls
+        // a beat after the one ahead of it, so the run reads as a rolling line
+        // of detonations you can watch coming rather than one instant carpet.
+        if (p && t.stickGap) p.dur += i * t.stickGap;
       }
       if (visible) sfx('boom');
       if (target.hp <= 0 && u.order.type === 'attack') nextTargetOrIdle(u, t);
@@ -2880,6 +2866,21 @@ function updateAuras(u, stats, dt) {
         h.expires = state.time + stats.spawns.expires;
       }
       if (u.owner === PLAYER) sfx('click');
+    }
+  }
+  // a walking field hospital: mends anything of yours nearby, including
+  // vehicles, and unlike the medic's chase-one-patient order it works on the
+  // move and on everyone at once
+  if (stats.mendAura) {
+    u.mendT = (u.mendT || 0) - dt;
+    if (u.mendT <= 0) {
+      u.mendT = 0.5;
+      for (const a of state.units) {
+        if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned || a.transit) continue;
+        if (a.hp >= a.maxHp || dist(a, u) > stats.mendAura.r) continue;
+        a.hp = Math.min(a.maxHp, a.hp + stats.mendAura.rate * 0.5);
+        if (Math.random() < 0.22) Particles.bolt(u.x, u.y, a.x, a.y, [140, 255, 170], 8);
+      }
     }
   }
   if (stats.buffAura) {
@@ -4372,6 +4373,34 @@ function aiTrainArmy(owner, f, counts, army, reserve) {
     if (pick) trainUnit(owner, pick);
   }
 
+  // ---------- and once it is rich, it buys the big one ----------
+  // The apex never won the deficit pick: it is the dearest thing on the roster,
+  // so by the time the AI could afford one the mix had already spent the bank on
+  // three cheap jets. Late game, with the tech building up and real money in
+  // hand, buy it ON PURPOSE up to its cap — the same way workers and rigs are
+  // bought outside the mix rather than competing inside it.
+  const ai = ais[owner];
+  if (ai && ai.time > 240) {
+    // dearest FIRST: the Greys list a cheap Flying Saucer alongside the
+    // Mothership, and buying in roster order meant they filled their saucer cap
+    // and never once fielded the thing the tech tree exists for
+    const ladder = [...(f.advanced || [])].sort((a, b) => (UNIT_TYPES[b].cost || 0) - (UNIT_TYPES[a].cost || 0));
+    for (const apex of ladder) {
+      const at = UNIT_TYPES[apex];
+      if (!at || !counts[at.builtAt]) continue;
+      if (at.req && !counts[at.req]) continue;
+      const cap = at.limit || 2;
+      const have = unitCount(owner, apex) +
+        state.buildings.reduce((n, b) => n + (b.owner === owner && b.hp > 0 ? b.queue.filter(j => j.type === apex).length : 0), 0);
+      if (have >= cap) continue;
+      // a cushion on top of the price, so buying it never empties the bank
+      if (state.minerals[owner] < at.cost + reserve + 150) continue;
+      if (at.loosh && (state.loosh[owner] || 0) < at.loosh) continue;
+      trainUnit(owner, apex);
+      break;
+    }
+  }
+
   // the enemy runs silent (disguise, cloak, burrow): keep a couple of
   // detectors alive or the whole base fights blind
   const foeCloaky = state.units.some(e => e.owner !== owner && e.owner !== NEUTRAL && e.hp > 0 &&
@@ -5171,7 +5200,9 @@ function unitBlurb(type) {
       (A.relics ? ` + ${A.relics} relics` : '') +
       (A.req ? `, and only once the ${facOf(PLAYER).buildingNames[A.req] || A.req} stands` : ''));
   }
-  if (t.sermon) b.push('preaches while standing still: builds Conviction, faster with a crowd of infantry around him, and doubles any Revival Tent he stands in');
+  if (t.mendAura) b.push(`field hospital: mends everything of yours within ${t.mendAura.r} for ${t.mendAura.rate}/s, on the move`);
+  if (t.convert) b.push(`every ${t.convert.every}s one enemy footsoldier within ${t.convert.r} walks over to your side`);
+  if (t.sermon) b.push('stand him STILL to preach: stokes Conviction, faster with a crowd around him, and amps any Revival Tent he stands in');
   if (t.martyr) b.push(`martyrdom: +${t.martyr} Conviction if he dies`);
   if (t.cloakStill) b.push('cloaks while holding still; the first shot from cloak hits double');
   if (t.burrow) b.push('can burrow: hidden and safe, but slow and unarmed below');
@@ -5271,18 +5302,6 @@ function buildSidebar() {
     cameoButtons[k].btn.title = k === 'p:passive' ? f.powers.passive.desc : f.powers.sig.desc;
   }
   cameoButtons['p:passive'].costEl.textContent = 'PASSIVE';
-  // the flat compound gets a third button: the thing Conviction is FOR
-  if (f.powers.revelation) {
-    makeCameo(gridPowers, 'p:rev', f.powers.revelation.name, 0, revelationClick);
-    cameoButtons['p:rev'].btn.classList.add('power');
-    cameoButtons['p:rev'].btn.title = f.powers.revelation.desc;
-  }
-}
-
-function revelationClick() {
-  if (!revelationReady(PLAYER)) { eva('Not enough Conviction'); return; }
-  abilityTargeting = 'revelation';
-  refreshPanel();
 }
 
 function sigClick() {
@@ -5323,9 +5342,6 @@ function refreshConviction() {
   // what it is worth THIS SECOND, in the currencies the player already reads
   const dmg = Math.round(cv * 0.25);                       // 0.0025/point, as a %
   const bits = [`<b>+${dmg}%</b> damage`];
-  bits.push(cv >= CONVICTION_REVELATION
-    ? `<b>REVELATION READY</b> (r${Math.round(revelationRadius(cv))})`
-    : `Revelation at <b>${CONVICTION_REVELATION}</b> (${Math.ceil(CONVICTION_REVELATION - cv)} to go)`);
   if (cv < CONVICTION_DESPAIR) bits.push('<span class="bad">DESERTIONS</span>');
 
   // ...and WHY it is moving, so a stalled meter is diagnosable at a glance
@@ -5364,15 +5380,6 @@ function refreshSidebar() {
   for (const [key, ui] of Object.entries(cameoButtons)) {
     const [kind, type] = [key[0], key.slice(2)];
     if (kind === 'p') {
-      if (type === 'rev') {
-        // Conviction IS the cooldown: the bar fills toward 75, then it is armed
-        const cv = convictionOf(PLAYER);
-        const ready = revelationReady(PLAYER);
-        ui.btn.classList.toggle('castable', ready);
-        ui.prog.style.height = clamp(cv / CONVICTION_REVELATION * 100, 0, 100) + '%';
-        ui.costEl.textContent = ready ? `READY r${Math.round(revelationRadius(cv))}` : `✊ ${Math.round(cv)}/${CONVICTION_REVELATION}`;
-        continue;
-      }
       if (type !== 'sig') continue;
       const pk = facOf(PLAYER).powers.sig;
       const sig = state.sig[PLAYER];
@@ -5567,9 +5574,7 @@ function panelTargetingMode(addAction) {
   }
   if (abilityTargeting) {
     elSelInfo.textContent =
-      abilityTargeting === 'revelation'
-        ? `The Revelation — click where the truth lands (radius ${Math.round(revelationRadius(convictionOf(PLAYER)))}, spends all ${Math.round(convictionOf(PLAYER))} Conviction), Esc to cancel`
-      : abilityTargeting === 'zone' ? (isFlat(PLAYER)
+      abilityTargeting === 'zone' ? (isFlat(PLAYER)
         ? 'The Firmament — click the patch of sky to make solid, Esc to cancel'
         : 'Weather Modification — click a target area, Esc to cancel')
       : abilityTargeting === 'recall'
@@ -6841,14 +6846,6 @@ function drawZones() {
       ctx.strokeStyle = `rgba(255,255,255,${(0.30 * (1 - Math.abs(sh - 0.5) * 2)).toFixed(2)})`;
       ctx.lineWidth = 3;
       ctx.beginPath(); ctx.ellipse(zx, zy, rx * sh, ry * sh, 0, 0, Math.PI * 2); ctx.stroke();
-    } else if (kind === 'revelation') {
-      // one bright expanding ring — the moment the truth arrives
-      const f = clamp(1 - (z.until - state.time) / 1.6, 0, 1);
-      ctx.strokeStyle = `rgba(255,225,140,${(0.9 * (1 - f)).toFixed(2)})`;
-      ctx.lineWidth = 3 + 5 * (1 - f);
-      ctx.beginPath(); ctx.ellipse(zx, zy, rx * f, ry * f, 0, 0, Math.PI * 2); ctx.stroke();
-      ctx.fillStyle = `rgba(255,225,140,${(0.16 * (1 - f)).toFixed(2)})`;
-      ctx.beginPath(); ctx.ellipse(zx, zy, rx * f, ry * f, 0, 0, Math.PI * 2); ctx.fill();
     } else if (kind === 'rain' || kind === 'storm') {
       ctx.fillStyle = kind === 'storm' ? 'rgba(60,80,130,0.22)' : 'rgba(80,130,190,0.15)';
       ctx.beginPath(); ctx.ellipse(zx, zy, rx, ry, 0, 0, Math.PI * 2); ctx.fill();
@@ -7036,30 +7033,6 @@ function drawOverlays() {
     ctx.moveTo(rx - 16, ry); ctx.lineTo(rx + 16, ry);
     ctx.moveTo(rx, ry - 10); ctx.lineTo(rx, ry + 10);
     ctx.stroke();
-  }
-
-  // Revelation reticle: same principle as the Recall circle below — you are
-  // spending the ENTIRE meter, so you must be able to count the converts before
-  // you commit, not after
-  if (abilityTargeting === 'revelation') {
-    const cvNow = convictionOf(PLAYER);
-    const r = revelationRadius(cvNow);
-    const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
-    const picks = state.units.filter(u => u.owner !== PLAYER && u.owner !== NEUTRAL && u.hp > 0 &&
-      !u.garrisoned && u.type !== 'phantom' && unitTier(u.type) <= 2 &&
-      !hiddenFrom(u, PLAYER) && dist(u, { x: mouse.x, y: mouse.y }) <= r);
-    ctx.strokeStyle = 'rgba(255,215,120,0.9)';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.ellipse(rx, ry, r * Math.SQRT2, r * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
-    for (const u of picks) {
-      ctx.beginPath();
-      ctx.ellipse(isoX(u.x, u.y), isoY(u.x, u.y), 13, 7, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.font = 'bold 12px monospace'; ctx.textAlign = 'center';
-    ctx.fillStyle = picks.length ? '#ffd778' : 'rgba(220,210,190,0.7)';
-    ctx.fillText(`${picks.length} will turn`, rx, ry - r * 0.75 - 6);
-    ctx.textAlign = 'left';
   }
 
   // Vril Recall reticle: the actual circle, with the bodies it would take
@@ -7754,7 +7727,6 @@ canvas.addEventListener('mousedown', e => {
       abilityTargeting = null;
       // 'zone' is the shared targeted-area kind; the faction decides what lands
       if (mode === 'zone') (isFlat(PLAYER) ? castFirmament : castWeather)(PLAYER, p.x, p.y);
-      if (mode === 'revelation') castRevelation(PLAYER, p.x, p.y);
       if (mode === 'recall') castRecall(PLAYER, p.x, p.y);
       if (mode === 'unit') {
         const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));

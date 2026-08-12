@@ -85,10 +85,9 @@ const FACTIONS = {
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       // The dome is real, and for fourteen seconds everyone else has to agree.
-      // Replaced Documentary Drops, which did the same job as the Revelation.
-      sig: { name: 'The Firmament', desc: 'Target a zone: for 14s the sky over it is SOLID. Enemy aircraft inside grind against the dome (25 dmg/s, badly slowed) and enemy shells and missiles crossing it burn up on contact.', kind: 'zone', cd: 100, r: 250, dur: 14, dps: 25 },
-      // Spends the meter instead of merely reading it — see CONVICTION_REVELATION
-      revelation: { name: 'The Revelation', desc: 'Needs 75 Conviction. Target a zone: every non-elite enemy unit inside sees the truth and joins you on the spot. Spends ALL of your Conviction — the more you had banked, the wider it reaches.' },
+      // Deliberately a SHIELD, not a kill button: it turns an air push away and
+      // buys the compound a window, rather than deleting the wing outright.
+      sig: { name: 'The Firmament', desc: 'Target a zone: for 14s the sky over it is SOLID. Enemy aircraft inside grind against the dome (12 dmg/s, badly slowed) and enemy shells and missiles crossing it burn up on contact.', kind: 'zone', cd: 90, r: 215, dur: 14, dps: 12 },
     },
     buildingNames: {
       hq: 'Bunker of Truth', powerplant: 'Diesel Shack', barracks: 'Recruitment Tent',
@@ -382,7 +381,16 @@ const UNIT_TYPES = {
   // preaches, feeding the Conviction meter (sermon — faster with a crowd of
   // friendly infantry around him, and a Revival Tent he stands in doubles its
   // output); and killing him only proves him right (martyr: Conviction surge).
-  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 140, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 240, cost: 280, r: 9, buildTime: 12, limit: 1, debuffAura: { r: 160, weaken: 0.45 }, sermon: { rate: 0.18, crowdR: 150, per: 0.04, max: 5 }, martyr: 25 },
+  // THE faction. He is not a meter accessory — he is a walking field hospital,
+  // a rally banner, a demoralising racket and a recruiter, all at once, and he
+  // does every bit of it ON THE MOVE. Standing him still additionally stokes
+  // Conviction (sermon), which is now the bonus layer rather than the point.
+  prophet: { name: 'Megaphone Prophet', role: 'combat', builtAt: 'barracks', hp: 260, speed: 70, dmg: 0, atkRange: 0, cooldown: 1, sight: 250, cost: 300, r: 9, buildTime: 13, limit: 1,
+             mendAura: { r: 155, rate: 11 },        // patches up the faithful around him
+             buffAura: { r: 155 },                  // ...and they hit 25% harder for it
+             debuffAura: { r: 165, weaken: 0.45 },  // the racket puts the enemy off their aim
+             convert: { every: 15, r: 140 },        // and every so often one of them walks over
+             sermon: { rate: 0.18, crowdR: 150, per: 0.04, max: 5 }, martyr: 25 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)
@@ -463,7 +471,7 @@ const UNIT_TYPES = {
   // any altitude. Both keep firing mid-brawl, just badly aimed.
   dreadnought: {
     name: 'Dreadnought', role: 'combat', builtAt: 'mechanicum', hp: 1100, speed: 48,
-    dmg: 96, atkRange: 40, cooldown: 0.8, sight: 260, cost: 0, r: 14, buildTime: 0,
+    dmg: 96, atkRange: 40, cooldown: 0.8, sight: 260, cost: 0, r: 14, buildTime: 0, limit: 2,
     armor: 0.42, bldgBonus: 1.4, clawArm: true, vril: true, armorTier: 'dread', drawScale: 1.9,
     // RELENTLESS: at a walk it is the slowest thing on the field, and a melee
     // unit that cannot catch anything only ever kills buildings — infantry
@@ -508,7 +516,7 @@ const UNIT_TYPES = {
   // weapons from the truck, and get thrown clear (hurt, alive) if it dies
   technical: { name: 'Technical',        role: 'combat', builtAt: 'factory', hp: 150, speed: 108, dmg: 10, dmgVsGround: 9, atkRange: 110, cooldown: 0.5, sight: 230, cost: 80, r: 12, buildTime: 6, shape: 'square', targets: 'both', cargoCap: 4, bailOut: true },
   // Globalist armor: one tank, the correct tank. Pricey, thick, final.
-  abrams:    { name: 'M1 Abrams',        role: 'combat', builtAt: 'factory', hp: 560, speed: 62,  dmg: 38, atkRange: 170, cooldown: 1.7,  sight: 240, cost: 400, r: 14, buildTime: 14, shape: 'square', armor: 0.25, bldgBonus: 1.3 },
+  abrams:    { name: 'M1 Abrams',        role: 'combat', builtAt: 'factory', hp: 560, speed: 62,  dmg: 38, atkRange: 170, cooldown: 1.7,  sight: 240, cost: 480, r: 14, buildTime: 17, shape: 'square', armor: 0.25, bldgBonus: 1.3 },
   // IFV: an autocannon up top, four PMC fire teams shooting from the ports —
   // and a rear ramp: the squad bails out (hurt, alive) if the hull dies
   bradley:   { name: 'M2 Bradley',       role: 'combat', builtAt: 'factory', hp: 340, speed: 88,  dmg: 12, atkRange: 130, cooldown: 0.45, sight: 240, cost: 280, r: 13, buildTime: 10, shape: 'square', armor: 0.15, cargoCap: 4, bailOut: true },
@@ -594,7 +602,7 @@ const UNIT_TYPES = {
   // until it fires.
   b1:      { name: 'B-1 Lancer', flyH: 34,   role: 'combat', builtAt: 'airpad', hp: 200, speed: 210, dmg: 22, dmgVsGround: 9, atkRange: 165, cooldown: 0.55, sight: 300, cost: 190, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', pad: true, maxAmmo: 8, plane: true, turn: 2.6, stealth: true },
   // the real one IS a stealth bomber: unseen until the bombs are falling
-  b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, stealth: true, req: 'tech' },
+  b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, stealth: true, req: 'tech', limit: 2 },
   // Deep State signature air: a TR-3B black triangle that hovers dead silent —
   // invisible (stealth) until it opens fire, then it lights up for a moment
   tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
@@ -614,7 +622,7 @@ const UNIT_TYPES = {
   // bombs spread along beatenLen/beatenWidth of the flight path). Murder on
   // buildings and packed formations, useless against anything nimble, and it
   // has to fly all the way home after two sticks.
-  b52: { name: 'B-52 Stratofortress', flyH: 52, drawScale: 1.6, role: 'combat', builtAt: 'airpad', hp: 420, speed: 108, dmg: 30, atkRange: 62, cooldown: 2.6, sight: 300, cost: 430, r: 20, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 0.85, weapon: 'carpet', splash: 38, bldgBonus: 1.8, burstShells: 6, beatenLen: 155, beatenWidth: 30, runOut: 300, req: 'tech' },
+  b52: { name: 'B-52 Stratofortress', flyH: 58, drawScale: 1.6, role: 'combat', builtAt: 'airpad', hp: 620, speed: 96, dmg: 46, atkRange: 130, cooldown: 3.2, sight: 320, cost: 520, r: 20, buildTime: 22, flying: true, shape: 'plane', pad: true, maxAmmo: 3, plane: true, turn: 0.8, weapon: 'carpet', splash: 52, bldgBonus: 2.0, burstShells: 10, beatenLen: 260, beatenWidth: 34, stickGap: 0.085, runOut: 240, limit: 2, req: 'tech' },
   biobomber:  { name: 'Bio Bomber',     role: 'combat', builtAt: 'airpad', hp: 200, speed: 90,  dmg: 26, atkRange: 50,  cooldown: 1.6, sight: 260, cost: 200, r: 13, buildTime: 13, flying: true, bldgBonus: 1.5, shape: 'blimp', weapon: 'bomb', splash: 40, groundEffect: { kind: 'toxin', r: 30, dur: 2.5, dps: 6 } },
   // Grey Abductor Saucer: hovers over a ground unit and locks a tractor beam —
   // hold it long enough and the victim is hauled up and away (removed, +minerals).
@@ -624,7 +632,7 @@ const UNIT_TYPES = {
   // Flat: the Combine of Correction — an armor-plated harvester that reaps
   // what it's pointed at. ONE heavy cannon on the cab (no broadside battery),
   // and the header reel crushes infantry under it like wheat.
-  combine:  { name: 'Combine of Correction', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 700, speed: 42, dmg: 36, atkRange: 195, cooldown: 1.5, sight: 280, cost: 470, r: 20, buildTime: 20, shape: 'square', armor: 0.3, bldgBonus: 1.4, req: 'tech' },
+  combine:  { name: 'Combine of Correction', drawScale: 1.3, role: 'combat', builtAt: 'factory', hp: 700, speed: 42, dmg: 36, atkRange: 195, cooldown: 1.5, sight: 280, cost: 470, r: 20, buildTime: 20, shape: 'square', armor: 0.3, bldgBonus: 1.4, req: 'tech', limit: 2 },
   // Hollow air wing (Cavern Roost). The Ornithopter hits the ground, the Vril
   // Disc owns the sky, the Aerostat holds an umbrella over both — the faction
   // used to field NOTHING that could shoot at an aircraft except a Crystal
@@ -642,13 +650,13 @@ const UNIT_TYPES = {
   // Greys: the capital saucer — no broadside, no bombs. A narrow annihilation
   // lance vaporizes ONE ground target at a time; its bound Tic Tac escort
   // (slow to regrow once shot down) is all that screens the sky above it.
-  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.65, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 110, atkRange: 200, cooldown: 3.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', lance: true, brood: { type: 'tictac', count: 3, regen: 45 }, req: 'tech' },
+  mothership: { name: 'Mothership', flyH: 44, drawScale: 1.65, role: 'combat', builtAt: 'airpad', hp: 720, speed: 58, dmg: 110, atkRange: 200, cooldown: 3.4, sight: 340, cost: 560, r: 23, buildTime: 24, flying: true, targets: 'ground', shape: 'saucer', lance: true, brood: { type: 'tictac', count: 3, regen: 45 }, req: 'tech', limit: 2 },
   // Draco Royal: the winged apex of the caste — rains fire, and its presence
   // emboldens the whole brood (buffAura). Bought with loosh: the blood-throne's
   // champion. drawScale keeps its bespoke rig imposing.
-  draco:    { name: 'Draco Royal', flyH: 34, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 660, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 380, loosh: 90, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, buffAura: { r: 175 }, req: 'tech' },
+  draco:    { name: 'Draco Royal', flyH: 34, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 660, speed: 92, dmg: 26, atkRange: 120, cooldown: 0.9, sight: 290, cost: 380, loosh: 90, r: 18, buildTime: 23, flying: true, targets: 'both', shape: 'tri', bldgBonus: 1.5, weapon: 'spray', groundEffect: { kind: 'fire', r: 34, dur: 2.6, dps: 11 }, buffAura: { r: 175 }, req: 'tech', limit: 2 },
   // Resistance: a janky scrap missile truck — cheap-for-its-power siege apex
-  cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'cruise', splash: 55, bldgBonus: 2, req: 'tech' },
+  cruisetruck: { name: 'Scrap Missile Truck', role: 'combat', builtAt: 'factory', hp: 240, speed: 76, dmg: 70, atkRange: 360, minRange: 130, cooldown: 4.5, sight: 360, cost: 300, r: 13, buildTime: 15, shape: 'square', weapon: 'lob', projectile: 'cruise', splash: 55, bldgBonus: 2, req: 'tech', limit: 2 },
   // faction-power units (never trainable)
   smuggler: { name: 'Smuggler Truck', role: 'scout', hp: 120, speed: 75, dmg: 0, atkRange: 0, cooldown: 1, sight: 180, cost: 0, r: 11, buildTime: 0, shape: 'square' },
   phantom:  { name: 'Unknown Contact', role: 'scout', hp: 20,  speed: 60, dmg: 0, atkRange: 0, cooldown: 1, sight: 40,  cost: 0, r: 9,  buildTime: 0 },
