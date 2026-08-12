@@ -38,7 +38,10 @@ const state = {
   books: {},       // owner -> {on, until}: whose estate is currently laid open to them
   hqGrace: {},     // owner -> {until,at} while an HQ-less faction may still rebuild
   hqRebuilt: {},   // owner -> has already used its one rebuild
-  time: 0,
+  seed: 0,         // match seed: the single input to the sim RNG stream
+  tick: 0,         // completed sim ticks. state.time is derived from this.
+  time: 0,         // = tick * TICK. Never accumulated, so it cannot drift.
+  alpha: 0,        // render-only: fraction of a tick since the last stepSim
   over: false,
 };
 
@@ -5457,6 +5460,10 @@ function startGame(faction, seed) {
   state.seed = (seed !== undefined ? seed : Date.now()) >>> 0;
   RNG.seedSim(state.seed);
   state.tick = 0;
+  state.time = 0;
+  accumulator = 0;
+  commandQueue.clear();
+  for (const k of Object.keys(cmdSeq)) delete cmdSeq[k];
   document.getElementById('faction-select').classList.add('hidden');
   const size = MAP_SIZES[selectedSize];
   const numEnemies = clamp(selectedOpponents, 1, size.maxPlayers - 1);
@@ -7324,172 +7331,245 @@ function checkGameOver() {
   eva(playerHq ? 'Mission accomplished' : 'Battle control terminated');
 }
 
+// ---------- fixed timestep ----------
+// The simulation advances in whole ticks of TICK seconds and nothing else.
+// 30 Hz is the pick: fine enough that the shortest weapon cooldowns (~0.1s)
+// and projectile flight times don't visibly quantise, coarse enough that a
+// four-AI game on a large map has headroom on one core. Every 'dt' inside
+// stepSim() IS this constant — it is never a wall-clock delta — so two
+// machines fed the same seed and the same commands compute the same numbers.
+const TICK = 1 / 30;
+// A backgrounded tab hands rAF a huge delta when it wakes. Catch up at most
+// this many ticks in one frame and drop the remainder: replaying minutes of
+// game time inside one frame is how a stalled tab spirals into a dead one.
+// (Under lockstep the network layer, not the accumulator, decides how far a
+// lagging client is allowed to fall behind — this is purely a local guard.)
+const MAX_CATCHUP = 5;
+let accumulator = 0;
+
+// ---------- command queue ----------
+// Orders enter the sim through here and nowhere else. Keyed by the tick they
+// execute on. See applyCommand() further down for the handlers.
+const commandQueue = new Map(); // tick -> [command]
+// Per-OWNER counter, not a global one: the sequence number has to be assigned
+// by whoever issued the command, so every client agrees on it. A global
+// counter would number commands by local arrival order, which is exactly the
+// machine-dependent ordering this layer exists to eliminate.
+const cmdSeq = {};              // owner -> next sequence number
+
+function drainCommands() {
+  const batch = commandQueue.get(state.tick);
+  if (!batch) return;
+  commandQueue.delete(state.tick);
+  // Deterministic total order: owner first, then the issuer-assigned sequence
+  // number. Never insertion order — under a network that is arrival order.
+  batch.sort((a, b) => a.owner - b.owner || a.seq - b.seq);
+  for (const c of batch) applyCommand(c);
+}
+
+// Handlers live with the input code they replace — see applyCommand() below.
+// (placeholder until the command layer lands; nothing enqueues yet)
+function applyCommand(c) {}
+
+// One simulation tick. Takes no delta on purpose: the only time source in
+// here is TICK. Nothing in this function may read performance.now(), Date,
+// rAF timestamps, fxRandom(), the camera, or the selection.
+function stepSim() {
+  const dt = TICK;
+  state.tick++;
+  // derived, never accumulated: summing 30 floats a second drifts, and
+  // state.time gates half the timers in the game
+  state.time = state.tick * TICK;
+  drainCommands();
+  // the pit keeps itself at strength: if a slave replacement ever failed
+  // (broke at the moment of death), top the workforce back up to cap once
+  // the minerals recover — keeping a small float in the bank
+  state._slaveT = (state._slaveT || 0) - dt;
+  if (state._slaveT <= 0) {
+    state._slaveT = 4;
+    for (const o of OWNERS) {
+      const f = facOf(o);
+      if (!f) continue;
+      // every pit worker restocks itself, not just the base Slave — the
+      // Broodslave has to top up too or the crop dies out and never returns
+      for (const w of [f.worker, ...(f.extras || [])]) {
+        if (!w || !UNIT_TYPES[w] || !UNIT_TYPES[w].lifespan) continue;
+        const ut = UNIT_TYPES[w];
+        if (ut.req && !hasStruct(o, ut.req)) continue;
+        if (state.minerals[o] < ut.cost + 50) continue;
+        if (unitCount(o, w) < minerCap(o, w)) trainUnit(o, w);
+      }
+    }
+  }
+  // who holds a UFO Crash Site this frame (air damage + in-flight repair)
+  state.airTechOwners = new Set();
+  for (const b of state.buildings)
+    if (b.hp > 0 && b.owner !== NEUTRAL && bstatsOf(b).airTech) state.airTechOwners.add(b.owner);
+  ensurePathGrid();
+  pathBudget = 12; // A* computations allowed this frame (rest retry later)
+  rebuildSepGrid();
+  for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
+  // heavy hulls grind over light infantry: a big ground vehicle that rolled
+  // this frame crushes un-armored footsoldiers caught under its tracks
+  // (separation lets these pairs overlap — see separate())
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.garrisoned || u.transit) continue;
+    const t = UNIT_TYPES[u.type];
+    const rolled = u._cx !== undefined && Math.hypot(u.x - u._cx, u.y - u._cy) > 14 * dt;
+    u._cx = u.x; u._cy = u.y;
+    if (!isCrusher(t) || !rolled) continue;
+    u.crushT = (u.crushT || 0) - dt;
+    if (u.crushT > 0) continue;
+    u.crushT = 0.12;
+    for (const v of enemiesOf(u.owner)) {
+      if (v.kind !== 'unit' || v.hp <= 0 || v.garrisoned || v.transit || v.burrowed) continue;
+      if (!isCrushable(UNIT_TYPES[v.type])) continue;
+      if (dist(u, v) > t.r + UNIT_TYPES[v.type].r - 4) continue;
+      v.hp = 0; // squished — no disguise, no dodge, no appeal
+      Particles.smoke(v.x, v.y, 4);
+      if (tileState(v.x, v.y) === 2) sfx('boom');
+    }
+  }
+  updateTransits();
+  for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
+  tickConstruction(PLAYER, dt);
+  for (const o of OWNERS) if (o !== PLAYER) updateAI(o, dt);
+  updateAbilities(dt);
+  updateHqContinuity(dt);
+  updateProjectiles(dt);
+  updateZones(dt);
+  updateClosedSky(dt);
+  for (const u of state.units) {
+    if (u.expires && state.time > u.expires) u.hp = 0; // phantoms & hatchlings fade
+    // mind-controlled units revert to their real owner when the coup lapses —
+    // or the moment their side proves the whole thing was staged
+    if (u.coupRevert && u.hp > 0 &&
+        (state.time > u.coupRevert || disproved(u.coupOrig, 'actors'))) {
+      if (u.coupOrig !== undefined && state.factions[u.coupOrig]) {
+        u.owner = u.coupOrig;
+        u.order = { type: 'idle' };
+      }
+      delete u.coupRevert; delete u.coupOrig;
+    }
+  }
+  updateFog();
+
+  // destruction effects
+  for (const b of state.buildings) {
+    if (b.hp <= 0) {
+      // Too Big To Fail: a Globalist structure refunds a quarter of its cost
+      // when it falls (cheap field structures excepted)
+      if (!b._refunded && state.factions[b.owner] === 'glob' &&
+          b.type !== 'wall' && b.type !== 'gate' && b.type !== 'mine') {
+        state.minerals[b.owner] = (state.minerals[b.owner] || 0) + Math.floor((bstatsOf(b).cost || 0) * 0.25);
+        b._refunded = true;
+      }
+      Particles.boom(b.x, b.y, 1.7);
+      if (tileState(b.x, b.y) === 2) sfx('boom');
+      if (b.owner === PLAYER && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
+      // gas stations go up in a fireball that hurts EVERYONE nearby
+      // (owner -99 so not even neutral structures are spared — chain reactions!)
+      const ex = bstatsOf(b).explodes;
+      if (ex) {
+        splashDamage(b.x, b.y, ex.r, ex.dmg, -99, {}, true);
+        Particles.boom(b.x, b.y, 2.4);
+        if (ex.fire) {
+          state.zones.push({ x: b.x, y: b.y, r: ex.fire.r, until: state.time + ex.fire.dur, caster: -99, kind: 'fire', dps: ex.fire.dps });
+        }
+      }
+      // a collapsing structure buries its garrison
+      if (b.garrison) {
+        for (const id of b.garrison) {
+          const u = state.units.find(x => x.id === id);
+          if (u) u.hp = 0;
+        }
+      }
+    }
+  }
+  for (const u of state.units) {
+    if (u.hp <= 0 && u.type !== 'phantom') {
+      // a dying transport: a bail-out ride (open bed, rear ramp) throws its
+      // riders clear — hurt, dazed, but alive; a sealed hull takes everyone
+      if (u.cargo) {
+        const spill = UNIT_TYPES[u.type].bailOut;
+        u.cargo.forEach((id, i) => {
+          const p = findEntity(id);
+          if (!p || p.hp <= 0) return;
+          if (spill) {
+            p.garrisoned = false; p.transportId = null;
+            const a = i / u.cargo.length * Math.PI * 2;
+            p.x = u.x + Math.cos(a) * 18; p.y = u.y + Math.sin(a) * 18;
+            p.hp = Math.max(1, p.hp - p.maxHp * 0.3); // thrown from the wreck
+            p.order = { type: 'idle' };
+          } else p.hp = 0;
+        });
+        u.cargo = [];
+      }
+      // a slave's death — overwork, enemy fire, or the knife — feeds the
+      // loosh, and the Hatchery automatically buys a replacement
+      if (UNIT_TYPES[u.type].looshOnDeath) {
+        if (!u.looshBooked) { u.looshBooked = true; grantLoosh(u.owner, UNIT_TYPES[u.type].looshOnDeath); }
+        Particles.pulse(u.x, u.y, 16, [220, 60, 90]);
+        if (!u.noRestock) trainUnit(u.owner, u.type); // a culled-by-choice slave stays culled
+      }
+      // a fallen Guard or Dreadnought leaves its armor for the priests
+      if (UNIT_TYPES[u.type].armorTier && !u.abducted && isHollow(u.owner)) {
+        state.armorWrecks.push({ id: nextId++, x: u.x, y: u.y, tier: UNIT_TYPES[u.type].armorTier, owner: u.owner, until: state.time + 45 });
+      }
+      if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
+      Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
+      // a cattle mutilator near the wreck renders it down for minerals
+      const mut = nearest(u, state.units, m => m.hp > 0 && !m.garrisoned &&
+        UNIT_TYPES[m.type].scavenge && dist(m, u) <= 170);
+      if (mut) {
+        state.minerals[mut.owner] += UNIT_TYPES[mut.type].scavenge;
+        Particles.bolt(mut.x, mut.y, u.x, u.y, [125, 255, 214], 8);
+      }
+    }
+  }
+  state.units = state.units.filter(u => u.hp > 0);
+  const nBld = state.buildings.length;
+  state.buildings = state.buildings.filter(b => b.hp > 0);
+  if (state.buildings.length !== nBld) markPathDirty(); // rubble opens lanes
+  checkGameOver();
+}
+
+// Advance exactly n ticks with no rendering and no wall clock — the entry
+// point for the desync harness and for any future headless replay.
+function stepTicks(n) {
+  for (let i = 0; i < n && !state.over; i++) stepSim();
+}
+
 function frame(now) {
-  // clamp below at 0: a backwards timestamp (console-driven stepping) must
-  // never run the sim in reverse — negative dt corrupts particle lifetimes
-  const dt = Math.max(0, Math.min(0.05, (now - lastTime) / 1000));
+  // Real elapsed time drives ONLY the accumulator and the view. Clamped below
+  // at 0 so a backwards timestamp (console-driven stepping) can never run the
+  // sim in reverse, and above so one long stall doesn't queue up a hundred
+  // ticks before MAX_CATCHUP gets a chance to throw them away.
+  const real = Math.max(0, Math.min(0.25, (now - lastTime) / 1000));
   lastTime = now;
 
   if (started && !state.over) {
-    const pan = 520 * dt / cam.zoom;
+    // camera pans on wall time: it is view-only and never enters the sim
+    const pan = 520 * real / cam.zoom;
     if (keys['arrowleft']) cam.x -= pan;
     if (keys['arrowright']) cam.x += pan;
     if (keys['arrowup']) cam.y -= pan;
     if (keys['arrowdown']) cam.y += pan;
     clampCam();
 
-    state.time += dt;
-    // the pit keeps itself at strength: if a slave replacement ever failed
-    // (broke at the moment of death), top the workforce back up to cap once
-    // the minerals recover — keeping a small float in the bank
-    state._slaveT = (state._slaveT || 0) - dt;
-    if (state._slaveT <= 0) {
-      state._slaveT = 4;
-      for (const o of OWNERS) {
-        const f = facOf(o);
-        if (!f) continue;
-        // every pit worker restocks itself, not just the base Slave — the
-        // Broodslave has to top up too or the crop dies out and never returns
-        for (const w of [f.worker, ...(f.extras || [])]) {
-          if (!w || !UNIT_TYPES[w] || !UNIT_TYPES[w].lifespan) continue;
-          const ut = UNIT_TYPES[w];
-          if (ut.req && !hasStruct(o, ut.req)) continue;
-          if (state.minerals[o] < ut.cost + 50) continue;
-          if (unitCount(o, w) < minerCap(o, w)) trainUnit(o, w);
-        }
-      }
+    accumulator += real;
+    let n = 0;
+    while (accumulator >= TICK && n < MAX_CATCHUP && !state.over) {
+      stepSim();
+      accumulator -= TICK;
+      n++;
     }
-    // who holds a UFO Crash Site this frame (air damage + in-flight repair)
-    state.airTechOwners = new Set();
-    for (const b of state.buildings)
-      if (b.hp > 0 && b.owner !== NEUTRAL && bstatsOf(b).airTech) state.airTechOwners.add(b.owner);
-    ensurePathGrid();
-    pathBudget = 12; // A* computations allowed this frame (rest retry later)
-    rebuildSepGrid();
-    for (const u of state.units) if (u.hp > 0) updateUnit(u, dt);
-    // heavy hulls grind over light infantry: a big ground vehicle that rolled
-    // this frame crushes un-armored footsoldiers caught under its tracks
-    // (separation lets these pairs overlap — see separate())
-    for (const u of state.units) {
-      if (u.hp <= 0 || u.garrisoned || u.transit) continue;
-      const t = UNIT_TYPES[u.type];
-      const rolled = u._cx !== undefined && Math.hypot(u.x - u._cx, u.y - u._cy) > 14 * dt;
-      u._cx = u.x; u._cy = u.y;
-      if (!isCrusher(t) || !rolled) continue;
-      u.crushT = (u.crushT || 0) - dt;
-      if (u.crushT > 0) continue;
-      u.crushT = 0.12;
-      for (const v of enemiesOf(u.owner)) {
-        if (v.kind !== 'unit' || v.hp <= 0 || v.garrisoned || v.transit || v.burrowed) continue;
-        if (!isCrushable(UNIT_TYPES[v.type])) continue;
-        if (dist(u, v) > t.r + UNIT_TYPES[v.type].r - 4) continue;
-        v.hp = 0; // squished — no disguise, no dodge, no appeal
-        Particles.smoke(v.x, v.y, 4);
-        if (tileState(v.x, v.y) === 2) sfx('boom');
-      }
-    }
-    updateTransits();
-    for (const b of state.buildings) if (b.hp > 0) updateBuilding(b, dt);
-    tickConstruction(PLAYER, dt);
-    for (const o of OWNERS) if (o !== PLAYER) updateAI(o, dt);
-    updateAbilities(dt);
-    updateHqContinuity(dt);
-    updateProjectiles(dt);
-    updateZones(dt);
-    updateClosedSky(dt);
-    for (const u of state.units) {
-      if (u.expires && state.time > u.expires) u.hp = 0; // phantoms & hatchlings fade
-      // mind-controlled units revert to their real owner when the coup lapses —
-      // or the moment their side proves the whole thing was staged
-      if (u.coupRevert && u.hp > 0 &&
-          (state.time > u.coupRevert || disproved(u.coupOrig, 'actors'))) {
-        if (u.coupOrig !== undefined && state.factions[u.coupOrig]) {
-          u.owner = u.coupOrig;
-          u.order = { type: 'idle' };
-        }
-        delete u.coupRevert; delete u.coupOrig;
-      }
-    }
-    updateFog();
+    // hit the cap: we are behind by more than we can honestly make up, so
+    // throw the backlog away rather than carrying a debt into the next frame
+    if (n === MAX_CATCHUP) accumulator = 0;
 
-    // destruction effects
-    for (const b of state.buildings) {
-      if (b.hp <= 0) {
-        // Too Big To Fail: a Globalist structure refunds a quarter of its cost
-        // when it falls (cheap field structures excepted)
-        if (!b._refunded && state.factions[b.owner] === 'glob' &&
-            b.type !== 'wall' && b.type !== 'gate' && b.type !== 'mine') {
-          state.minerals[b.owner] = (state.minerals[b.owner] || 0) + Math.floor((bstatsOf(b).cost || 0) * 0.25);
-          b._refunded = true;
-        }
-        Particles.boom(b.x, b.y, 1.7);
-        if (tileState(b.x, b.y) === 2) sfx('boom');
-        if (b.owner === PLAYER && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
-        // gas stations go up in a fireball that hurts EVERYONE nearby
-        // (owner -99 so not even neutral structures are spared — chain reactions!)
-        const ex = bstatsOf(b).explodes;
-        if (ex) {
-          splashDamage(b.x, b.y, ex.r, ex.dmg, -99, {}, true);
-          Particles.boom(b.x, b.y, 2.4);
-          if (ex.fire) {
-            state.zones.push({ x: b.x, y: b.y, r: ex.fire.r, until: state.time + ex.fire.dur, caster: -99, kind: 'fire', dps: ex.fire.dps });
-          }
-        }
-        // a collapsing structure buries its garrison
-        if (b.garrison) {
-          for (const id of b.garrison) {
-            const u = state.units.find(x => x.id === id);
-            if (u) u.hp = 0;
-          }
-        }
-      }
-    }
-    for (const u of state.units) {
-      if (u.hp <= 0 && u.type !== 'phantom') {
-        // a dying transport: a bail-out ride (open bed, rear ramp) throws its
-        // riders clear — hurt, dazed, but alive; a sealed hull takes everyone
-        if (u.cargo) {
-          const spill = UNIT_TYPES[u.type].bailOut;
-          u.cargo.forEach((id, i) => {
-            const p = findEntity(id);
-            if (!p || p.hp <= 0) return;
-            if (spill) {
-              p.garrisoned = false; p.transportId = null;
-              const a = i / u.cargo.length * Math.PI * 2;
-              p.x = u.x + Math.cos(a) * 18; p.y = u.y + Math.sin(a) * 18;
-              p.hp = Math.max(1, p.hp - p.maxHp * 0.3); // thrown from the wreck
-              p.order = { type: 'idle' };
-            } else p.hp = 0;
-          });
-          u.cargo = [];
-        }
-        // a slave's death — overwork, enemy fire, or the knife — feeds the
-        // loosh, and the Hatchery automatically buys a replacement
-        if (UNIT_TYPES[u.type].looshOnDeath) {
-          if (!u.looshBooked) { u.looshBooked = true; grantLoosh(u.owner, UNIT_TYPES[u.type].looshOnDeath); }
-          Particles.pulse(u.x, u.y, 16, [220, 60, 90]);
-          if (!u.noRestock) trainUnit(u.owner, u.type); // a culled-by-choice slave stays culled
-        }
-        // a fallen Guard or Dreadnought leaves its armor for the priests
-        if (UNIT_TYPES[u.type].armorTier && !u.abducted && isHollow(u.owner)) {
-          state.armorWrecks.push({ id: nextId++, x: u.x, y: u.y, tier: UNIT_TYPES[u.type].armorTier, owner: u.owner, until: state.time + 45 });
-        }
-        if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
-        Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
-        // a cattle mutilator near the wreck renders it down for minerals
-        const mut = nearest(u, state.units, m => m.hp > 0 && !m.garrisoned &&
-          UNIT_TYPES[m.type].scavenge && dist(m, u) <= 170);
-        if (mut) {
-          state.minerals[mut.owner] += UNIT_TYPES[mut.type].scavenge;
-          Particles.bolt(mut.x, mut.y, u.x, u.y, [125, 255, 214], 8);
-        }
-      }
-    }
-    state.units = state.units.filter(u => u.hp > 0);
-    const nBld = state.buildings.length;
-    state.buildings = state.buildings.filter(b => b.hp > 0);
-    if (state.buildings.length !== nBld) markPathDirty(); // rubble opens lanes
-    Particles.update(dt);
+    // ---- everything below is view-only and runs on wall time ----
+    Particles.update(real);
 
     const beforeLen = selection.length;
     selection = selection.filter(e => e.hp > 0);
@@ -7499,16 +7579,22 @@ function frame(now) {
     if (low && !wasLowPower) eva('Low power');
     wasLowPower = low;
 
-    checkGameOver();
-
     const mine = state.units.filter(u => u.owner === PLAYER);
     const w = mine.filter(u => UNIT_TYPES[u.type].role === 'worker').length;
     elSupply.textContent = `Workers: ${w}  Army: ${mine.length - w}`;
 
-    panelTimer += dt;
+    panelTimer += real;
     if (panelTimer > 0.25) { panelTimer = 0; refreshSidebar(); refreshPanel(); }
   }
 
+  // render interpolation factor: where we sit between the last completed tick
+  // and the next one. Read by draw() only — nothing here writes sim state.
+  render(accumulator / TICK);
+}
+
+// draw() is the whole renderer; alpha is available to it for interpolation
+function render(alpha) {
+  state.alpha = alpha;
   draw();
 }
 
