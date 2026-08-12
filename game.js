@@ -49,6 +49,7 @@ const cam = { x: 0, y: 0, zoom: 1 };
 const keys = {};
 const mouse = { x: 0, y: 0, sel: null };
 let selection = [];
+let pings = [];              // minimap ping ripples: view-only, never hashed
 let placing = null;          // building type being placed
 let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
@@ -690,11 +691,15 @@ function withinBuildRadius(owner, x, y) {
     (b.type === 'hq' || b.type === 'powerplant' || bstatsOf(b).anchor) && dist(b, { x, y }) <= BUILD_RADIUS);
 }
 
-function tryPlace(owner, x, y) {
+// `instantType` is passed by the place command (it carries what the player had
+// on the cursor); the AI omits it and always goes through the build queue. It
+// used to read the `placing` global directly, which is view state and has no
+// business being consulted from inside a tick.
+function tryPlace(owner, x, y, instantType) {
   // instant field structures (walls, gates, mines): pay per placement, never
-  // touch the build queue. Player-only (driven by the `placing` cursor).
-  if (owner === PLAYER && placing && bstats(owner, placing).instant) {
-    const type = placing, st = bstats(owner, type);
+  // touch the build queue.
+  if (instantType && bstats(owner, instantType).instant) {
+    const type = instantType, st = bstats(owner, type);
     if (atStructCap(owner, type)) return false;
     if (state.minerals[owner] < st.cost) { eva('Insufficient funds'); return false; }
     if (placementBlocked(owner, type, x, y) || (!st.anywhere && !withinBuildRadius(owner, x, y))) return false;
@@ -717,31 +722,29 @@ function tryPlace(owner, x, y) {
 // Segments are spaced WALL_STEP apart along the drag; each is placed only if
 // affordable, uncapped, unobstructed and inside the build radius. A click with
 // no drag lays a single segment.
-function commitWallLine(x0, y0, x1, y1) {
+function commitWallLine(owner, x0, y0, x1, y1) {
   const ex = Math.round(x1 / WALL_STEP) * WALL_STEP, ey = Math.round(y1 / WALL_STEP) * WALL_STEP;
   const dx = ex - x0, dy = ey - y0;
   const n = Math.max(0, Math.round(Math.hypot(dx, dy) / WALL_STEP));
-  const st = bstats(PLAYER, 'wall');
+  const st = bstats(owner, 'wall');
   let placed = 0;
   for (let i = 0; i <= n; i++) {
     const x = x0 + dx * (i / (n || 1)), y = y0 + dy * (i / (n || 1));
-    if (state.minerals[PLAYER] < st.cost || atStructCap(PLAYER, 'wall')) break;
-    if (placementBlocked(PLAYER, 'wall', x, y) || !withinBuildRadius(PLAYER, x, y)) continue;
-    state.minerals[PLAYER] -= st.cost;
-    makeBuilding(PLAYER, 'wall', x, y);
+    if (state.minerals[owner] < st.cost || atStructCap(owner, 'wall')) break;
+    if (placementBlocked(owner, 'wall', x, y) || !withinBuildRadius(owner, x, y)) continue;
+    state.minerals[owner] -= st.cost;
+    makeBuilding(owner, 'wall', x, y);
     placed++;
   }
   if (placed) sfx('click');
-  // keep the wall tool armed for another stretch unless we've run dry or capped
-  if (state.minerals[PLAYER] < st.cost || atStructCap(PLAYER, 'wall')) placing = null;
-  refreshPanel(); refreshSidebar();
+  return placed;
 }
 
 // gates aren't dropped on open ground — you cut one into your own wall. Returns
 // the player wall under (x,y) IF it sits on a straight run (wall neighbors on
 // opposite sides, so the gate reads as an inline door), else null.
-function gateTargetWall(x, y) {
-  const wall = state.buildings.find(b => b.owner === PLAYER && b.type === 'wall' && b.hp > 0 &&
+function gateTargetWall(owner, x, y) {
+  const wall = state.buildings.find(b => b.owner === owner && b.type === 'wall' && b.hp > 0 &&
     Math.abs(b.x - x) <= b.w / 2 + 4 && Math.abs(b.y - y) <= b.h / 2 + 4);
   if (!wall) return null;
   const c = wallConn(wall); // e=1,w=2,n=4,s=8
@@ -751,19 +754,18 @@ function gateTargetWall(x, y) {
 
 // convert a straight wall segment under the cursor into a gate (charges the
 // upgrade cost — the wall's cost is already sunk). Keeps the tool armed.
-function convertWallToGate(x, y) {
-  const wall = gateTargetWall(x, y);
-  if (!wall) { eva('Gates go on a straight wall segment'); return; }
-  const cost = Math.max(0, bstats(PLAYER, 'gate').cost - bstats(PLAYER, 'wall').cost);
-  if (state.minerals[PLAYER] < cost) { eva('Insufficient funds'); return; }
-  state.minerals[PLAYER] -= cost;
+function convertWallToGate(owner, x, y) {
+  const wall = gateTargetWall(owner, x, y);
+  if (!wall) { eva('Gates go on a straight wall segment'); return false; }
+  const cost = Math.max(0, bstats(owner, 'gate').cost - bstats(owner, 'wall').cost);
+  if (state.minerals[owner] < cost) { eva('Insufficient funds'); return false; }
+  state.minerals[owner] -= cost;
   const gx = wall.x, gy = wall.y;
   state.buildings = state.buildings.filter(b => b !== wall); // swap wall -> gate in place
-  makeBuilding(PLAYER, 'gate', gx, gy);
+  makeBuilding(owner, 'gate', gx, gy);
   markPathDirty();
   sfx('click');
-  if (state.minerals[PLAYER] < cost) { placing = null; }
-  refreshPanel(); refreshSidebar();
+  return true;
 }
 
 function tickConstruction(owner, dt) {
@@ -1383,10 +1385,11 @@ function updateTransits() {
 
 // burrow stance: toggle the selected hollow units under/above ground.
 // Surfacing arms a one-shot ambush bonus; heavy drillers crack the ground.
-function toggleBurrowSelection() {
+// sim side of the burrow toggle: takes the units, not the selection
+function burrowUnits(units) {
   let any = false;
-  for (const u of selection) {
-    if (u.kind !== 'unit' || u.owner !== PLAYER || u.hp <= 0 || u.transit) continue;
+  for (const u of units) {
+    if (u.transit) continue;
     if (!UNIT_TYPES[u.type].burrow) continue;
     any = true;
     if (u.burrowed) {
@@ -1402,18 +1405,22 @@ function toggleBurrowSelection() {
       u.burrowed = true;
     }
   }
-  if (any) { sfx('click'); refreshPanel(); }
+  if (any) sfx('click');
 }
 
-function exploreSelection() {
-  let any = false;
-  for (const u of selection) {
-    if (u.kind !== 'unit' || u.owner !== PLAYER || u.hp <= 0) continue;
-    if (UNIT_TYPES[u.type].role !== 'scout') continue;
-    u.order = { type: 'explore' };
-    any = true;
-  }
-  if (any) { sfx('click'); if (selection.length) eva('Scouting'); }
+// tip every rider out of a transport in a ring around it
+function unloadTransport(v) {
+  if (!v.cargo || !v.cargo.length) return;
+  v.cargo.forEach((id, i) => {
+    const p = findEntity(id);
+    if (!p || p.hp <= 0) return;
+    p.garrisoned = false; p.transportId = null;
+    const a = i / v.cargo.length * Math.PI * 2;
+    p.x = v.x + Math.cos(a) * (UNIT_TYPES[v.type].r + 10);
+    p.y = v.y + Math.sin(a) * (UNIT_TYPES[v.type].r + 10);
+    p.order = { type: 'idle' };
+  });
+  v.cargo = [];
 }
 
 function orderMove(u, x, y) { u.order = { type: 'move', x, y }; }
@@ -4747,6 +4754,28 @@ function onScreen(u) {
   return sx >= 0 && sx <= canvas.width && sy >= 0 && sy <= canvas.height;
 }
 
+// ---- view-side command issuers ----
+// These read the selection and the placement cursor — client-only state — and
+// post a command. They never touch the simulation directly.
+const selectedUnitIds = pred => idsOf(selection.filter(e =>
+  e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER && (!pred || pred(e))));
+const selectedBuildingIds = pred => idsOf(selection.filter(e =>
+  e.kind === 'building' && e.hp > 0 && e.owner === PLAYER && (!pred || pred(e))));
+
+function burrowCmd() {
+  const u = selectedUnitIds(e => UNIT_TYPES[e.type].burrow && !e.transit);
+  if (u.length) { cmd('burrow', { u }); refreshPanel(); }
+}
+function exploreCmd() {
+  const u = selectedUnitIds(e => UNIT_TYPES[e.type].role === 'scout');
+  if (u.length) { cmd('explore', { u }); sfx('click'); eva('Scouting'); }
+}
+// right-click a structure cameo: stop placing it, and scrap whatever is queued
+function cancelStructureCmd(type) {
+  if (placing === type) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
+  if (!bstats(PLAYER, type).instant) cmd('cancelbuild', { t: type });
+}
+
 function selectAt(x, y) {
   const u = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, x, y, 4));
   const b = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 &&
@@ -4760,23 +4789,30 @@ function selectAt(x, y) {
   selection = u ? [u] : b ? [b] : eu ? [eu] : eb ? [eb] : [];
 }
 
+// View side of the right-click: it reads the selection (client-only), turns it
+// into ids, and posts a command. It does not touch the sim.
 function rightCommand(x, y) {
   // rally point when a single production building is selected
   if (selection.length === 1 && selection[0].kind === 'building' && selection[0].owner === PLAYER) {
-    selection[0].rally = { x, y };
+    cmd('rally', { b: selection[0].id, x, y });
     sfx('click');
     return;
   }
-  issueCommand(x, y);
+  const u = idsOf(selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER));
+  if (u.length) cmd('move', { u, x, y });
 }
 
-function issueCommand(x, y) {
-  const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER);
+// The right-click order, as a command handler. Takes an owner and a list of
+// unit IDS — never the selection, which is view state and differs per client.
+// Target resolution happens HERE, at execution time, so every client resolves
+// against the same world.
+function issueCommand(owner, unitIds, x, y) {
+  const units = cmdUnits(unitIds, owner);
   if (units.length === 0) return;
   const pt = { x, y };
 
   // the Hollow relic economy: dig sites, armor wrecks, ascension buildings
-  if (isHollow(PLAYER)) {
+  if (isHollow(owner)) {
     const site = state.digSites.find(s => !s.taken && dist(s, pt) <= 26);
     if (site) {
       let any = false;
@@ -4786,7 +4822,7 @@ function issueCommand(x, y) {
       }
       if (any) { sfx('click'); return; }
     }
-    const wr = state.armorWrecks.find(w => w.owner === PLAYER && dist(w, pt) <= 20);
+    const wr = state.armorWrecks.find(w => w.owner === owner && dist(w, pt) <= 20);
     if (wr && units.some(u => UNIT_TYPES[u.type].priest)) {
       for (const u of units) if (UNIT_TYPES[u.type].priest) u.order = { type: 'salvage', wreckId: wr.id };
       sfx('click');
@@ -4796,12 +4832,12 @@ function issueCommand(x, y) {
     // its tier (servitor -> Lantern Guard, Guard -> Dreadnought). The Tech
     // Priest rite shares the servitor slot, so it lives on the building's
     // panel button instead — see beginRite().
-    const ab = state.buildings.find(b => b.owner === PLAYER && b.hp > 0 && b.done &&
+    const ab = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done &&
       Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
     if (ab) {
       let any = false;
       for (const [key, A] of Object.entries(ASCEND)) {
-        if (ab.type !== A.at || key === 'techpriest' || !ascendReady(PLAYER, key)) continue;
+        if (ab.type !== A.at || key === 'techpriest' || !ascendReady(owner, key)) continue;
         for (const u of units) {
           if (u.type === A.from && !u.ascension) { u.order = { type: 'ascend', destId: ab.id, key }; any = true; }
         }
@@ -4813,7 +4849,7 @@ function issueCommand(x, y) {
   // right-click a friendly transport: selected light infantry climb aboard
   // (works with the transport itself in the selection — a boxed squad of
   // Bradley + PMCs right-clicking the Bradley is the normal case)
-  const trn = state.units.find(v => v.owner === PLAYER && v.hp > 0 && UNIT_TYPES[v.type].cargoCap &&
+  const trn = state.units.find(v => v.owner === owner && v.hp > 0 && UNIT_TYPES[v.type].cargoCap &&
     clickHitsUnit(v, x, y, 6));
   if (trn) {
     let boarding = (trn.cargo || []).length;
@@ -4831,7 +4867,7 @@ function issueCommand(x, y) {
 
   // right-click a neutral (or own-held) civilian structure: infantry garrison it
   const gb = state.buildings.find(b => b.hp > 0 && bstatsOf(b).slots &&
-    (b.owner === NEUTRAL || (b.owner === PLAYER && b.done)) && visibleToPlayer(b) &&
+    (b.owner === NEUTRAL || (b.owner === owner && b.done)) && visibleToPlayer(b) &&
     Math.abs(b.x - x) <= b.w / 2 && Math.abs(b.y - y) <= b.h / 2);
   if (gb) {
     let any = false;
@@ -4841,12 +4877,16 @@ function issueCommand(x, y) {
     if (any) { sfx('click'); return; }
   }
 
-  const foe = enemiesOf(PLAYER).find(e => visibleToPlayer(e) &&
+  // NOTE: visibleToPlayer() is the LOCAL player's fog. Commands are only ever
+  // issued by PLAYER in this build, so it is the right fog — a lockstep build
+  // with real opponents needs per-owner fog here, or the target resolution
+  // would read one client's vision on every client.
+  const foe = enemiesOf(owner).find(e => visibleToPlayer(e) &&
     (e.kind === 'unit' ? clickHitsUnit(e, x, y, 6)
                        : Math.abs(e.x - x) <= e.w / 2 && Math.abs(e.y - y) <= e.h / 2));
   const patch = state.patches.find(p => p.amount > 0 && dist(p, pt) <= 20 && tileState(p.x, p.y) >= 1);
   // a damaged friendly unit under the cursor: repair units tend to it
-  const ally = state.units.find(a => a.owner === PLAYER && a.hp > 0 && !a.garrisoned &&
+  const ally = state.units.find(a => a.owner === owner && a.hp > 0 && !a.garrisoned &&
     a.hp < a.maxHp && clickHitsUnit(a, x, y, 6));
 
   units.forEach((u, i) => {
@@ -4953,14 +4993,13 @@ function minimapCommand(e) {
   const r = mmCanvas.getBoundingClientRect();
   const wx = clamp((e.clientX - r.left) / r.width * WORLD_W, 10, WORLD_W - 10);
   const wy = clamp((e.clientY - r.top) / r.height * WORLD_H, 10, WORLD_H - 10);
-  if (!selection.some(s => s.kind === 'unit' && s.owner === PLAYER)) return;
-  if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
-    selection.forEach(u => { if (u.kind === 'unit' && u.owner === PLAYER) orderAttackMove(u, wx, wy); });
-  } else {
-    issueCommand(wx, wy);
-  }
-  state.pings = state.pings || [];
-  state.pings.push({ x: wx, y: wy, t: state.time });
+  const mine = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER);
+  if (!mine.length) return;
+  if (mine.some(s => UNIT_TYPES[s.type].role === 'combat')) cmd('attackmove', { u: idsOf(mine), x: wx, y: wy });
+  else cmd('move', { u: idsOf(mine), x: wx, y: wy });
+  // minimap pings are a view artefact — they live outside `state` so they can
+  // never reach the hash, and two clients are free to disagree about them
+  pings.push({ x: wx, y: wy, t: state.time });
   sfx('click');
 }
 
@@ -5057,7 +5096,7 @@ function sidebarStructureClick(type) {
   const rq = st.req;
   if (rq && !hasStruct(PLAYER, rq)) { eva(`Requires ${facOf(PLAYER).buildingNames[rq] || rq}`); return; }
   if (state.minerals[PLAYER] < st.cost) { eva('Insufficient funds'); return; }
-  startConstruction(PLAYER, type);
+  cmd('build', { t: type });
   sfx('click');
   refreshSidebar();
 }
@@ -5071,7 +5110,8 @@ function sidebarUnitClick(type) {
   if (ut.limit && unitCount(PLAYER, type) >= minerCap(PLAYER, type)) { eva('Unit limit reached'); return; }
   if (state.minerals[PLAYER] < ut.cost) { eva('Insufficient funds'); return; }
   if ((ut.loosh || 0) > (state.loosh[PLAYER] || 0)) { eva('Not enough loosh'); return; }
-  if (trainUnit(PLAYER, type)) sfx('click');
+  cmd('train', { t: type });
+  sfx('click');
   refreshSidebar();
 }
 
@@ -5092,30 +5132,23 @@ function makeCameo(grid, key, label, cost, onClick, onCancel) {
 
 // right-click on a structure cameo: scrap the queued (or ready-to-place)
 // construction of that type and refund the full cost
-function cancelStructure(type) {
-  // instant field structures have nothing queued — just stop placing them
-  if (bstats(PLAYER, type).instant) {
-    if (placing === type) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
-    return;
-  }
-  const c = state.construction[PLAYER];
-  if (!c || c.type !== type) return;
-  state.construction[PLAYER] = null;
-  if (placing === type) placing = null;
-  state.minerals[PLAYER] += bstats(PLAYER, type).cost;
-  eva('Construction canceled');
+function cancelConstruction(owner, type) {
+  const c = state.construction[owner];
+  if (!c || c.type !== type) return false;
+  state.construction[owner] = null;
+  state.minerals[owner] += bstats(owner, type).cost;
+  if (owner === PLAYER) eva('Construction canceled');
   sfx('click');
-  refreshSidebar();
-  refreshPanel();
+  return true;
 }
 
 // right-click on a unit cameo: pull the most recently queued unit of that
 // type back out of its trainer's queue and refund the full cost
-function cancelUnit(type) {
+function cancelTraining(owner, type) {
   const ut = UNIT_TYPES[type];
   let best = null;
   for (const b of state.buildings) {
-    if (b.owner !== PLAYER || b.hp <= 0 || b.type !== ut.builtAt) continue;
+    if (b.owner !== owner || b.hp <= 0 || b.type !== ut.builtAt) continue;
     for (let i = b.queue.length - 1; i >= 0; i--) {
       if (b.queue[i].type === type) {
         if (!best || i > best.i) best = { b, i }; // deepest in queue = least progress lost
@@ -5128,16 +5161,15 @@ function cancelUnit(type) {
     // slave instead, and THAT death doesn't restock: the one way to shrink
     // the pit (the death still pays its loosh; the knife is the knife)
     if (ut.lifespan) {
-      const pool = state.units.filter(u2 => u2.owner === PLAYER && u2.hp > 0 && u2.type === type);
+      const pool = state.units.filter(u2 => u2.owner === owner && u2.hp > 0 && u2.type === type);
       const s = pool[pool.length - 1];
       if (s) { s.noRestock = true; s.hp = 0; sfx('click'); }
     }
     return;
   }
   best.b.queue.splice(best.i, 1);
-  state.minerals[PLAYER] += ut.cost;
+  state.minerals[owner] += ut.cost;
   sfx('click');
-  refreshSidebar();
 }
 
 // one-line "what it is, what it does" tooltips for sidebar cameos —
@@ -5275,7 +5307,7 @@ function buildSidebar() {
     // a faction that never renamed a slot falls back to the base table's name
     // (Hollow has no word for "Refinery"), and only then to the raw type key
     makeCameo(gridStructures, 's:' + s, f.buildingNames[s] || bstats(PLAYER, s).name || s, bstats(PLAYER, s).cost,
-      () => sidebarStructureClick(s), () => cancelStructure(s));
+      () => sidebarStructureClick(s), () => cancelStructureCmd(s));
     cameoButtons['s:' + s].btn.title = buildingBlurb(s) +
       (bstats(PLAYER, s).req ? `\nRequires ${f.buildingNames[bstats(PLAYER, s).req] || bstats(PLAYER, s).req}` : '');
   }
@@ -5288,7 +5320,7 @@ function buildSidebar() {
     ...f.air, ...f.extras.slice(2), ...(f.advanced || [])].filter(Boolean);
   for (const u of unitList) {
     makeCameo(gridUnits, 'u:' + u, UNIT_TYPES[u].name, UNIT_TYPES[u].cost,
-      () => sidebarUnitClick(u), () => cancelUnit(u));
+      () => sidebarUnitClick(u), () => cmd('canceltrain', { t: u }));
     cameoButtons['u:' + u].btn.title = unitBlurb(u) +
       (UNIT_TYPES[u].req ? `\nRequires ${f.buildingNames[UNIT_TYPES[u].req] || UNIT_TYPES[u].req}` : '');
   }
@@ -5480,6 +5512,7 @@ function startGame(faction, seed) {
   state.over = false;
   state._slaveT = 0;
   selection = [];
+  pings = [];
   nextId = 1;
   for (const k of Object.keys(ais)) delete ais[k];
   // module-level sim scratch that survives a match otherwise: the path epoch
@@ -5655,7 +5688,7 @@ function panelRepairControls(addAction) {
     const rate = busy.reduce((s, e) => s + repairCostPerSec(e), 0);
     btn.textContent = `Stop repairs (${busy.length})`;
     btn.title = `Currently spending $${rate.toFixed(1)}/s`;
-    btn.onclick = () => { for (const e of busy) e.repairing = false; refreshPanel(); };
+    btn.onclick = () => { cmd('repair', { b: idsOf(busy), on: false }); refreshPanel(); };
     addAction(btn);
   }
   if (hurt.length) {
@@ -5664,7 +5697,7 @@ function panelRepairControls(addAction) {
     btn.textContent = `Repair ${hurt.length > 1 ? `all (${hurt.length})` : ''} — $${rate.toFixed(1)}/s`.replace('  ', ' ');
     btn.title = 'Mends at ' + Math.round(REPAIR_RATE * 100) + '% of max HP per second, billed as it goes' +
       (powerOf(PLAYER).low ? ' — HALF SPEED while the grid is browned out' : '');
-    btn.onclick = () => { for (const e of hurt) e.repairing = true; refreshPanel(); };
+    btn.onclick = () => { cmd('repair', { b: idsOf(hurt), on: true }); refreshPanel(); };
     addAction(btn);
   }
 }
@@ -5699,7 +5732,7 @@ function refreshPanel() {
       const btn = document.createElement('button');
       btn.textContent = 'Wake asset';
       btn.title = 'It turns on the spot and fights for you from here on. It cannot be put back to sleep.';
-      btn.onclick = () => { wakeSleeper(first); refreshPanel(); refreshSidebar(); };
+      btn.onclick = () => { cmd('wake', { u: first.id }); refreshPanel(); refreshSidebar(); };
       addAction(btn);
       return;
     }
@@ -5747,7 +5780,7 @@ function panelForBuilding(first, addAction) {
     if (first.garrison.length) {
       const btn = document.createElement('button');
       btn.textContent = `Evacuate (${first.garrison.length})`;
-      btn.onclick = () => evacuate(first);
+      btn.onclick = () => cmd('evacuate', { b: [first.id] });
       addAction(btn);
     }
     return;
@@ -5774,7 +5807,7 @@ function panelForBuilding(first, addAction) {
         btn.title = D.desc + `\n\n$${D.cost}, ${D.time}s` +
           (spd > 1 ? ` (x${spd.toFixed(2)} with your Ham Radios → ${Math.ceil(D.time / spd)}s)` : '') +
           (r ? '\nThe Institute can only prove one thing at a time.' : '');
-        btn.onclick = () => { startResearch(PLAYER, key); refreshPanel(); refreshSidebar(); };
+        btn.onclick = () => { cmd('research', { k: key }); refreshPanel(); refreshSidebar(); };
       }
       addAction(btn);
     }
@@ -5811,7 +5844,7 @@ function panelForBuilding(first, addAction) {
         btn.disabled = true;
       } else {
         btn.title = `Consumes one ${from.name}`;
-        btn.onclick = () => { beginRite(first, key); refreshPanel(); };
+        btn.onclick = () => { cmd('rite', { b: first.id, k: key }); refreshPanel(); };
       }
       addAction(btn);
     }
@@ -5823,7 +5856,7 @@ function panelForBuilding(first, addAction) {
       btn.textContent = `✕ ${i + 1}. ${UNIT_TYPES[u.ascension.to].name}` +
         (working ? ' (on the slab)' : ' (waiting)');
       btn.title = `Cancel — the ${UNIT_TYPES[u.type].name} walks back out and $${u.ascension.fee || 0} is refunded`;
-      btn.onclick = () => { cancelRite(u); refreshPanel(); };
+      btn.onclick = () => { cmd('cancelrite', { u: u.id }); refreshPanel(); };
       addAction(btn);
     });
     return;
@@ -5900,7 +5933,7 @@ function panelForSelection(addAction) {
     const btn = document.createElement('button');
     btn.textContent = `Establish Front Company (${vans.length})`;
     btn.title = 'Deploys into a disguised building that skims a share of every enemy delivery nearby. Consumed.';
-    btn.onclick = () => { vans.forEach(v => { v.order = { type: 'establish' }; }); refreshPanel(); };
+    btn.onclick = () => { cmd('establish', { u: idsOf(vans) }); refreshPanel(); };
     addAction(btn);
   }
   // transports in the selection: one button dumps every rider out
@@ -5909,22 +5942,7 @@ function panelForSelection(addAction) {
     const total = trs.reduce((n, v) => n + v.cargo.length, 0);
     const btn = document.createElement('button');
     btn.textContent = `Unload (${total})`;
-    btn.onclick = () => {
-      for (const v of trs) {
-        v.cargo.forEach((id, i) => {
-          const p = findEntity(id);
-          if (!p || p.hp <= 0) return;
-          p.garrisoned = false; p.transportId = null;
-          const a = i / v.cargo.length * Math.PI * 2;
-          p.x = v.x + Math.cos(a) * (UNIT_TYPES[v.type].r + 10);
-          p.y = v.y + Math.sin(a) * (UNIT_TYPES[v.type].r + 10);
-          p.order = { type: 'idle' };
-        });
-        v.cargo = [];
-      }
-      sfx('click');
-      refreshPanel();
-    };
+    btn.onclick = () => { cmd('unload', { u: idsOf(trs) }); sfx('click'); refreshPanel(); };
     addAction(btn);
   }
   // evacuate any garrisoned civilian structures caught in the selection
@@ -5933,7 +5951,7 @@ function panelForSelection(addAction) {
     const total = gbs.reduce((n, b) => n + b.garrison.length, 0);
     const btn = document.createElement('button');
     btn.textContent = `Evacuate (${total})`;
-    btn.onclick = () => { gbs.forEach(evacuate); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
+    btn.onclick = () => { cmd('evacuate', { b: idsOf(gbs) }); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
     addAction(btn);
   }
   // reptilian slaves: cull the selected ones on demand for burst loosh
@@ -5942,10 +5960,9 @@ function panelForSelection(addAction) {
     const btn = document.createElement('button');
     btn.textContent = `Harvest Loosh (${slaves.length})`;
     btn.onclick = () => {
-      for (const s of slaves) s.hp = 0; // the death sweep books the loosh + auto-replaces
+      cmd('cull', { u: idsOf(slaves) }); // the death sweep books the loosh + auto-replaces
       eva('The pit feeds');
       sfx('click');
-      selection = selection.filter(s => s.hp > 0);
       refreshPanel();
     };
     addAction(btn);
@@ -5956,7 +5973,7 @@ function panelForSelection(addAction) {
       'Merciful: live 60% longer (cheap, little loosh). Applies to newly bought slaves.';
     drv.onclick = () => {
       const i = SLAVE_DRIVES.indexOf(slaveDriveOf(PLAYER));
-      state.slaveDrive[PLAYER] = SLAVE_DRIVES[(i + 1) % SLAVE_DRIVES.length];
+      cmd('drive', { v: SLAVE_DRIVES[(i + 1) % SLAVE_DRIVES.length] });
       sfx('click');
       refreshPanel();
     };
@@ -5972,13 +5989,13 @@ function panelForSelection(addAction) {
     const anyUp = selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].burrow && !s.burrowed);
     const btn = document.createElement('button');
     btn.textContent = (anyUp ? 'Burrow' : 'Surface') + ' [X]';
-    btn.onclick = toggleBurrowSelection;
+    btn.onclick = burrowCmd;
     addAction(btn);
   }
   if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) {
     const btn = document.createElement('button');
     btn.textContent = 'Explore [V]';
-    btn.onclick = exploreSelection;
+    btn.onclick = exploreCmd;
     addAction(btn);
   }
 }
@@ -7127,15 +7144,15 @@ function drawOverlays() {
   }
 
   // expanding rings where a minimap order was issued (fade over ~0.6s)
-  if (state.pings && state.pings.length) {
-    for (const p of state.pings) {
+  if (pings.length) {
+    for (const p of pings) {
       const age = state.time - p.t;
       if (age > 0.6) continue;
       const f = age / 0.6, rr2 = 6 + f * 34;
       ctx.strokeStyle = `rgba(127,255,159,${1 - f})`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.ellipse(isoX(p.x, p.y), isoY(p.x, p.y), rr2 * Math.SQRT2, rr2 * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
     }
-    state.pings = state.pings.filter(p => state.time - p.t <= 0.6);
+    pings = pings.filter(p => state.time - p.t <= 0.6);
   }
 
   // floating numbers (a front company taking its cut, etc.)
@@ -7226,7 +7243,7 @@ function drawOverlays() {
       const wallUnder = state.buildings.find(b => b.owner === PLAYER && b.type === 'wall' && b.hp > 0 &&
         Math.abs(b.x - mouse.x) <= b.w / 2 + 4 && Math.abs(b.y - mouse.y) <= b.h / 2 + 4);
       if (wallUnder) {
-        ctx.fillStyle = gateTargetWall(mouse.x, mouse.y) ? '#4da3ff' : '#ff5f5f';
+        ctx.fillStyle = gateTargetWall(PLAYER, mouse.x, mouse.y) ? '#4da3ff' : '#ff5f5f';
         ctx.fillRect(wallUnder.x - wallUnder.w / 2, wallUnder.y - wallUnder.h / 2, wallUnder.w, wallUnder.h);
       }
     } else {
@@ -7401,9 +7418,98 @@ function drainCommands() {
   for (const c of batch) applyCommand(c);
 }
 
-// Handlers live with the input code they replace — see applyCommand() below.
-// (placeholder until the command layer lands; nothing enqueues yet)
-function applyCommand(c) {}
+// CMD_DELAY is the gap between issuing a command and executing it. At 1 it is
+// the next tick — 33ms, imperceptible locally. A lockstep build raises this to
+// cover the round trip and nothing else in the sim has to change.
+const CMD_DELAY = 1;
+
+function enqueue(owner, type, payload) {
+  if (!started || state.over) return null;
+  const at = state.tick + CMD_DELAY;
+  const seq = cmdSeq[owner] = (cmdSeq[owner] || 0) + 1;
+  const c = { tick: at, owner, seq, type, payload: payload || {} };
+  let bucket = commandQueue.get(at);
+  if (!bucket) commandQueue.set(at, bucket = []);
+  bucket.push(c);
+  return c;
+}
+
+// the local player's commands, for brevity at the call sites
+const cmd = (type, payload) => enqueue(PLAYER, type, payload);
+
+// Commands carry IDS, never object references. A reference means nothing on
+// another machine, and an id survives the `.filter(u => u.hp > 0)` compaction
+// that rewrites state.units every tick.
+const idsOf = list => list.map(e => e.id);
+const cmdUnits = (ids, owner) => (ids || [])
+  .map(id => state.units.find(u => u.id === id))
+  .filter(u => u && u.hp > 0 && u.owner === owner);
+const cmdBuildings = (ids, owner) => (ids || [])
+  .map(id => state.buildings.find(b => b.id === id))
+  .filter(b => b && b.hp > 0 && b.owner === owner);
+const cmdUnit = (id, owner) => cmdUnits([id], owner)[0];
+const cmdBuilding = (id, owner) => cmdBuildings([id], owner)[0];
+
+// Every handler re-validates. What the player could see when they clicked is a
+// hint; the state at EXECUTION time is the truth, and it is the only state all
+// clients share. A command that has become illegal in the meantime is dropped.
+const COMMANDS = {
+  move:        (o, p) => issueCommand(o, p.u, p.x, p.y),
+  attackmove:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y); },
+  rally:       (o, p) => { const b = cmdBuilding(p.b, o); if (b) b.rally = { x: p.x, y: p.y }; },
+  burrow:      (o, p) => burrowUnits(cmdUnits(p.u, o)),
+  explore:     (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].role === 'scout') u.order = { type: 'explore' }; },
+  repair:      (o, p) => { for (const b of cmdBuildings(p.b, o)) b.repairing = p.on ? canRepair(b) : false; },
+  evacuate:    (o, p) => { for (const b of cmdBuildings(p.b, o)) evacuate(b); },
+  unload:      (o, p) => { for (const u of cmdUnits(p.u, o)) unloadTransport(u); },
+  establish:   (o, p) => { for (const u of cmdUnits(p.u, o)) u.order = { type: 'establish' }; },
+  cull:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].looshOnDeath) u.hp = 0; },
+  drive:       (o, p) => { if (SLAVE_DRIVES.includes(p.v)) state.slaveDrive[o] = p.v; },
+  wake:        (o, p) => { const u = state.units.find(x => x.id === p.u && x.hp > 0); if (u && u.sleeperFor === o) wakeSleeper(u); },
+  build:       (o, p) => startConstruction(o, p.t),
+  cancelbuild: (o, p) => cancelConstruction(o, p.t),
+  place:       (o, p) => tryPlace(o, p.x, p.y, p.t),
+  wallline:    (o, p) => commitWallLine(o, p.x0, p.y0, p.x1, p.y1),
+  gate:        (o, p) => convertWallToGate(o, p.x, p.y),
+  rebuildhq:   (o, p) => rebuildHq(o, p.x, p.y),
+  train:       (o, p) => trainUnit(o, p.t),
+  canceltrain: (o, p) => cancelTraining(o, p.t),
+  research:    (o, p) => startResearch(o, p.k),
+  rite:        (o, p) => { const b = cmdBuilding(p.b, o); if (b) beginRite(b, p.k); },
+  cancelrite:  (o, p) => { const u = cmdUnit(p.u, o); if (u) cancelRite(u); },
+  super:       (o, p) => { const b = cmdBuilding(p.b, o); if (b && superReady(b) && !isOffline(b)) fireSuperweapon(b, p.x, p.y); },
+  leverage:    (o, p) => { const t = state.buildings.find(b => b.id === p.b && b.hp > 0 && b.owner !== o && b.owner !== NEUTRAL); if (t) playLeverage(o, p.k, t); },
+  ability:     (o, p) => {
+    if (p.m === 'zone') (isFlat(o) ? castFirmament : castWeather)(o, p.x, p.y);
+    else if (p.m === 'recall') castRecall(o, p.x, p.y);
+    else if (p.m === 'unit') { const u = cmdUnit(p.u, o); if (u && UNIT_TYPES[u.type].builtAt === 'barracks') castClone(o, u); }
+  },
+};
+
+// A command that names something that does not exist — a stale type after a
+// balance patch, a corrupted payload, a client on a different build — must be
+// dropped, not allowed to throw. An exception here would kill the tick loop
+// mid-tick and leave the state half-updated, which is the one failure a
+// lockstep sim cannot recover from.
+function commandIsWellFormed(c) {
+  const p = c.payload;
+  if (!OWNERS.includes(c.owner)) return false;
+  switch (c.type) {
+    case 'build': case 'cancelbuild': case 'place': return !!BUILDING_TYPES[p.t];
+    case 'train': case 'canceltrain': return !!UNIT_TYPES[p.t];
+    case 'research': return !!DISPROOFS[p.k];
+    case 'leverage': return !!LEVERAGE_PLAYS[p.k];
+    case 'rite': return !!ASCEND[p.k];
+    case 'drive': return SLAVE_DRIVES.includes(p.v);
+    default: return true;
+  }
+}
+
+function applyCommand(c) {
+  const fn = COMMANDS[c.type];
+  if (!fn || !commandIsWellFormed(c)) return;
+  fn(c.owner, c.payload);
+}
 
 // One simulation tick. Takes no delta on purpose: the only time source in
 // here is TICK. Nothing in this function may read performance.now(), Date,
@@ -7904,7 +8010,7 @@ canvas.addEventListener('mousedown', e => {
       const key = leverageTargeting;
       const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== PLAYER && b.owner !== NEUTRAL &&
         Math.abs(b.x - p.x) <= b.w / 2 + 6 && Math.abs(b.y - p.y) <= b.h / 2 + 6);
-      if (tgt) { if (playLeverage(PLAYER, key, tgt)) { leverageTargeting = null; sfx('click'); } }
+      if (tgt) { cmd('leverage', { k: key, b: tgt.id }); leverageTargeting = null; sfx('click'); }
       else eva('Click one of THEIR structures');
       refreshPanel(); refreshSidebar();
       return;
@@ -7912,7 +8018,7 @@ canvas.addEventListener('mousedown', e => {
     if (superTargeting) {
       const sw = state.buildings.find(b => b.id === superTargeting && b.owner === PLAYER && b.hp > 0);
       superTargeting = null;
-      if (sw && superReady(sw) && !isOffline(sw)) { fireSuperweapon(sw, p.x, p.y); sfx('click'); }
+      if (sw && superReady(sw) && !isOffline(sw)) { cmd('super', { b: sw.id, x: p.x, y: p.y }); sfx('click'); }
       refreshPanel();
       return;
     }
@@ -7920,12 +8026,11 @@ canvas.addEventListener('mousedown', e => {
       const mode = abilityTargeting;
       abilityTargeting = null;
       // 'zone' is the shared targeted-area kind; the faction decides what lands
-      if (mode === 'zone') (isFlat(PLAYER) ? castFirmament : castWeather)(PLAYER, p.x, p.y);
-      if (mode === 'recall') castRecall(PLAYER, p.x, p.y);
+      if (mode === 'zone' || mode === 'recall') cmd('ability', { m: mode, x: p.x, y: p.y });
       if (mode === 'unit') {
         const target = state.units.find(u => u.owner === PLAYER && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
         if (target && UNIT_TYPES[target.type].builtAt !== 'barracks') eva('Cloning Vats accept infantry only');
-        else if (target) castClone(PLAYER, target);
+        else if (target) cmd('ability', { m: 'unit', u: target.id });
       }
       refreshPanel();
       refreshSidebar();
@@ -7934,7 +8039,9 @@ canvas.addEventListener('mousedown', e => {
     if (placing === 'hq') {
       // the emergency HQ goes ANYWHERE — there is no build radius left to
       // measure from, which is the whole point of the grace window
-      if (rebuildHq(PLAYER, p.x, p.y)) { placing = null; sfx('click'); refreshPanel(); refreshSidebar(); }
+      // predicted client-side: the command re-checks affordability at its tick
+      cmd('rebuildhq', { x: p.x, y: p.y });
+      placing = null; sfx('click'); refreshPanel(); refreshSidebar();
       return;
     }
     if (placing) {
@@ -7945,23 +8052,29 @@ canvas.addEventListener('mousedown', e => {
         return;
       }
       // gates cut into an existing straight wall segment, not open ground
-      if (placing === 'gate') { convertWallToGate(p.x, p.y); return; }
-      const instant = bstats(PLAYER, placing).instant;
-      if (tryPlace(PLAYER, p.x, p.y)) {
+      if (placing === 'gate') { cmd('gate', { x: p.x, y: p.y }); sfx('click'); return; }
+      const st = bstats(PLAYER, placing);
+      // The placement legality check stays client-side so the cursor keeps its
+      // instant feedback; the command re-checks it authoritatively at its tick.
+      const legal = st.instant
+        ? !placementBlocked(PLAYER, placing, p.x, p.y) && (st.anywhere || withinBuildRadius(PLAYER, p.x, p.y)) &&
+          state.minerals[PLAYER] >= st.cost && !atStructCap(PLAYER, placing)
+        : (() => { const c = state.construction[PLAYER]; return !!c && c.ready && !placementBlocked(PLAYER, c.type, p.x, p.y) &&
+            (bstats(PLAYER, c.type).anywhere || withinBuildRadius(PLAYER, p.x, p.y)); })();
+      if (legal) {
+        cmd('place', { t: placing, x: p.x, y: p.y });
         sfx('click');
-        // gates stay armed so you can drop several; stop when dry or capped
-        if (!instant || state.minerals[PLAYER] < bstats(PLAYER, placing).cost || atStructCap(PLAYER, placing)) {
-          placing = null;
-        }
+        // field structures stay armed so you can drop several; stop when dry or capped
+        if (!st.instant || state.minerals[PLAYER] < st.cost * 2 || atStructCap(PLAYER, placing)) placing = null;
         refreshPanel(); refreshSidebar();
       }
       return;
     }
     if (attackMoveArmed) {
       attackMoveArmed = false;
-      for (const u of selection) {
-        if (u.kind === 'unit' && u.owner === PLAYER && UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y);
-      }
+      const u = idsOf(selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === PLAYER &&
+        UNIT_TYPES[e.type].role === 'combat'));
+      if (u.length) cmd('attackmove', { u, x: p.x, y: p.y });
       refreshPanel();
       return;
     }
@@ -8018,7 +8131,14 @@ window.addEventListener('mouseup', e => {
   }
   if (e.button !== 0) return;
   // commit a dragged wall stretch (single click with no drag lays one segment)
-  if (wallDrag) { commitWallLine(wallDrag.x0, wallDrag.y0, mouse.x, mouse.y); wallDrag = null; return; }
+  if (wallDrag) {
+    cmd('wallline', { x0: wallDrag.x0, y0: wallDrag.y0, x1: mouse.x, y1: mouse.y });
+    wallDrag = null;
+    const wst = bstats(PLAYER, 'wall');
+    if (state.minerals[PLAYER] < wst.cost || atStructCap(PLAYER, 'wall')) placing = null;
+    refreshPanel(); refreshSidebar();
+    return;
+  }
   mmDown = false;
   if (!mouse.sel) return;
   const s = mouse.sel;
@@ -8086,9 +8206,9 @@ window.addEventListener('keydown', e => {
   }
 
 
-  if (k === 'x') toggleBurrowSelection();
+  if (k === 'x') burrowCmd();
 
-  if (k === 'v' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) exploreSelection();
+  if (k === 'v' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'scout')) exploreCmd();
 
   // control groups
   if (/^[1-5]$/.test(e.key)) {
