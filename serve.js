@@ -89,18 +89,32 @@ function wsAttach(sock, onMsg, onClose) {
 // lobby + relay
 // ============================================================
 const MAX_SEATS = 6;
-const DROP_MARGIN = 60; // ticks of grace before a lost player is handed to the AI
+const DROP_MARGIN = 60;          // ticks of grace before a lost player is handed to the AI
+const EMPTY_ROOM_GRACE = 180000; // ms a started-but-empty room is held for a returning player
 
 const rooms = new Map(); // code -> room
 
 function makeRoom(code) {
   return {
     code,
-    clients: [],       // { sock, id, name, faction, ready, owner }
+    clients: [],       // { sock, id, token, name, faction, ready, owner }
     started: false,
     nextId: 1,
     maxTick: 0,        // highest tick seen in any relayed packet
     setup: { size: 'medium', opponents: 1, setting: 'random', supers: true },
+    // ---- what a returning player needs to rebuild the match ----
+    // In lockstep the world is a pure function of (seed, seat table, every
+    // command in order). So the relay does not have to snapshot anything: it
+    // keeps the commands, and a reconnecting client replays them.
+    //
+    // Only packets that ACTUALLY CARRY commands are kept. The empty ones — the
+    // vast majority, one per player per tick — exist so live clients know it is
+    // safe to advance, and a client replaying history is not gated on that. A
+    // ten-minute match leaves a few hundred entries here, not tens of thousands.
+    begun: null,       // the exact 'begin' payload, minus the per-client seat
+    log: [],           // { tick, owner, cmds } — command-carrying packets only
+    sys: [],           // { kind: 'left'|'rejoin', owner, tick } — seat handovers
+    vacated: new Map(),// token -> { owner, name, faction } for seats that dropped
   };
 }
 
@@ -171,20 +185,16 @@ function handleMessage(room, cl, msg) {
     // different maps and nothing after that would agree.
     room.started = true;
     room.maxTick = 0;
+    room.log.length = 0;
+    room.sys.length = 0;
+    room.vacated.clear();
     room.clients.forEach((c, i) => { c.owner = i; });
     const seats = room.clients.map(c => ({ owner: c.owner, faction: c.faction }));
     const seed = crypto.randomBytes(4).readUInt32BE(0);
     const totalSeats = Math.min(MAX_SEATS, room.clients.length + room.setup.opponents);
+    room.begun = { seed, seats, humanCount: room.clients.length, totalSeats, setup: room.setup };
     for (const c of room.clients) {
-      send(c, {
-        t: 'begin',
-        seed,
-        seats,
-        you: c.owner,
-        humanCount: room.clients.length,
-        totalSeats,
-        setup: room.setup,
-      });
+      send(c, Object.assign({ t: 'begin', you: c.owner }, room.begun));
     }
     return;
   }
@@ -193,7 +203,21 @@ function handleMessage(room, cl, msg) {
     // The relay's whole job in a running match: pass the packet on, unread.
     // It does not know what a command is and never looks inside one.
     if (typeof msg.tick === 'number' && msg.tick > room.maxTick) room.maxTick = msg.tick;
-    broadcast(room, { t: 'turn', tick: msg.tick, owner: cl.owner, cmds: msg.cmds || [], hashTick: msg.hashTick, hash: msg.hash }, cl);
+    const cmds = msg.cmds || [];
+    // keep only the packets a replay would need (see room.log)
+    if (cmds.length) room.log.push({ tick: msg.tick, owner: cl.owner, cmds });
+    broadcast(room, { t: 'turn', tick: msg.tick, owner: cl.owner, cmds, hashTick: msg.hashTick, hash: msg.hash }, cl);
+    return;
+  }
+
+  // A returning client has finished replaying and is level with the live edge.
+  // Name a tick at which its seat comes back off the AI — far enough ahead that
+  // everyone, including the returner, hears about it before they get there.
+  if (msg.t === 'live' && room.started && cl.owner !== undefined && cl.rejoining) {
+    cl.rejoining = false;
+    const ev = { kind: 'rejoin', owner: cl.owner, tick: room.maxTick + DROP_MARGIN };
+    room.sys.push(ev);
+    broadcast(room, { t: 'rejoin', owner: ev.owner, tick: ev.tick, name: cl.name });
     return;
   }
 
@@ -212,11 +236,21 @@ function dropClient(room, cl) {
     // that gave up early diverge from the ones that waited. The relay names the
     // tick — it is the one party that sees every packet — and the clients turn
     // it into an ordinary command so it lands inside the simulation.
-    broadcast(room, { t: 'left', owner: cl.owner, tick: room.maxTick + DROP_MARGIN, name: cl.name });
+    const ev = { kind: 'left', owner: cl.owner, tick: room.maxTick + DROP_MARGIN };
+    room.sys.push(ev);
+    // hold the seat open under the client's token so it can come back to it
+    room.vacated.set(cl.token, { owner: cl.owner, name: cl.name, faction: cl.faction });
+    broadcast(room, { t: 'left', owner: ev.owner, tick: ev.tick, name: cl.name });
   } else {
     broadcast(room, lobbyState(room));
   }
-  if (!room.clients.length) rooms.delete(room.code);
+  // A started room is kept alive briefly even when empty, so the last player to
+  // drop out of a two-player match can still come back to it.
+  if (!room.clients.length) {
+    if (!room.started) { rooms.delete(room.code); return; }
+    clearTimeout(room.reaper);
+    room.reaper = setTimeout(() => { if (!room.clients.length) rooms.delete(room.code); }, EMPTY_ROOM_GRACE);
+  }
 }
 
 // ============================================================
@@ -261,14 +295,29 @@ server.on('upgrade', (req, sock) => {
     'Sec-WebSocket-Accept: ' + wsAccept(key) + '\r\n\r\n');
   sock.setNoDelay(true); // Nagle would add tens of ms to every turn packet
 
-  const code = (req.url.split('?room=')[1] || 'MAIN').split('&')[0];
-  const room = roomOf(code);
-  if (room.started || room.clients.length >= MAX_SEATS) {
+  const q = new URLSearchParams((req.url.split('?')[1] || ''));
+  const room = roomOf(q.get('room'));
+  const token = q.get('token') || '';
+  // Is this someone coming back to a seat they already hold? Only a token the
+  // relay itself issued, against a seat that is currently empty, counts.
+  const seat = room.started && token ? room.vacated.get(token) : null;
+
+  if (!seat && (room.started || room.clients.length >= MAX_SEATS)) {
     wsSend(sock, JSON.stringify({ t: 'error', msg: room.started ? 'That match has already started' : 'Room is full' }));
     wsClose(sock);
     return;
   }
-  const cl = { sock, id: room.nextId++, name: 'Player', faction: null, ready: false, owner: undefined };
+
+  const cl = {
+    sock, id: room.nextId++, token: token || crypto.randomBytes(8).toString('hex'),
+    name: 'Player', faction: null, ready: false, owner: undefined, rejoining: false,
+  };
+  if (seat) {
+    room.vacated.delete(token);
+    cl.owner = seat.owner; cl.name = seat.name; cl.faction = seat.faction;
+    cl.ready = true; cl.rejoining = true;
+    clearTimeout(room.reaper);
+  }
   room.clients.push(cl);
 
   let gone = false;
@@ -276,8 +325,16 @@ server.on('upgrade', (req, sock) => {
     text => { let m; try { m = JSON.parse(text); } catch (e) { return; } handleMessage(room, cl, m); },
     () => { if (gone) return; gone = true; dropClient(room, cl); });
 
-  send(cl, { t: 'welcome', id: cl.id });
-  broadcast(room, lobbyState(room));
+  send(cl, { t: 'welcome', id: cl.id, token: cl.token });
+  if (seat) {
+    // Everything needed to rebuild the match from nothing: the same opening the
+    // others got, every command since, and the seat handovers in between.
+    send(cl, Object.assign({ t: 'resume', you: cl.owner, atTick: room.maxTick,
+      log: room.log, sys: room.sys }, room.begun));
+    broadcast(room, { t: 'returning', owner: cl.owner, name: cl.name }, cl);
+  } else {
+    broadcast(room, lobbyState(room));
+  }
 });
 
 server.listen(port, () => {

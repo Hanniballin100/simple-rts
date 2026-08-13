@@ -46,29 +46,58 @@ const Net = {
   myHashes: new Map(),  // tick -> our fingerprint
   claims: new Map(),    // tick -> { owner -> their fingerprint }
   pendingDrops: [],     // { owner, tick } — seats becoming AI at a known tick
+  pendingJoins: [],     // { owner, tick } — seats coming back off the AI
   desynced: null,
   stalledSince: 0,
   lastStallOwner: null,
 
+  myName: 'Player',
+  catchingUp: false,    // replaying history; the frame loop must stand off
+  retries: 0,
+
   // ---- connection -------------------------------------------------------
-  connect(name, code) {
-    if (this.ws) try { this.ws.close(); } catch (e) {}
-    this.code = (code || 'MAIN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'MAIN';
+  // The token is what makes a seat OURS to come back to. The relay issues it on
+  // first contact; we keep it against the room code so it survives a reload, a
+  // crash, or the tab being closed and reopened.
+  tokenKey() { return 'rts-token-' + this.code; },
+  token() { try { return localStorage.getItem(this.tokenKey()) || ''; } catch (e) { return ''; } },
+  setToken(t) { try { localStorage.setItem(this.tokenKey(), t); } catch (e) {} },
+
+  connect(name, code, isRetry) {
+    if (this.ws) try { this.ws.onclose = null; this.ws.close(); } catch (e) {}
+    if (name) this.myName = name;
+    if (!isRetry) this.retries = 0;
+    this.code = (code || this.code || 'MAIN').toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8) || 'MAIN';
     const proto = location.protocol === 'https:' ? 'wss://' : 'ws://';
-    const ws = this.ws = new WebSocket(proto + location.host + '/?room=' + this.code);
+    const url = proto + location.host + '/?room=' + this.code +
+      (this.token() ? '&token=' + encodeURIComponent(this.token()) : '');
+    const ws = this.ws = new WebSocket(url);
     ws.onopen = () => {
       this.connected = true;
-      this.send({ t: 'hello', name: name || 'Player' });
-      netUI.status('Connected to room ' + this.code);
+      this.retries = 0;
+      this.send({ t: 'hello', name: this.myName });
+      if (!this.inMatch) netUI.status('Connected to room ' + this.code);
       netUI.render();
     };
     ws.onmessage = e => { let m; try { m = JSON.parse(e.data); } catch (err) { return; } this.onMessage(m); };
     ws.onclose = () => {
       this.connected = false;
-      netUI.status(this.inMatch ? 'Connection lost — the match cannot continue' : 'Disconnected');
       netUI.render();
+      // Mid-match, dropping out is not the end: our seat is held open under our
+      // token for a couple of minutes and the others play on with the AI driving
+      // it. Keep knocking.
+      if (this.inMatch && !this.desynced) this.scheduleReconnect();
+      else netUI.status('Disconnected');
     };
-    ws.onerror = () => netUI.status('Could not reach the server');
+    ws.onerror = () => { if (!this.inMatch) netUI.status('Could not reach the server'); };
+  },
+
+  scheduleReconnect() {
+    if (this.retries >= 12) { netUI.status('Could not get back into the match'); return; }
+    const wait = Math.min(1000 * Math.pow(1.6, this.retries), 8000);
+    this.retries++;
+    netUI.status(`Connection lost — rejoining (attempt ${this.retries})…`);
+    setTimeout(() => { if (!this.connected) this.connect(this.myName, this.code, true); }, wait);
   },
 
   send(obj) {
@@ -84,8 +113,14 @@ const Net = {
 
   // ---- inbound ----------------------------------------------------------
   onMessage(m) {
-    if (m.t === 'welcome') { this.id = m.id; return; }
+    if (m.t === 'welcome') { this.id = m.id; if (m.token) this.setToken(m.token); return; }
     if (m.t === 'error') { netUI.status(m.msg); return; }
+    if (m.t === 'resume') { this.resume(m); return; }
+    if (m.t === 'rejoin') { this.onRejoin(m); return; }
+    if (m.t === 'returning') {
+      netUI.status((m.name || 'Player ' + m.owner) + ' is reconnecting…');
+      return;
+    }
 
     if (m.t === 'lobby') {
       this.hostId = m.hostId;
@@ -108,13 +143,17 @@ const Net = {
   },
 
   // ---- match start ------------------------------------------------------
-  begin(m) {
+  // Build the world from the opening the relay handed out. Shared by a fresh
+  // start and by a reconnect, because they need exactly the same world — the
+  // only difference is what happens next.
+  buildWorld(m) {
     this.you = m.you;
     this.humans = m.seats.map(s => s.owner);
     this.turns.clear();
     this.myHashes.clear();
     this.claims.clear();
     this.pendingDrops.length = 0;
+    this.pendingJoins.length = 0;
     this.outbox.length = 0;
     this.desynced = null;
     this.sendTick = 1;
@@ -127,12 +166,79 @@ const Net = {
 
     this.inMatch = true;
     startGame(m.seats[0].faction, m.seed, { humans: m.seats, as: m.you, extraSeats: m.totalSeats });
-
     netUI.hideLobby();
+  },
+
+  begin(m) {
+    this.catchingUp = false;
+    this.buildWorld(m);
     netUI.status('');
     // Prime the pipe: every client owes a packet for each of the first
     // NET_DELAY ticks before anyone is allowed to run tick 1.
     for (let i = 0; i < NET_DELAY; i++) this.emit();
+  },
+
+  // ---- rejoining a match already in progress ----------------------------
+  // Nothing about the world is transmitted. The relay sends the same opening
+  // everyone else got, plus every command issued since, and this client
+  // RECOMPUTES the match. That is only possible because the simulation is
+  // deterministic — and it is why this is a short function instead of a
+  // serialiser for every field in `state`.
+  async resume(m) {
+    this.catchingUp = true;
+    this.buildWorld(m);
+
+    // the history: player commands...
+    for (const p of m.log) {
+      for (const c of p.cmds) {
+        queueCommand({ tick: p.tick, owner: p.owner, seq: c.seq, type: c.type, payload: c.payload });
+      }
+    }
+    // ...and the seat handovers between them, which are commands too
+    for (const ev of m.sys) {
+      queueCommand({
+        tick: ev.tick, owner: ev.owner, seq: 0,
+        type: ev.kind === 'left' ? 'resign' : 'unresign', payload: { owner: ev.owner },
+      });
+      if (ev.kind === 'left') this.humans = this.humans.filter(o => o !== ev.owner);
+      else if (!this.humans.includes(ev.owner)) this.humans.push(ev.owner);
+    }
+
+    // Replay in slices, yielding between them: a long match is tens of
+    // thousands of ticks and freezing the tab solid would look like a crash.
+    // Live packets arriving meanwhile are for ticks beyond the target, so they
+    // simply queue up and are waiting when we get there.
+    const target = Math.max(0, m.atTick);
+    while (state.tick < target && !this.desynced) {
+      const slice = Math.min(500, target - state.tick);
+      for (let i = 0; i < slice; i++) stepSim();
+      netUI.status('Rejoining — ' + Math.round(state.tick / Math.max(1, target) * 100) + '%');
+      await new Promise(r => setTimeout(r, 0));
+    }
+
+    this.sendTick = state.tick + 1;
+    this.catchingUp = false;
+    accumulator = 0;
+    netUI.status('Caught up — waiting to be dealt back in…');
+    this.send({ t: 'live' }); // ask the relay to name a tick for the handback
+  },
+
+  // Our seat (or someone else's) comes back off the AI at an agreed tick, by
+  // the same mechanism the handover used: an ordinary command, applied inside
+  // the simulation, on the same tick everywhere.
+  onRejoin(m) {
+    if (!this.inMatch) return;
+    queueCommand({ tick: m.tick, owner: m.owner, seq: 0, type: 'unresign', payload: { owner: m.owner } });
+    this.pendingJoins.push({ owner: m.owner, tick: m.tick });
+    // Until that tick nobody waits on this seat, so its packets must not be
+    // required yet — fill the gap so the gate stays open.
+    for (let t = Math.max(1, state.tick + 1); t <= m.tick; t++) this.recordTurn(t, m.owner);
+    if (m.owner === this.you) {
+      netUI.status('Back in the match'); // sendTick is set in afterTick, on the tick itself
+    } else {
+      netUI.status((m.name || 'Player ' + m.owner) + ' is back');
+    }
+    setTimeout(() => { if (!this.desynced && !this.stalledSince) netUI.status(''); }, 5000);
   },
 
   // ---- the turn loop ----------------------------------------------------
@@ -195,7 +301,28 @@ const Net = {
         this.pendingDrops.splice(i, 1);
       }
     }
-    this.emit();
+    // ...and a seat whose owner has come back is expected to speak again
+    let justJoined = false;
+    for (let i = this.pendingJoins.length - 1; i >= 0; i--) {
+      if (state.tick >= this.pendingJoins[i].tick) {
+        const o = this.pendingJoins[i].owner;
+        if (!this.humans.includes(o)) this.humans.push(o);
+        if (o === this.you) justJoined = true;
+        this.pendingJoins.splice(i, 1);
+      }
+    }
+    // A seat that has just come back owes the same NET_DELAY primer packets a
+    // fresh match opens with. Without them the ticks between here and its first
+    // ordinary packet would carry nothing from it, and everyone would stall
+    // waiting on the player who just finished reconnecting.
+    if (justJoined) {
+      this.sendTick = state.tick + 1;
+      for (let i = 0; i < NET_DELAY; i++) this.emit();
+      return;
+    }
+    // Silent while our seat is the AI's — nobody is waiting on us, and a packet
+    // stamped with a tick nobody expects would only confuse the gate.
+    if (this.humans.includes(this.you)) this.emit();
   },
 
   noteStall() {

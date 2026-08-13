@@ -36,7 +36,7 @@ works and what it costs.
 | `art.js` | Unit & building drawings (animated vector, RA2-style iso volumes with NE lighting) + particle effects. |
 | `game.js` | Engine: state, orders, combat, AI, input, sidebar UI, depth-sorted iso rendering. |
 | `desync.js` | `hashState()` and the determinism self-test harness. Dev only — nothing in the game depends on it. |
-| `net.js` | Lockstep multiplayer client: lobby handshake, turn loop, drift alarm, disconnect handling. Inert until you join a room. |
+| `net.js` | Lockstep multiplayer client: lobby handshake, turn loop, drift alarm, disconnect handling and reconnect-by-replay. Inert until you join a room. |
 | `serve.js` | Static file server **and** the multiplayer relay (hand-rolled WebSocket, no dependencies). Simulates nothing. |
 | `mockup.html/js` | Standalone art style demo. |
 
@@ -186,6 +186,18 @@ games is the worse outcome. And when a player disconnects, the relay names a
 tick at which their seat becomes AI-controlled — delivered as an ordinary
 `resign` command, so every client hands over on the same tick rather than each
 giving up on its own schedule.
+
+**Reconnecting** falls out of determinism almost for free. The world is a pure
+function of (seed, seat table, every command in order), so the relay never
+snapshots anything — it keeps the commands. A returning client is handed the
+same opening everyone else got plus the log, replays it at full speed to the
+live edge, and asks to be dealt back in; the relay names a tick and everyone
+applies an `unresign`. The seat is held under a token issued on first contact
+and kept in `localStorage`, so it survives a reload, a crash, or the tab being
+closed. Reconnection is automatic, with backoff, for about two minutes. Only
+command-carrying packets are logged — the empty ones exist to tell live clients
+it is safe to advance, and a replay is not gated on that — so a long match
+leaves a few hundred entries rather than tens of thousands.
 
 This is the test that found the last real bug. Unit separation ran on
 alternating **rendered frames** (`frameNo`), so which units got shoved on a

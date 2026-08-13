@@ -7748,6 +7748,16 @@ const COMMANDS = {
     if (!ais[seat]) ais[seat] = { attackWaveSize: 5, thinkTimer: 0, time: 0 };
     if (seat === localOwner) eva('Battle control terminated');
   },
+  // ...and taking it back when they reconnect. The brain is deliberately left
+  // in place rather than deleted: it costs nothing while the seat is human
+  // (updateAI skips it), it is identical on every client, and it is waiting if
+  // they drop again.
+  unresign:    (o, p) => {
+    const seat = p.owner;
+    if (!OWNERS.includes(seat) || humanOwners.has(seat)) return;
+    humanOwners.add(seat);
+    if (seat === localOwner) eva('Battle control online');
+  },
   ability:     (o, p) => {
     if (p.m === 'zone') (isFlat(o) ? castFirmament : castWeather)(o, p.x, p.y);
     else if (p.m === 'recall') castRecall(o, p.x, p.y);
@@ -7973,6 +7983,10 @@ function frame(now) {
 
     accumulator += real;
     const net = (typeof Net !== 'undefined' && Net.inMatch) ? Net : null;
+    // A reconnecting client is replaying history as fast as it can in its own
+    // loop. The frame loop must not also be stepping the sim, or the two would
+    // interleave and the replay would land on the wrong tick.
+    if (net && net.catchingUp) { accumulator = 0; render(0); return; }
     let n = 0, stalled = false;
     while (accumulator >= TICK && n < MAX_CATCHUP && !state.over) {
       // THE lockstep rule: a tick may not run until every player's orders for
