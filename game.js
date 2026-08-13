@@ -8026,6 +8026,13 @@ function frame(now) {
     const w = mine.filter(u => UNIT_TYPES[u.type].role === 'worker').length;
     elSupply.textContent = `Workers: ${w}  Army: ${mine.length - w}`;
 
+    // Match clock, for timing build orders while playtesting. Derived from the
+    // tick counter rather than the wall clock, so it is the SIMULATION's idea
+    // of elapsed time — it cannot drift, and two networked clients always read
+    // the same number.
+    const secs = Math.floor(state.time);
+    elClock.textContent = Math.floor(secs / 60) + ':' + String(secs % 60).padStart(2, '0');
+
     panelTimer += real;
     if (panelTimer > 0.25) { panelTimer = 0; refreshSidebar(); refreshPanel(); }
   }
@@ -8581,6 +8588,7 @@ const gridUnits = document.getElementById('grid-units');
 const elSelInfo = document.getElementById('selinfo');
 const elActions = document.getElementById('actions');
 const elSupply = document.getElementById('supply');
+const elClock = document.getElementById('clock');
 
 // ---------- faction select + main loop ----------
 

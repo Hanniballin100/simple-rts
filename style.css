@@ -28,6 +28,19 @@ body {
 #supply { color: #a9b4c0; }
 #hint { margin-left: auto; color: #6b7684; font-size: 11px; }
 
+/* Match clock. Deliberately quiet — tabular figures so it doesn't jitter as
+   the digits change, and dim enough to ignore until you go looking for it.
+   It reads state.time, which is derived from the tick counter, so it is match
+   time and not wall time: it does not drift, and two clients always agree. */
+#clock {
+  color: #6b7684;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  font-family: ui-monospace, Consolas, monospace;
+  min-width: 42px;
+  text-align: right;
+}
+
 #mute-btn {
   background: none;
   border: 1px solid #465363;
