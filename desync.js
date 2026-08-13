@@ -278,6 +278,71 @@ Desync.viewpointTest = function (cfg, ticks, seatA, seatB) {
   return r;
 };
 
+// ---- the input purity test ----
+//
+// Press every control the interface exposes and assert that NONE of them moves
+// the simulation. Input is only ever allowed to enqueue a command; the world
+// may only change inside stepSim(). The command queue is deliberately not part
+// of hashState(), so enqueueing reads as "no change" and a direct mutation
+// stands out.
+//
+// This is the test that would have caught Reveal Infiltrator: its sidebar
+// button called castRevealInfiltrator() straight out of the click handler, so
+// one client re-owned an infiltrator that the other client never heard about,
+// and a networked match came apart the instant the button was pressed.
+Desync.inputPurityTest = function (cfg, opts) {
+  const faction = (cfg && cfg.faction) || 'flat';
+  this.begin(Object.assign({ faction, seed: 777, opponents: 2, setting: 'town' }, cfg || {}));
+  stepTicks((opts && opts.warmup) || 60);
+  // fund and power it so buttons are live rather than disabled
+  state.minerals[localOwner] = 9000;
+  state.loosh[localOwner] = 300;
+  state.leverage[localOwner] = 300;
+
+  const offenders = [];
+  const press = (label, fn) => {
+    const before = hashState();
+    try { fn(); } catch (e) { offenders.push(label + ' — threw: ' + e.message); return; }
+    const after = hashState();
+    if (before !== after) offenders.push(label);
+  };
+
+  // every sidebar cameo: structures, units, and the signature power
+  for (const key of Object.keys(cameoButtons)) {
+    const c = cameoButtons[key];
+    if (!c || !c.btn) continue;
+    press('cameo ' + key, () => c.btn.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+  }
+  press('sigClick()', () => sigClick());
+
+  // every panel action button, over a few representative selections
+  const mine = state.buildings.filter(b => b.owner === localOwner && b.hp > 0);
+  const units = state.units.filter(u => u.owner === localOwner && u.hp > 0);
+  const sels = [];
+  for (const b of mine) sels.push(['building ' + b.type, [b]]);
+  if (units.length) sels.push(['units', units.slice(0, 4)]);
+  if (mine.length) sels.push(['all buildings', mine]);
+  for (const [label, sel] of sels) {
+    selection = sel.slice();
+    lastPanelSig = null;
+    refreshPanel();
+    const btns = [...document.getElementById('actions').querySelectorAll('button')];
+    btns.forEach((btn, i) => press(`panel[${label}] "${btn.textContent.trim()}"`,
+      () => btn.dispatchEvent(new MouseEvent('click', { bubbles: true }))));
+  }
+  selection = [];
+
+  // and the keyboard
+  for (const key of ['a', 'x', 'v', 'q', 'h', 'm', '+', '-', '0', 'p', 'b', 't', 'g', 'f', 'd', 'r', 'c', '1']) {
+    press('key ' + key, () => window.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true })));
+  }
+  setMuted(false);
+
+  return offenders.length
+    ? { ok: false, faction, offenders }
+    : { ok: true, faction, note: 'no control touched sim state directly' };
+};
+
 // A scripted player, for the "same seed + same commands twice" test. It posts
 // REAL commands through enqueue() at fixed ticks and resolves its targets from
 // sim state only — never from the selection or the camera, which a replay

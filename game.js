@@ -5504,13 +5504,21 @@ function sigClick() {
   const pk = facOf(localOwner).powers.sig;
   const sig = state.sig[localOwner];
   if (pk.kind === 'auto' || pk.kind === 'info') return;
+  // The 'once' and 'instant' powers fire the moment you press the button, so
+  // they have to travel as COMMANDS like everything else. They used to call
+  // castRevealInfiltrator/castGaslight straight from here, which mutated the
+  // world outside the tick — one client changed an infiltrator's owner and
+  // spawned phantoms that the other client never heard about, so Reveal
+  // Infiltrator desynced a networked match the instant it was pressed.
+  // (The targeted kinds were always fine: they arm abilityTargeting and the
+  // map click posts an `ability` command.)
   if (pk.kind === 'once') {
-    if (!sig.used) { castRevealInfiltrator(localOwner); sfx('click'); }
+    if (!sig.used) { cmd('sig'); sfx('click'); }
     refreshSidebar();
     return;
   }
   if (sig.cd > 0) return;
-  if (pk.kind === 'instant') { castGaslight(localOwner); sfx('click'); refreshSidebar(); return; }
+  if (pk.kind === 'instant') { cmd('sig'); sfx('click'); refreshSidebar(); return; }
   abilityTargeting = pk.kind;
   refreshPanel();
 }
@@ -7704,6 +7712,15 @@ const COMMANDS = {
   cull:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].looshOnDeath) u.hp = 0; },
   drive:       (o, p) => { if (SLAVE_DRIVES.includes(p.v)) state.slaveDrive[o] = p.v; },
   wake:        (o, p) => { const u = state.units.find(x => x.id === p.u && x.hp > 0); if (u && u.sleeperFor === o) wakeSleeper(u); },
+  // the untargeted signature powers. Which one this is depends on the owner's
+  // faction, resolved HERE at execution time rather than baked in by the caller.
+  sig:         (o) => {
+    const f = facOf(o), s = state.sig[o];
+    if (!f || !s || !f.powers.sig) return;
+    const kind = f.powers.sig.kind;
+    if (kind === 'once' && !s.used) castRevealInfiltrator(o);
+    else if (kind === 'instant' && s.cd <= 0) castGaslight(o);
+  },
   build:       (o, p) => startConstruction(o, p.t),
   cancelbuild: (o, p) => cancelConstruction(o, p.t),
   place:       (o, p) => tryPlace(o, p.x, p.y, p.t),
