@@ -8428,19 +8428,27 @@ let superweaponsOn = true; // faction-select toggle: superweapon structures enab
 
   function refresh() {
     const max = MAP_SIZES[selectedSize].maxPlayers - 1;
-    selectedOpponents = Math.min(selectedOpponents, max);
+    // Zero AI opponents only makes sense when there is someone else to fight:
+    // a lobby with two or more people in it. On your own, one is the floor.
+    const humans = (typeof Net !== 'undefined' && Net.connected) ? Net.players.length : 1;
+    const min = humans >= 2 ? 0 : 1;
+    selectedOpponents = clamp(selectedOpponents, min, max);
     for (const [key, btn] of Object.entries(sizeBtns)) {
       btn.classList.toggle('sel', key === selectedSize);
     }
     oppWrap.innerHTML = '';
-    for (let n = 1; n <= max; n++) {
+    for (let n = min; n <= max; n++) {
       const b = document.createElement('button');
       b.className = 'opt-btn' + (n === selectedOpponents ? ' sel' : '');
       b.textContent = n;
+      b.title = n === 0 ? 'No AI — players only' : n + ' AI opponent' + (n > 1 ? 's' : '');
       b.addEventListener('click', () => { selectedOpponents = n; refresh(); });
       oppWrap.appendChild(b);
     }
   }
+  // the lobby calls this when the player list changes, so the "0" option
+  // appears the moment a second person joins
+  window.refreshSetupControls = refresh;
 
   for (const [key, s] of Object.entries(MAP_SIZES)) {
     const b = document.createElement('button');

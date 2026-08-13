@@ -308,6 +308,9 @@ const netUI = {
     this.el.ready.textContent = me && me.ready ? 'Not ready' : 'Ready';
     this.el.start.style.display = (Net.connected && Net.id === Net.hostId) ? '' : 'none';
     this.el.start.disabled = !(Net.players.length >= 2 && Net.players.every(p => p.ready));
+    // the OPPONENTS row gains a "0" (players only, no AI) once someone else
+    // is in the room, and loses it again if they leave
+    if (window.refreshSetupControls) window.refreshSetupControls();
   },
 };
 
