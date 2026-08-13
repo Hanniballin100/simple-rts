@@ -225,5 +225,7 @@ go, so it is now an integer hash.
 | P / B / T / G / F / D / R | Build power / barracks / tower / AA tower / factory / airpad / tech |
 | Ctrl+1–5, 1–5 | Assign / recall control groups |
 | Mouse wheel / edge / middle-drag / arrows | Camera |
+| + / − / 0 | Zoom in / out / reset |
+| Q | Arm the superweapon, then click a target |
 | H | Jump to base |
 | M | Mute |

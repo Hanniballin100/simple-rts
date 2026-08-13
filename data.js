@@ -217,7 +217,11 @@ const FACTIONS = {
     worker: 'slave', infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
     air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
     extras: ['nephilim', 'priest', 'broodslave', 'shapeshifter', 'broodmother'], advanced: ['draco'],
-    structs: ['wall', 'gate', 'repairpad', 'superweapon'],
+    // The pit works the crystal by hand, so unlike the other alien faction it
+    // has a haul — and by the late game the home field is dry and the walk is
+    // most of the shift. The forward drop-off (Gene Vault first) is what keeps
+    // the slaves cutting instead of commuting.
+    structs: ['wall', 'gate', 'repairpad', 'refinery', 'superweapon'],
     powers: {
       passive: { name: 'Skin Suit', desc: 'Your infantry are not recognized as hostile until they attack.' },
       sig: { name: 'Reveal Infiltrator', desc: 'One enemy worker has always been yours. Click to convert it (once per game).', kind: 'once' },
@@ -227,7 +231,7 @@ const FACTIONS = {
       factory: 'Assembler', airpad: 'Roost Spire', tech: 'Gene Vault',
       pylon: 'Plasma Pylon', tractor: 'Tractor Beam',
       wall: 'Alloy Barrier', gate: 'Alloy Gate', mine: 'Plasma Mine', repairpad: 'Regeneration Pit',
-      superweapon: 'Bloodline Throne',
+      refinery: 'Crystal Maw', superweapon: 'Bloodline Throne',
     },
   },
 };
@@ -243,6 +247,15 @@ const FACTIONS = {
 const REPAIR_RATE = 0.05;      // fraction of max HP mended per second
 const REPAIR_COST = 0.45;      // fraction of build cost for a 0 -> full mend
 const REPAIR_FREE_VALUE = 0.25; // priceless structures bill at this × their HP
+
+// ---------- demolition ----------
+// Pull a structure down on purpose and half the build cost comes back. The
+// teardown is not instant, and that is the whole design: the crew has to get
+// clear, so a building under attack cannot be cashed out the instant it starts
+// losing a fight. Kill it before the timer runs and the owner gets nothing —
+// denying the refund is worth doing.
+const DEMOLISH_TIME = 2.5;     // seconds from ordering it to the building dropping
+const DEMOLISH_REFUND = 0.5;   // fraction of build cost paid back on completion
 
 // ---------- DISPROOF (the Flat Earth economy of denial) ----------
 // The Institute of Truth does not research new toys — it proves the enemy's
@@ -794,8 +807,12 @@ const BUILDING_TYPES = {
   // instant: field structures place immediately for their cost and never tie
   // up the single build queue — lay a whole wall line without stalling your
   // barracks/factory/tech.
-  wall: { name: 'Wall', hp: 380, w: 26, h: 26, cost: 12, buildTime: 0, sight: 80,  power: 0, wallKind: true, instant: true },
-  gate: { name: 'Gate', hp: 360, w: 34, h: 34, cost: 30, buildTime: 0, sight: 100, power: 0, wallKind: true, gate: true, instant: true },
+  // 7 a segment: walling a base is a real commitment of minerals at ~26px of
+  // frontage each, and a diagonal run now packs them tighter still, so the
+  // per-segment price has to stay low enough that fortifying is a plan rather
+  // than a fortune.
+  wall: { name: 'Wall', hp: 380, w: 26, h: 26, cost: 7, buildTime: 0, sight: 80,  power: 0, wallKind: true, instant: true },
+  gate: { name: 'Gate', hp: 360, w: 34, h: 34, cost: 24, buildTime: 0, sight: 100, power: 0, wallKind: true, gate: true, instant: true },
   // stealthed proximity trap: trip = trigger radius (enemy ground units);
   // detonation reuses the neutral explodes blast. noBlock: doesn't obstruct
   // pathing or placement — it's buried, things roll right over it.

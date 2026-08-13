@@ -239,6 +239,13 @@ const canGarrison = u => {
   const t = UNIT_TYPES[u.type];
   return t.builtAt === 'barracks' && t.role === 'combat' && !t.flying;
 };
+// Which structures actually emit units, and so have somewhere to send them.
+// Derived from the unit table rather than listed by hand, so a new production
+// building inherits its rally point for free — and a wall, a power plant or a
+// tech lab never offers one, having nothing to rally.
+const PRODUCER_TYPES = new Set(Object.values(UNIT_TYPES).map(u => u.builtAt).filter(Boolean));
+const producesUnits = b => !!b && b.kind === 'building' && PRODUCER_TYPES.has(b.type);
+
 const hostilesOf = owner => OWNERS.filter(o => o !== owner); // free-for-all
 const randomHostile = owner => {
   const hs = hostilesOf(owner);
@@ -566,9 +573,20 @@ function updateFog() {
       if (b.owner === bk.on && b.hp > 0) markSight(o, b.x, b.y, Math.max(bstatsOf(b).sight, 260));
     }
   }
-  // orbital uplink (Globalist Satellite): a finished one reveals the whole map
+  // Orbital uplink (Globalist Satellite): imagery, not a live feed. It lifts
+  // the black off the whole map and keeps every structure on it plotted — but
+  // it does NOT show you their army. Overhead photography finds buildings;
+  // finding units still takes eyes on the ground.
+  //
+  // That distinction is free, because it is already the difference between the
+  // two fog states: visibleTo() needs 1 (explored) for a building and 2
+  // (currently seen) for a unit. So the uplink raises 0 to 1 and stops there —
+  // and never pulls a tile DOWN from 2, which would blind your own scouts.
   for (const b of state.buildings) {
-    if (b.hp > 0 && b.done && visAll[b.owner] && bstatsOf(b).revealMap) visAll[b.owner].fill(2);
+    if (!(b.hp > 0 && b.done && bstatsOf(b).revealMap)) continue;
+    const v = visAll[b.owner];
+    if (!v) continue;
+    for (let i = 0; i < v.length; i++) if (v[i] === 0) v[i] = 1;
   }
 }
 
@@ -751,8 +769,17 @@ function placementBlocked(owner, type, x, y) {
   // exception: they snap flush against other wall pieces to form a line.
   return state.buildings.some(b => {
       if (b.hp <= 0 || bstatsOf(b).noBlock) return false; // mines don't crowd out anything
-      const gap = (t.wallKind && bstatsOf(b).wallKind) ? -2 : STRUCT_GAP;
-      return Math.abs(b.x - x) < (b.w + t.w) / 2 + gap && Math.abs(b.y - y) < (b.h + t.h) / 2 + gap;
+      // Wall-kind against wall-kind gets a RADIAL minimum separation instead of
+      // the axis-aligned box every other structure uses. The box test made
+      // diagonal wall runs impossible: two 26px segments stepped along a
+      // 45-degree drag sit ~18 apart on BOTH axes, which the box scored as
+      // overlapping — so the first piece went down and every one after it was
+      // silently refused, leaving the long gaps you get on a diagonal drag.
+      // Radially they are 26 apart, they seal the line, and this lets them.
+      if (t.wallKind && bstatsOf(b).wallKind) {
+        return Math.hypot(b.x - x, b.y - y) < (b.w + t.w) * 0.29;
+      }
+      return Math.abs(b.x - x) < (b.w + t.w) / 2 + STRUCT_GAP && Math.abs(b.y - y) < (b.h + t.h) / 2 + STRUCT_GAP;
     })
     || state.patches.some(p => p.amount > 0 && dist(p, { x, y }) < t.w / 2 + 30)
     || TERRAIN.some(o => dist(o, { x, y }) < o.r + Math.max(t.w, t.h) / 2 + 6);
@@ -1091,6 +1118,14 @@ function canRepair(b) {
 // quotes, so the price you read is the price you pay
 const repairRateOf = b => b.maxHp * REPAIR_RATE;
 const repairCostPerSec = b => repairValueOf(b) * REPAIR_COST * REPAIR_RATE;
+
+// ---------- demolition ----------
+// What pulling this down pays back. Captured civilian structures were never
+// bought, so they refund nothing — you may still clear them off your ground.
+const demolishRefund = b => Math.floor((bstatsOf(b).cost || 0) * DEMOLISH_REFUND);
+// A structure can be scrapped whether or not it is finished or damaged; the one
+// thing that stops you is it not being yours.
+const canDemolish = b => !!b && b.kind === 'building' && b.hp > 0 && b.owner !== NEUTRAL;
 
 // ---------- THE FIRMAMENT: the dome, made briefly non-negotiable ----------
 function castFirmament(owner, x, y) {
@@ -2625,10 +2660,26 @@ function fireAt(u, target, t) {
 // instead of breaking off — pad craft keep hunting until the ammo runs dry
 // (the empty-magazine check in updateUnit sends them home). Ground units
 // still drop to idle and re-acquire by sight.
+// A fence is only worth shooting when it is actually in the way.
+//
+// u.path.pts === null is the pathfinder reporting NO ROUTE AT ALL to where this
+// unit wants to be. Anything else — a gap blown in the line, an open gate, a
+// way round the end — means A* has a way through, and the wall is scenery.
+// Without this, a wave would walk up to a breached wall and start chewing the
+// segment beside the hole, because that segment was simply the nearest enemy
+// thing. Aircraft never path, so u.path is undefined and they never pick a wall
+// at all, which is correct: a wall has never stopped a plane.
+//
+// An explicit attack order still works — this only governs what a unit chooses
+// for itself.
+const noRouteThrough = u => !!(u.path && u.path.pts === null);
+const isIdleWall = (u, e) =>
+  e.kind === 'building' && bstatsOf(e).wallKind && !noRouteThrough(u);
+
 function nextTargetOrIdle(u, t) {
   if (t.flying && !(t.maxAmmo && u.ammo <= 0)) {
     const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-      !hiddenFrom(e, u.owner) && canTarget(t, e) &&
+      !hiddenFrom(e, u.owner) && canTarget(t, e) && !isIdleWall(u, e) &&
       dist(u, e) <= Math.max(t.sight * 1.6, 450) && dist(u, e) >= (t.minRange || 0));
     if (foe) { orderAttack(u, foe); return; }
   }
@@ -2745,7 +2796,8 @@ function autoAcquire(u, dt) {
   if (u.scanT > 0) return;
   u.scanT = 0.3;
   const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-    !hiddenFrom(e, u.owner) && canTarget(t, e) && dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
+    !hiddenFrom(e, u.owner) && canTarget(t, e) && !isIdleWall(u, e) &&
+    dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
   if (foe) orderAttack(u, foe);
 }
 
@@ -3151,6 +3203,12 @@ function separateFromNeighbors(u, stats) {
       for (const other of cell) {
         if (other === u || other.hp <= 0 || other.garrisoned) continue;
         const ot = UNIT_TYPES[other.type];
+        // Fixed-wing craft take no part in jostling — in EITHER direction. The
+        // early-out above stops a plane being shoved; without this, a plane
+        // still shoved everyone else, so an F-35 running in on a Mothership
+        // bulldozed it across the map instead of shooting it (the jet is
+        // immovable, so the whole correction landed on the saucer).
+        if (ot.plane) continue;
         if (!!ot.flying !== myFlying) continue;
         // tanks don't yield to enemy footsoldiers (and the footsoldier gets no
         // shove out from under the tracks) — overlap develops, the crush pass kills
@@ -3763,6 +3821,23 @@ function trainUnit(owner, unitType) {
 function updateBuilding(b, dt) {
   const bt = bstatsOf(b);
   const power = powerOf(b.owner);
+
+  // ---------- controlled demolition ----------
+  // Runs before everything else and returns: a structure being pulled down is
+  // not producing, charging or shooting. It is NOT cancelled by taking damage —
+  // the counterplay is to finish it off before the timer expires, which denies
+  // the refund entirely.
+  if (b.demolishT !== undefined) {
+    b.demolishT -= dt;
+    Particles.smoke(b.x + (fxRandom() - 0.5) * b.w * 0.7, b.y - b.h / 4, 3);
+    if (b.demolishT <= 0) {
+      state.minerals[b.owner] = (state.minerals[b.owner] || 0) + demolishRefund(b);
+      b.demolished = true; // the death sweep skips the wreck effects for this one
+      b.hp = 0;
+      if (b.owner === localOwner) eva('Structure demolished');
+    }
+    return;
+  }
 
   // ---------- repair (every faction, every structure) ----------
   // Mending runs on the same grid as everything else: a brownout halves the
@@ -4876,8 +4951,9 @@ function selectAt(x, y) {
 // View side of the right-click: it reads the selection (client-only), turns it
 // into ids, and posts a command. It does not touch the sim.
 function rightCommand(x, y) {
-  // rally point when a single production building is selected
-  if (selection.length === 1 && selection[0].kind === 'building' && selection[0].owner === localOwner) {
+  // rally point when a single production building is selected — a wall or a
+  // power plant has nothing to send anywhere, so it falls through to a move
+  if (selection.length === 1 && selection[0].owner === localOwner && producesUnits(selection[0])) {
     cmd('rally', { b: selection[0].id, x, y });
     sfx('click');
     return;
@@ -5368,7 +5444,7 @@ function buildingBlurb(type) {
   if (type === 'wall') b.push('blocks ground movement');
   if (type === 'gate') b.push('wall segment that lets your own ground forces through');
   if (type === 'tunnelentrance') b.push('tunnel mouth — your ground units travel underground between entrances');
-  if (bt.revealMap) b.push('reveals the entire map');
+  if (bt.revealMap) b.push('lifts the fog from the whole map and plots every structure on it — but not their army: overhead imagery finds buildings, not units');
   if (bt.spawns) b.push(bt.spawns.max
     ? `staffs a detachment of ${bt.spawns.max} ${UNIT_TYPES[bt.spawns.type].name}s — replaces losses every ${bt.spawns.every}s, but never grows past ${bt.spawns.max}`
     : `turns out a free ${UNIT_TYPES[bt.spawns.type].name} every ${bt.spawns.every}s`);
@@ -5713,6 +5789,7 @@ function panelSignature() {
       if (e.rites) s += 'M' + e.rites.join('.'); // the Mechanicum queue owns a cancel button each
       // Repair/Stop swap as damage is taken and mended — the button has to follow
       s += 'R' + (e.repairing ? '1' : canRepair(e) ? '2' : '0');
+      s += 'D' + (e.demolishT !== undefined ? '1' : '0'); // Demolish <-> Stop demolition
     } else {
       const ut = UNIT_TYPES[e.type];
       if (ut.burrow) s += e.burrowed ? 'B1' : 'B0';
@@ -5806,6 +5883,31 @@ function panelRepairControls(addAction) {
     btn.title = 'Mends at ' + Math.round(REPAIR_RATE * 100) + '% of max HP per second, billed as it goes' +
       (powerOf(localOwner).low ? ' — HALF SPEED while the grid is browned out' : '');
     btn.onclick = () => { cmd('repair', { b: idsOf(hurt), on: true }); refreshPanel(); };
+    addAction(btn);
+  }
+
+  // ---------- demolition ----------
+  // Last in the block, so it never sits where Repair was a moment ago and eats
+  // a click meant for something else.
+  const razing = mine.filter(e => e.demolishT !== undefined);
+  const standing = mine.filter(e => e.demolishT === undefined && canDemolish(e));
+  if (razing.length) {
+    const btn = document.createElement('button');
+    const left = Math.max(...razing.map(e => e.demolishT));
+    btn.textContent = `Stop demolition (${razing.length})`;
+    btn.title = `${left.toFixed(1)}s from dropping`;
+    btn.onclick = () => { cmd('demolish', { b: idsOf(razing), on: false }); refreshPanel(); };
+    addAction(btn);
+  }
+  if (standing.length) {
+    const back = standing.reduce((s, e) => s + demolishRefund(e), 0);
+    const btn = document.createElement('button');
+    btn.textContent = `Demolish ${standing.length > 1 ? `(${standing.length}) ` : ''}— +$${back}`;
+    btn.title = `Pulls it down over ${DEMOLISH_TIME}s and refunds ` +
+      `${Math.round(DEMOLISH_REFUND * 100)}% of the build cost. ` +
+      'Destroyed before the timer runs out and you get nothing' +
+      (back === 0 ? ' — this one cost you nothing to take, so it pays nothing back' : '');
+    btn.onclick = () => { cmd('demolish', { b: idsOf(standing), on: true }); refreshPanel(); };
     addAction(btn);
   }
 }
@@ -5986,7 +6088,7 @@ function panelForBuilding(first, addAction) {
     const ready = superReady(first);
     if (first.owner === localOwner && ready && !isOffline(first)) {
       const btn = document.createElement('button');
-      btn.textContent = 'Launch [click target]';
+      btn.textContent = 'Launch [Q, then click target]';
       btn.onclick = () => { superTargeting = first.id; refreshPanel(); };
       addAction(btn);
     }
@@ -5997,7 +6099,7 @@ function panelForBuilding(first, addAction) {
     ((first.type === 'hq' || bstatsOf(first).thief) && usesLeverage(localOwner)
       ? ` — LEVERAGE ${Math.floor(state.leverage[localOwner] || 0)}` : '') +
     (bstatsOf(first).thief ? ` — skimming ${Math.round(bstatsOf(first).thief.r)} around it` : '') +
-    ' — right-click to set rally point';
+    (producesUnits(first) ? ' — right-click to set rally point' : '');
   // LEVERAGE: spend it from the seat of the operation OR from any front
   // company — whichever you happen to have clicked. Hiding it on one
   // building meant nobody ever found it.
@@ -7584,10 +7686,18 @@ const cmdBuilding = (id, owner) => cmdBuildings([id], owner)[0];
 const COMMANDS = {
   move:        (o, p) => issueCommand(o, p.u, p.x, p.y),
   attackmove:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y); },
-  rally:       (o, p) => { const b = cmdBuilding(p.b, o); if (b) b.rally = { x: p.x, y: p.y }; },
+  rally:       (o, p) => { const b = cmdBuilding(p.b, o); if (producesUnits(b)) b.rally = { x: p.x, y: p.y }; },
   burrow:      (o, p) => burrowUnits(cmdUnits(p.u, o)),
   explore:     (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].role === 'scout') u.order = { type: 'explore' }; },
   repair:      (o, p) => { for (const b of cmdBuildings(p.b, o)) b.repairing = p.on ? canRepair(b) : false; },
+  demolish:    (o, p) => {
+    for (const b of cmdBuildings(p.b, o)) {
+      if (!p.on) { delete b.demolishT; continue; }        // called it off
+      if (!canDemolish(b) || b.demolishT !== undefined) continue;
+      b.demolishT = DEMOLISH_TIME;
+      b.repairing = false;                                 // stop paying to mend what you are scrapping
+    }
+  },
   evacuate:    (o, p) => { for (const b of cmdBuildings(p.b, o)) evacuate(b); },
   unload:      (o, p) => { for (const u of cmdUnits(p.u, o)) unloadTransport(u); },
   establish:   (o, p) => { for (const u of cmdUnits(p.u, o)) u.order = { type: 'establish' }; },
@@ -7741,15 +7851,19 @@ function stepSim() {
   for (const b of state.buildings) {
     if (b.hp <= 0) {
       // Too Big To Fail: a Globalist structure refunds a quarter of its cost
-      // when it falls (cheap field structures excepted)
-      if (!b._refunded && state.factions[b.owner] === 'glob' &&
+      // when it falls (cheap field structures excepted). Not on top of a
+      // demolition, though — that clause is compensation for LOSING a building,
+      // and stacking it on a voluntary teardown paid Globalists 75% to reshuffle
+      // their own base.
+      if (!b._refunded && !b.demolished && state.factions[b.owner] === 'glob' &&
           b.type !== 'wall' && b.type !== 'gate' && b.type !== 'mine') {
         state.minerals[b.owner] = (state.minerals[b.owner] || 0) + Math.floor((bstatsOf(b).cost || 0) * 0.25);
         b._refunded = true;
       }
-      Particles.boom(b.x, b.y, 1.7);
+      Particles.boom(b.x, b.y, b.demolished ? 0.9 : 1.7); // a teardown, not a hit
       if (tileState(b.x, b.y) === 2) sfx('boom');
-      if (b.owner === localOwner && !bstatsOf(b).trip) eva('Structure lost'); // mines die loudly enough
+      // "Structure lost" is a warning; you know perfectly well about this one
+      if (b.owner === localOwner && !b.demolished && !bstatsOf(b).trip) eva('Structure lost');
       // gas stations go up in a fireball that hurts EVERYONE nearby
       // (owner -99 so not even neutral structures are spared — chain reactions!)
       const ex = bstatsOf(b).explodes;
@@ -8342,6 +8456,32 @@ window.addEventListener('mouseup', e => {
   refreshPanel();
 });
 
+// Keyboard zoom, held about the CENTRE of the view rather than the cursor —
+// the wheel pivots on the pointer because that is where you are looking, but a
+// keypress has no pointer, and pivoting on a stale mouse position throws the
+// camera somewhere you did not ask for.
+function zoomStep(mul) {
+  if (!started) return;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  const isoX0 = cam.x + cx / cam.zoom, isoY0 = cam.y + cy / cam.zoom;
+  cam.zoom = clamp(cam.zoom * mul, minZoom(), 2);
+  cam.x = isoX0 - cx / cam.zoom;
+  cam.y = isoY0 - cy / cam.zoom;
+  clampCam();
+}
+
+// Arm the superweapon without going to find the silo first. Picks the one that
+// is actually ready — most charged first, then by id so the choice is stable.
+function armSuperweaponHotkey() {
+  const ready = state.buildings.filter(b => b.owner === localOwner && b.hp > 0 &&
+    bstatsOf(b).superweapon && superReady(b) && !isOffline(b));
+  if (!ready.length) { eva('No superweapon ready'); return; }
+  ready.sort((a, b) => (b.charge || 0) - (a.charge || 0) || a.id - b.id);
+  superTargeting = ready[0].id;
+  sfx('click');
+  refreshPanel();
+}
+
 window.addEventListener('keydown', e => {
   keys[e.key.toLowerCase()] = true;
   if (!started) return;
@@ -8350,6 +8490,14 @@ window.addEventListener('keydown', e => {
   if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; plantArmed = false; wallDrag = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
+
+  // zoom: +/- step, 0 back to 1:1
+  if (k === '+' || k === '=') { zoomStep(1.15); e.preventDefault(); }
+  if (k === '-' || k === '_') { zoomStep(1 / 1.15); e.preventDefault(); }
+  if (k === '0') { zoomStep(1 / cam.zoom); e.preventDefault(); }
+
+  // Q: arm the superweapon, then click the target
+  if (k === 'q') armSuperweaponHotkey();
 
   if (STRUCT_HOTKEYS[k]) {
     let type = STRUCT_HOTKEYS[k];
