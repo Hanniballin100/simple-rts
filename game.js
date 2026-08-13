@@ -89,6 +89,22 @@ const facOf = owner => FACTIONS[state.factions[owner]];
 // the Bloodline Throne. Only Reptilian players ever bank it.
 const isReptilian = owner => state.factions[owner] === 'reptilian';
 function grantLoosh(owner, n) { if (isReptilian(owner)) state.loosh[owner] = (state.loosh[owner] || 0) + n; }
+// ---------- LEVERAGE: who actually runs the ledger ----------
+// Only a faction that can put a skimming front company on the board earns
+// leverage, so only that faction should be offered the plays that spend it.
+// Asked of the ROSTER rather than the faction key, so a future balance change
+// that hands front companies to somebody else carries the panel along with it.
+const _leverageFactions = {};
+function usesLeverage(owner) {
+  const key = state.factions[owner];
+  const f = FACTIONS[key];
+  if (!f) return false;
+  if (_leverageFactions[key] === undefined) {
+    _leverageFactions[key] = [f.worker, f.infantry, f.aa, f.vehicle, f.air, ...(f.extras || []), ...(f.advanced || [])]
+      .some(u => u && UNIT_TYPES[u] && UNIT_TYPES[u].establishes);
+  }
+  return _leverageFactions[key];
+}
 // ---------- DISPROOF: what this owner has proved fake ----------
 // Every effect below is checked at the POINT OF INTERACTION rather than being
 // pushed onto units, so a disproof applies retroactively to everything the
@@ -5978,15 +5994,18 @@ function panelForBuilding(first, addAction) {
   }
   elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
     (first.queue.length ? ` — training (${first.queue.length} queued)` : '') +
-    ((first.type === 'hq' || bstatsOf(first).thief) && facOf(localOwner).hqRebuild &&
-      facOf(localOwner).hqRebuild.auto !== undefined
+    ((first.type === 'hq' || bstatsOf(first).thief) && usesLeverage(localOwner)
       ? ` — LEVERAGE ${Math.floor(state.leverage[localOwner] || 0)}` : '') +
     (bstatsOf(first).thief ? ` — skimming ${Math.round(bstatsOf(first).thief.r)} around it` : '') +
     ' — right-click to set rally point';
   // LEVERAGE: spend it from the seat of the operation OR from any front
   // company — whichever you happen to have clicked. Hiding it on one
   // building meant nobody ever found it.
-  if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === localOwner && LEVERAGE_PLAYS) {
+  // ...but only for the side that has a ledger to spend from. This used to be
+  // ungated, so Open the Books and Freeze Assets sat on every faction's HQ,
+  // permanently unaffordable, for a currency they could never earn.
+  if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === localOwner &&
+      usesLeverage(localOwner) && LEVERAGE_PLAYS) {
     for (const [key, play] of Object.entries(LEVERAGE_PLAYS)) {
       const btn = document.createElement('button');
       btn.textContent = `${play.name} — ${play.cost}`;

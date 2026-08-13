@@ -7846,6 +7846,44 @@
       c.restore();
     },
   });
+  // Front Company truck: a rented box van in unbranded white. Every other
+  // vehicle on this roster is trying to look like something — the Disinfo Van
+  // bristles with masts, the Black Van wears a dish. This one is trying to look
+  // like nothing, so its roof is conspicuously bare: ribs, a skylight, one
+  // extractor. It goes quiet the moment it stops (cloakStill), and the art has
+  // to earn that. Nobody looks twice at a parked white truck.
+  I.frontco = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 25,
+    under: (c, t, o) => wheels(c, t, o, [[-8, -7.1], [-8, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [11, 6], [-12.5, 6], [-12.5, -6], [11, -6]], h: 8, body: '#b9bcbd',
+        detail: (c) => {
+          c.fillStyle = shade('#b9bcbd', 0.14); rr(c, -11.5, -5, 20, 10, 1.5); c.fill();   // box roof
+          // transverse ribs: the tell of a cheap rental box body
+          c.strokeStyle = shade('#b9bcbd', -0.22); c.lineWidth = 0.5;
+          for (let x = -10.4; x <= 2.5; x += 2.3) { c.beginPath(); c.moveTo(x, -4.7); c.lineTo(x, 4.7); c.stroke(); }
+          // the one concession to daylight inside the box
+          c.fillStyle = 'rgba(238,242,245,0.55)'; rr(c, -5.4, -3.1, 6.4, 6.2, 1); c.fill();
+          c.strokeStyle = shade('#b9bcbd', -0.3); c.lineWidth = 0.4;
+          rr(c, -5.4, -3.1, 6.4, 6.2, 1); c.stroke();
+          c.fillStyle = shade('#b9bcbd', -0.2); rr(c, 5.5, -5.5, 6.5, 11, 1.5); c.fill();  // cab, a shade darker
+          c.fillStyle = '#1c2026'; c.fillRect(10.2, -4, 1.6, 8);                            // windscreen
+        },
+      },
+    ],
+    above: (c, t) => {
+      // a small extractor over the tail, turning over. The only moving part.
+      c.fillStyle = shade('#b9bcbd', -0.34);
+      c.beginPath(); c.ellipse(-8.5, -0.9, 1.5, 1.1, 0, 0, TAU); c.fill();
+      c.save(); c.translate(-8.5, -1.4); c.rotate(t * 1.3); c.scale(1, 0.55);
+      c.strokeStyle = '#e2e6e9'; c.lineWidth = 0.5;
+      for (let i = 0; i < 3; i++) {
+        const a = (i / 3) * TAU;
+        c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(a) * 1.25, Math.sin(a) * 1.25); c.stroke();
+      }
+      c.restore();
+    },
+  });
   I.drill = (ctx, t, o) => isoVehicle(ctx, t, o, {
     len: 26,
     under: (c, t, o) => {
