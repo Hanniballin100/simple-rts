@@ -26,13 +26,15 @@ body {
 
 #faction-label { color: #ffd75f; font-weight: bold; }
 #supply { color: #a9b4c0; }
-#hint { margin-left: auto; color: #6b7684; font-size: 11px; }
 
 /* Match clock. Deliberately quiet — tabular figures so it doesn't jitter as
    the digits change, and dim enough to ignore until you go looking for it.
    It reads state.time, which is derived from the tick counter, so it is match
-   time and not wall time: it does not drift, and two clients always agree. */
+   time and not wall time: it does not drift, and two clients always agree.
+   Carries the margin-left:auto that used to sit on the hint strip, so the
+   clock and the mute button stay pinned to the right of the bar. */
 #clock {
+  margin-left: auto;
   color: #6b7684;
   font-size: 11px;
   font-variant-numeric: tabular-nums;
