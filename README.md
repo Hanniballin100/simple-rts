@@ -70,6 +70,8 @@ Seven factions in four families, each with its own roster, passive trait, and si
 - Globalist air doctrine — drones and Black Helicopters roll out of the Motor Pool; the Air Force Base is for real planes: B-1 Lancers on day one, AC-130s and B-2s after the lab
 - Asymmetric economies — every non-alien faction mines with its own capped Mining Rig: the Globalists' armed Mining Rig, the Deep State's sharp-eyed Unmarked Rig, the flat-earth family's light-hauling but lightly armed Rig of Truth and Salvage Rig, and Hollow Earth's slow armored big-load Bore Rig; the alien factions have no miners at all: their HQ and Zero-Point Cores generate minerals
 - Faction-flavored buildings — the same construction slot costs and delivers differently per faction: Diesel Shacks are cheap and weak, Fusion Plants pricey powerhouses, Hollow Earth structures dug-in and tough
+- Fog of war that remembers rather than reports — ground you have explored shows the structures **as you last saw them**, frozen at the moment you looked away. A base built behind your back does not appear, damage you did not witness does not show, and a building destroyed out of sight stays on your map until you go back and find the crater. Only what you are watching right now is live
+- Forward Refineries are public: finishing one lights it up for every player on the map, and it is *not* a build anchor — it shortens the haul, it does not plant a second base
 - Fog of war and a full air game with dedicated anti-air
 - Artillery with minimum range, specialist infantry, faction-unique vehicles and aircraft
 - EVA-style speech announcer and synthesized sound effects (mute with M)
@@ -233,10 +235,9 @@ go, so it is now an integer hash.
 | Drag / click | Select units / buildings (click an enemy to inspect it); a box with army in it ignores workers |
 | Right-click | Move, harvest, attack, set rally point |
 | Right-click sidebar button | Cancel queued construction / training (full refund) |
-| A + click | Attack-move |
-| P / B / T / G / F / D / R | Build power / barracks / tower / AA tower / factory / airpad / tech |
+| E + click | Attack-move |
 | Ctrl+1–5, 1–5 | Assign / recall control groups |
-| Mouse wheel / edge / middle-drag / arrows | Camera |
+| WASD / arrows / mouse wheel / edge / middle-drag | Camera |
 | + / − / 0 | Zoom in / out / reset |
 | Q | Arm the superweapon, then click a target |
 | H | Jump to base |

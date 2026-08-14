@@ -61,7 +61,7 @@ let skimHintSeen = false;
 let announcedBuild = {};        // owner -> the construction job already announced
 let announcedSuper = new Set(); // building ids whose "ready" line has played
 let placing = null;          // building type being placed
-let attackMoveArmed = false; // 'A' pressed, next left-click is attack-move
+let attackMoveArmed = false; // 'E' pressed, next left-click is attack-move
 let abilityTargeting = null; // 'zone' | 'unit' while a faction power waits for a click
 let wallDrag = null;         // { x0, y0 } while dragging out a wall stretch (RA2-style)
 let plantArmed = false;      // 'E' pressed, next left-click sends infantry to plant an IED
@@ -298,17 +298,45 @@ let fogImg = null;           // ImageData reused every frame (fillRect per tile 
 const fogCanvas = document.createElement('canvas');
 const fogCtx = fogCanvas.getContext('2d');
 
+// ---------- remembered structures ----------
+// Explored ground is not a live feed. Fog state 1 means "I have been here",
+// and until this existed the renderer took that as licence to draw the CURRENT
+// building list over it — so you watched an enemy base go up brick by brick
+// through fog you had walked past once an hour ago, and watched buildings you
+// had never seen destroyed quietly disappear.
+//
+// What a side actually knows about ground it is not watching is what it saw
+// last time. memGhosts[owner] holds that: a frozen copy of each building, taken
+// on the tick its owner lost sight of it, and kept until they look again.
+//
+// This is VIEW state, deliberately. It lives outside `state` so hashState()
+// never sees it, and nothing in the simulation reads it — the AI's knowledge of
+// the map is unchanged. It is per-owner all the same, so the local screen is a
+// lookup into it rather than the thing that builds it.
+let memGhosts = [];          // owner -> Map(buildingId -> frozen copy)
+let memObs = [];             // owner -> Set(buildingId) observed on the last tick
+
 function initFog() {
   FW = Math.round(WORLD_W / FOG_TILE);
   FH = Math.round(WORLD_H / FOG_TILE);
   visAll = [];
-  for (const o of OWNERS) visAll[o] = new Uint8Array(FW * FH);
+  memGhosts = [];
+  memObs = [];
+  for (const o of OWNERS) {
+    visAll[o] = new Uint8Array(FW * FH);
+    memGhosts[o] = new Map();
+    memObs[o] = new Set();
+  }
   fogCanvas.width = FW;
   fogCanvas.height = FH;
   fogImg = fogCtx.createImageData(FW, FH);
 }
 // the local player's grid, for the renderer
 function localVis() { return visAll[localOwner] || new Uint8Array(FW * FH); }
+// ...and the local player's remembered structures. Same guard as localVis: the
+// minimap can paint a frame before initFog() has run.
+const NO_GHOSTS = new Map();
+function localGhosts() { return memGhosts[localOwner] || NO_GHOSTS; }
 
 
 function ensureAudio() {
@@ -588,15 +616,88 @@ function updateFog() {
     if (!v) continue;
     for (let i = 0; i < v.length; i++) if (v[i] === 0) v[i] = 1;
   }
+  // Beacons (the Refinery) are public: every side gets the ground under one
+  // opened to `explored`, so the structure draws instead of sitting under
+  // unscouted black. Same rule as the uplink above — 0 is raised to 1 and
+  // nothing is ever pulled DOWN from 2, so this cannot blind anyone's scouts.
+  // It lights the footprint and no more: you are told a refinery is there, not
+  // what is guarding it.
+  for (const b of state.buildings) {
+    if (!(b.hp > 0 && b.done && bstatsOf(b).beacon)) continue;
+    const r = Math.max(b.w, b.h) / 2 + FOG_TILE;
+    const tx0 = Math.max(0, Math.floor((b.x - r) / FOG_TILE));
+    const tx1 = Math.min(FW - 1, Math.floor((b.x + r) / FOG_TILE));
+    const ty0 = Math.max(0, Math.floor((b.y - r) / FOG_TILE));
+    const ty1 = Math.min(FH - 1, Math.floor((b.y + r) / FOG_TILE));
+    for (const o of OWNERS) {
+      const v = visAll[o];
+      if (!v) continue;
+      for (let ty = ty0; ty <= ty1; ty++) {
+        for (let tx = tx0; tx <= tx1; tx++) {
+          const i = ty * FW + tx;
+          if (v[i] === 0) v[i] = 1;
+        }
+      }
+    }
+  }
+  // sight is settled for this tick; freeze whatever just went out of view
+  refreshMemory();
 }
 
 function visibleTo(owner, e) {
   if (e.owner === owner) return true;
   if (hiddenFrom(e, owner)) return false; // stealthed/burrowed and undetected
+  // beacons (the Refinery) are public knowledge the moment they finish: no
+  // scouting required, and no forgetting them once built. Everyone watches the
+  // money move. Unfinished ones still have to be found the normal way — the
+  // claim is only staked once the thing is standing.
+  if (e.kind === 'building' && e.done && bstatsOf(e).beacon) return true;
   const t = tileStateFor(owner, e.x, e.y);
   return e.kind === 'building' ? t >= 1 : t === 2;
 }
 function visibleToPlayer(e) { return visibleTo(localOwner, e); }
+
+// Is `owner` LOOKING AT this right now, as opposed to merely having explored
+// the ground it stands on? visibleTo() answers the second question for
+// buildings (state 1 is enough) because that is what target acquisition and the
+// AI have always wanted. The screen wants the first: anything not observed is
+// drawn from memory instead of from the live object.
+function observing(owner, e) {
+  if (e.owner === owner) return true;
+  if (hiddenFrom(e, owner)) return false;
+  if (e.kind === 'building' && e.done && bstatsOf(e).beacon) return true; // public by design
+  return tileStateFor(owner, e.x, e.y) === 2;
+}
+function observingPlayer(e) { return observing(localOwner, e); }
+
+// Freeze what each side can no longer see. Runs with the fog, once per tick.
+//
+// The snapshot is taken on the LAST tick of observation, not every tick: while
+// you are watching a building the live object is what gets drawn, so a ghost
+// would be wasted work. That makes this cost one Set rebuild per owner rather
+// than a clone of every building for every owner, 30 times a second.
+function refreshMemory() {
+  const byId = new Map();
+  for (const b of state.buildings) if (b.hp > 0) byId.set(b.id, b);
+  for (const o of OWNERS) {
+    const ghosts = memGhosts[o], prev = memObs[o];
+    if (!ghosts) continue;
+    const now = new Set();
+    for (const b of byId.values()) {
+      if (!observing(o, b)) continue;
+      now.add(b.id);
+      ghosts.delete(b.id); // in plain sight: the real building supersedes memory
+    }
+    for (const id of prev) {
+      if (now.has(id)) continue;
+      const b = byId.get(id);
+      // Watched it fall? Then you know it is gone and no ghost is left behind.
+      // Only a building that was standing when you looked away is remembered.
+      if (b) ghosts.set(id, Object.assign({}, b, { ghost: true }));
+    }
+    memObs[o] = now;
+  }
+}
 
 // is this entity currently running silent? (drawn ghosted for its owner,
 // and for enemies whose detector has it pinned)
@@ -2820,10 +2921,19 @@ function patchIsSafe(owner, p) {
 }
 
 function depositTarget(u) {
-  // haul to the nearest drop-off: the HQ or any finished Refinery. A forward
+  // Haul to the nearest drop-off: the HQ or any finished Refinery. A forward
   // refinery near a distant field keeps the round-trip short.
-  return nearest(u, state.buildings, b => b.owner === u.owner && b.hp > 0 &&
-    (b.type === 'hq' || (bstatsOf(b).dropoff && b.done)));
+  //
+  // Ranked by rectDist, not centre distance: a wide HQ whose near wall is right
+  // there can sit "further away" than a small refinery across the yard once you
+  // measure to the middle, and the rig would trek past the open loading bay.
+  let best = null, bd = Infinity;
+  for (const b of state.buildings) {
+    if (!(b.owner === u.owner && b.hp > 0 && (b.type === 'hq' || (bstatsOf(b).dropoff && b.done)))) continue;
+    const d = rectDist(u, b);
+    if (d < bd) { bd = d; best = b; }
+  }
+  return best;
 }
 
 // distance from a unit to a building's actual footprint rectangle — radial
@@ -2832,6 +2942,23 @@ function rectDist(u, b) {
   const dx = Math.max(0, Math.abs(u.x - b.x) - b.w / 2);
   const dy = Math.max(0, Math.abs(u.y - b.y) - b.h / 2);
   return Math.hypot(dx, dy);
+}
+
+// The point on a building's perimeter a unit should actually walk to: its own
+// position, clamped onto the footprint grown by a small margin. Every wall is a
+// loading bay, so a rig coming up from the south unloads at the south wall.
+//
+// This matters more than it looks. moveToward() feeds its destination to A*,
+// and A* snaps a goal inside a building to freeCellNear(), which scans outward
+// rings top-left first — so aiming at the CENTRE sent every hauler on the map
+// around to the same north-west corner, whichever field it had come from. Aim
+// at the near wall and the snap lands on the near side.
+function dockPoint(u, b, margin = 6) {
+  const ex = b.w / 2 + margin, ey = b.h / 2 + margin;
+  return {
+    x: clamp(u.x, b.x - ex, b.x + ex),
+    y: clamp(u.y, b.y - ey, b.y + ey),
+  };
 }
 
 // ---------- airfield slots (RA2-style: 4 aircraft stationed per pad) ----------
@@ -3700,10 +3827,11 @@ function updateUnit(u, dt) {
     case 'return': {
       const depot = depositTarget(u);
       if (!depot) { u.order = { type: 'idle' }; break; }
-      const stop = entityRadius(depot) + 10;
+      // walk to the nearest WALL, not the middle: the whole footprint unloads
+      const dock = dockPoint(u, depot);
       // touching any wall of the depot counts — a hauler pressed against the
       // HQ by traffic or neighboring buildings must not be told "not close enough"
-      if (moveToward(u, depot.x, depot.y, dt, stop, depot.id) ||
+      if (moveToward(u, dock.x, dock.y, dt, UNIT_TYPES[u.type].r + 6, depot.id) ||
           rectDist(u, depot) <= UNIT_TYPES[u.type].r + 14) {
         // THE AUDIT: a hostile Front Company within reach of this drop-off
         // takes its cut off the top. The victim is told NOTHING — they simply
@@ -4210,7 +4338,8 @@ function advanceProduction(b, power, dt) {
 
 function aiPickSpot(owner, type) {
   // forward refinery: plant it right beside its chosen field (it's `anywhere`,
-  // so it needn't hug the home base — it becomes the new forward anchor)
+  // so it needn't hug the home base). It is not an anchor, so nothing else can
+  // be built off it — it shortens the haul and that is all it does.
   if (type === 'refinery' && ais[owner] && ais[owner]._refSpot) {
     const c = ais[owner]._refSpot;
     for (const rad of [75, 100, 130, 165]) {
@@ -4344,7 +4473,8 @@ function aiDesiredStructure(owner, counts, power) {
 
 // forward economy: once established, drop a Refinery next to a rich field that
 // sits far from every current drop-off, so haulers stop crossing the map. The
-// spot is stashed for aiPickSpot; the refinery anchors a new forward base.
+// spot is stashed for aiPickSpot. It buys a shorter haul, not a forward base:
+// the refinery is not a build anchor, so the AI's construction stays at home.
 function aiForwardRefinery(owner, ai, f, counts) {
   const refReq = bstats(owner, 'refinery').req;
   if (!(f.worker && (f.structs || []).includes('refinery') && !state.construction[owner] && ai.time > 75 &&
@@ -4943,8 +5073,11 @@ function selectAt(x, y) {
   // (disguised infiltrators are excluded — clicking would blow their cover)
   const eu = !u && !b && state.units.find(un => un.owner !== localOwner && un.hp > 0 && !hiddenFrom(un, localOwner) && !un.garrisoned &&
     visibleToPlayer(un) && clickHitsUnit(un, x, y, 4));
+  // observingPlayer, not visibleToPlayer: an intel card is LIVE readout — hp,
+  // queue, garrison — so it may only be opened on a structure actually in sight.
+  // Clicking a remembered one selects nothing, which is the honest answer.
   const eb = !u && !b && !eu && state.buildings.find(bd => bd.owner !== localOwner && bd.hp > 0 &&
-    visibleToPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
+    observingPlayer(bd) && Math.abs(bd.x - x) <= bd.w / 2 && Math.abs(bd.y - y) <= bd.h / 2);
   selection = u ? [u] : b ? [b] : eu ? [eu] : eb ? [eb] : [];
 }
 
@@ -5429,6 +5562,7 @@ function buildingBlurb(type) {
   else if (bt.power < 0) b.push(`draws ${-bt.power} power`);
   if (bt.income) b.push(`prints +${bt.income} minerals / 10s`);
   if (bt.dropoff) b.push('mineral drop-off — each one also raises your mining-rig cap by one');
+  if (bt.beacon) b.push('BEACON: every player sees it the moment it finishes, scouted or not — and it does NOT extend your build radius');
   if (bt.repairRate) b.push('repairs vehicles and aircraft parked on it');
   if (bt.cost) b.push(`damaged, it can be mended: select it and hit Repair (about $${Math.round(bt.cost * REPAIR_COST)} for a full rebuild)`);
   if (bt.healAura) b.push('heals nearby friendlies');
@@ -6204,7 +6338,7 @@ function panelForSelection(addAction) {
   }
   if (selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
     const btn = document.createElement('button');
-    btn.textContent = 'Attack-Move [A]';
+    btn.textContent = 'Attack-Move [E]';
     btn.onclick = () => { attackMoveArmed = true; refreshPanel(); };
     addAction(btn);
   }
@@ -6350,10 +6484,17 @@ function draw() {
   for (const w of state.armorWrecks) {
     if (tileState(w.x, w.y) !== 0 && inView(w.x, w.y, 30)) drawList.push({ d: w.x + w.y - 10, k: 5, e: w });
   }
+  // buildings you are actually looking at, drawn live...
   for (const b of state.buildings) {
-    if (b.hp > 0 && visibleToPlayer(b) && inView(b.x, b.y, (b.w + b.h) / 2 + 60)) {
+    if (b.hp > 0 && observingPlayer(b) && inView(b.x, b.y, (b.w + b.h) / 2 + 60)) {
       drawList.push({ d: b.x + b.y, k: 1, e: b });
     }
+  }
+  // ...and the rest of what you know about, drawn as you last saw it. A ghost
+  // only exists for a building nobody on this screen is watching, so these two
+  // loops can never both produce the same structure.
+  for (const g of localGhosts().values()) {
+    if (inView(g.x, g.y, (g.w + g.h) / 2 + 60)) drawList.push({ d: g.x + g.y, k: 1, e: g });
   }
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
@@ -6375,7 +6516,12 @@ function draw() {
     if (it.k === 0) drawPatchIso(it.e);
     else if (it.k === 4) drawDigSite(it.e);
     else if (it.k === 5) drawArmorWreck(it.e);
-    else if (it.k === 1) drawBuildingIso(it.e);
+    else if (it.k === 1) {
+      // memory reads as memory: a remembered structure is drawn a shade thinner
+      // than one you have eyes on, so a stale base never passes for live intel
+      if (it.e.ghost) { ctx.save(); ctx.globalAlpha = 0.7; drawBuildingIso(it.e); ctx.restore(); }
+      else drawBuildingIso(it.e);
+    }
     else drawUnitIso(it.e);
   }
 
@@ -7554,9 +7700,15 @@ function drawMinimap() {
     mmCtx.restore();
   }
   for (const b of state.buildings) {
-    if (b.hp <= 0 || !visibleToPlayer(b)) continue;
+    if (b.hp <= 0 || !observingPlayer(b)) continue;
     mmCtx.fillStyle = COLORS[b.owner];
     mmCtx.fillRect(b.x * sx - 3, b.y * sy - 3, 6, 6);
+  }
+  // remembered bases stay plotted where you last saw them — the radar is fed
+  // by the same knowledge the main view is, or the two would disagree
+  for (const g of localGhosts().values()) {
+    mmCtx.fillStyle = COLORS[g.owner];
+    mmCtx.fillRect(g.x * sx - 3, g.y * sy - 3, 6, 6);
   }
   for (const u of state.units) {
     if (u.hp <= 0 || u.garrisoned || !visibleToPlayer(u)) continue;
@@ -7975,10 +8127,10 @@ function frame(now) {
   if (started && !state.over) {
     // camera pans on wall time: it is view-only and never enters the sim
     const pan = 520 * real / cam.zoom;
-    if (keys['arrowleft']) cam.x -= pan;
-    if (keys['arrowright']) cam.x += pan;
-    if (keys['arrowup']) cam.y -= pan;
-    if (keys['arrowdown']) cam.y += pan;
+    if (keys['arrowleft'] || keys['a']) cam.x -= pan;
+    if (keys['arrowright'] || keys['d']) cam.x += pan;
+    if (keys['arrowup'] || keys['w']) cam.y -= pan;
+    if (keys['arrowdown'] || keys['s']) cam.y += pan;
     clampCam();
 
     accumulator += real;
@@ -8015,7 +8167,11 @@ function frame(now) {
     Particles.update(real);
 
     const beforeLen = selection.length;
-    selection = selection.filter(e => e.hp > 0);
+    // Dead things drop out — and so does anything of someone else's you have
+    // stopped watching. The panel is a LIVE readout (hp, queue, garrison), so
+    // holding an enemy selected while they walk into the dark would have been a
+    // window straight through the fog memory. Your own never fails this test.
+    selection = selection.filter(e => e.hp > 0 && observingPlayer(e));
     if (selection.length !== beforeLen) refreshPanel();
 
     const low = powerOf(localOwner).low;
@@ -8537,14 +8693,7 @@ window.addEventListener('keydown', e => {
   // Q: arm the superweapon, then click the target
   if (k === 'q') armSuperweaponHotkey();
 
-  if (STRUCT_HOTKEYS[k]) {
-    let type = STRUCT_HOTKEYS[k];
-    if (type === 'TOWER') type = facOf(localOwner).tower;
-    if (type === 'AATOWER') type = facOf(localOwner).aaTower;
-    sidebarStructureClick(type);
-  }
-
-  if (k === 'a' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
+  if (k === 'e' && selection.some(s => s.kind === 'unit' && UNIT_TYPES[s.type].role === 'combat')) {
     attackMoveArmed = true;
     refreshPanel();
   }

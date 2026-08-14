@@ -65,9 +65,9 @@ const WEAPON_STYLE = {
 // scaffold, tarps, aerials) the way hollow has its own despite sharing EARTHERS.
 const FAMILY_STYLE = { flat: 'flat', resistance: 'scrap', glob: 'glob', deep: 'glob', hollow: 'hollow', grey: 'alien', reptilian: 'alien' };
 
-// build hotkeys. NOTE: 'm' is taken globally by mute and 'h' by centre-on-home,
-// so the Mechanicum answers to 'c' (consecration) rather than its own initial.
-const STRUCT_HOTKEYS = { p: 'powerplant', b: 'barracks', t: 'TOWER', g: 'AATOWER', f: 'factory', d: 'airpad', r: 'tech', c: 'mechanicum' };
+// Build hotkeys are GONE — WASD pans the camera now, and a letter grid that
+// half-collides with the pan keys is worse than no letter grid at all. Build
+// from the sidebar; the only letters left are the ones WASD does not want.
 
 // ---------- factions ----------
 
@@ -798,9 +798,16 @@ const BUILDING_TYPES = {
   // not a runaway — the late-game answer for a faction with no field income.
   datacenter:     { name: 'Data Center', hp: 380, w: 54, h: 54, cost: 170, buildTime: 15, sight: 180, power: -30, income: 16, cap: 4, req: 'tech' },
   // Refinery: a forward mineral drop-off. Workers deposit here instead of
-  // hauling all the way home, so a base can push out to distant fields. Doubles
-  // as a build-radius anchor (anchor) and can be planted off-grid (anywhere).
-  refinery:       { name: 'Refinery', hp: 440, w: 58, h: 58, cost: 150, buildTime: 13, sight: 210, power: -10, dropoff: true, anchor: true, anywhere: true, cap: 2, req: 'tech' },
+  // hauling all the way home, so a base can push out to distant fields, and it
+  // can be planted off-grid (anywhere).
+  //
+  // It is deliberately NOT an anchor: a refinery next to a far field buys you a
+  // shorter haul, not a free second base — walk a power plant out there if you
+  // want to build off it. And it is a `beacon`: everyone sees it, scouted or
+  // not. A forward refinery is a claim staked in the open, and the whole map is
+  // told where the money is going. Together those make planting one a
+  // commitment rather than a freebie.
+  refinery:       { name: 'Refinery', hp: 440, w: 58, h: 58, cost: 150, buildTime: 13, sight: 210, power: -10, dropoff: true, anywhere: true, beacon: true, cap: 2, req: 'tech' },
   // fortification kind: walls block ground pathing outright; gates pass the
   // owner's units and block everyone else. wallKind lets segments snap flush
   // against each other (normal structures keep a 32px walkway apart).
@@ -1001,4 +1008,23 @@ for (const table of [BUILDING_TYPES, ...Object.values(FBUILD)]) {
     b.hp = Math.round(b.hp * PACE.hp);
     if (b.buildTime) b.buildTime = Math.round(b.buildTime * PACE.buildTime);
   }
+}
+
+// Ground bodies, slimmed. `r` is one number doing three jobs — how far a unit
+// shoulders its neighbours apart, how wide a berth it gives a building corner,
+// and how big a target it is to crush — and the value that felt right for the
+// first was fat for the second: a column threading a built-up base spent its
+// time squeezing past corners instead of walking.
+//
+// Measured, not guessed: 16 rigs marched through an AI base across five seeds.
+// 1.0 -> 526 ticks, 0.85 -> 502, 0.8 -> 496, 0.7 -> 493, 0.55 -> 485. The curve
+// flattens hard after 0.8 while sprites start visibly overlapping, so 0.8 is
+// where this sits. Worth knowing what it does NOT fix: nothing was ever getting
+// STUCK in those runs (0 wedged out of 80 at every scale) — this buys smoother,
+// slightly faster movement, not a cure for gridlock.
+//
+// Air is untouched: nothing up there paths around a wall.
+const BODY_SCALE = 0.8;
+for (const t of Object.values(UNIT_TYPES)) {
+  if (!t.flying) t.r = Math.max(4, Math.round(t.r * BODY_SCALE));
 }
