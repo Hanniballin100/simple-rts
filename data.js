@@ -368,6 +368,16 @@ const PROOF_FILM_DOORSTEP = 11; // ...and shoving a lens in their face (high sus
 const PROOF_SUSP_DISCREET = 10;
 const PROOF_SUSP_DOORSTEP = 70;
 const PROOF_BATTLE_BONUS = 3;   // extra proof per enemy body that dies on camera
+// A STORY ONLY BREAKS ONCE. Every enemy structure holds a finite amount of
+// footage, and once it has been covered there is nothing left to film there —
+// so a Journalist cannot park on the nearest shed and farm it forever. Getting
+// paid means going deeper into their base for a structure nobody has shot yet.
+// Sized a little above one camera load (PROOF_CARRY), so a building is roughly
+// one trip and then you move on.
+const STORY_PER_BUILDING = 55;
+// ...except the things that are genuinely a bigger story. Their HQ, their
+// research lab and their superweapon are worth going back for.
+const STORY_HEADLINE = 110;
 
 // ---------- BROADCASTS (what proof buys) ----------
 // Spent at the Broadcast Station. Timed ones are pressure; permanent ones are

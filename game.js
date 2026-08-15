@@ -1082,6 +1082,15 @@ function filmSuspicion(u) {
   return stanceOf(u) === 'doorstep' ? PROOF_SUSP_DOORSTEP : PROOF_SUSP_DISCREET;
 }
 function journoCap(u) { return PROOF_CARRY; }
+// How much footage this structure has left in it. Headline targets — the seat
+// of government, the research lab, the doomsday device — are worth more than
+// another shot of a wall segment.
+function storyIn(b) {
+  const bt = bstatsOf(b);
+  const total = (b.type === 'hq' || b.type === 'tech' || bt.superweapon)
+    ? STORY_HEADLINE : STORY_PER_BUILDING;
+  return Math.max(0, total - (b.filmed || 0));
+}
 // where footage can be handed in: a Broadcast Station, or a News Van parked
 // forward (the same favour the Chuck Wagon does the Marksmen)
 function proofDropoffs(owner) {
@@ -4390,16 +4399,34 @@ function updateUnit(u, dt) {
           (u.proof || 0) >= journoCap(u)) {
         u.filming = false; u.order = { type: 'idle' }; break;
       }
+      // that story has been told — go and find another one
+      if (storyIn(tgt) <= 0) {
+        u.filming = false; u.order = { type: 'idle' };
+        if (u.owner === localOwner) eva('Nothing new here — find another target');
+        break;
+      }
       const reach = entityRadius(tgt) + 26;
       if (moveToward(u, tgt.x, tgt.y, dt, reach, tgt.id)) {
         u.filming = true;
-        u.proof = Math.min(journoCap(u), (u.proof || 0) + filmRate(u) * dt);
-        if ((u.proof || 0) >= journoCap(u)) {
+        // a building only ever gives up what it has left, and what it gives is
+        // gone for good — this is what stops a Journalist farming one shed
+        const got = Math.min(filmRate(u) * dt, storyIn(tgt),
+                             journoCap(u) - (u.proof || 0));
+        tgt.filmed = (tgt.filmed || 0) + got;
+        u.proof = (u.proof || 0) + got;
+        const full = (u.proof || 0) >= journoCap(u);
+        if (full || storyIn(tgt) <= 0) {
           u.filming = false;
-          if (u.owner === localOwner) eva('Footage complete — get it home');
-          // full camera walks itself back rather than standing in their base
-          const drop = nearest(u, proofDropoffs(u.owner), () => true);
-          u.order = drop ? { type: 'filepiece', destId: drop.id } : { type: 'idle' };
+          if (u.owner === localOwner) {
+            eva(full ? 'Footage complete — get it home' : 'That is the whole story here');
+          }
+          // A full camera walks itself back rather than standing in their base.
+          // A drained target with room left in the camera just stops, so you can
+          // send them to the next building instead of trekking home half empty.
+          if (full) {
+            const drop = nearest(u, proofDropoffs(u.owner), () => true);
+            u.order = drop ? { type: 'filepiece', destId: drop.id } : { type: 'idle' };
+          } else u.order = { type: 'idle' };
         }
       } else u.filming = false;
       break;
@@ -6006,8 +6033,13 @@ function issueCommand(owner, unitIds, x, y) {
   if (filmTgt) {
     const crew = units.filter(u => UNIT_TYPES[u.type].investigator && (u.proof || 0) < journoCap(u));
     if (crew.length) {
-      for (const u of crew) u.order = { type: 'film', destId: filmTgt.id };
-      sfx('click'); return;
+      if (storyIn(filmTgt) <= 0) {
+        if (owner === localOwner) eva('Already covered — nothing left to film there');
+      } else {
+        for (const u of crew) u.order = { type: 'film', destId: filmTgt.id };
+        sfx('click');
+      }
+      return;
     }
   }
   // right-click a Broadcast Station (or News Van) carrying footage: file it
@@ -7068,6 +7100,12 @@ function refreshPanel() {
       if (bt.dmg) parts.push(`DMG ${bt.dmg} every ${bt.cooldown}s`, `Range ${bt.atkRange}`, bt.targets === 'air' ? 'Anti-air only' : 'Ground only');
       if (bt.power > 0) parts.push(`+${bt.power} power`);
       if (bt.income) parts.push(`+${bt.income} minerals / 10s`);
+      // how much story is left in it, for a side that actually films. Lets you
+      // tell a fresh target from a spent one without walking a Journalist over.
+      if (isFlat(localOwner) && first.done) {
+        const left = Math.round(storyIn(first));
+        parts.push(left > 0 ? `🎞 ${left} footage left` : '🎞 already covered');
+      }
       elSelInfo.textContent = parts.join('  |  ');
     }
     return;
