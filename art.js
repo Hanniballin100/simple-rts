@@ -1740,6 +1740,12 @@
   const BUILDING_DESIGN = {
     hq: [84, 84], powerplant: [56, 56], barracks: [64, 64], factory: [74, 62],
     mechanicum: [58, 54],
+    // the compound's farm and its field kit — authored large so the farmhouse,
+    // silo and crop rows stay legible, then scaled down to the real footprint
+    // authored at 200x172 and drawn into a 150x129 footprint, so it scales DOWN
+    // to 0.75. Deliberately that way round: downscaling only ever sharpens
+    // linework, where magnifying a small drawing is what made it look coarse.
+    homestead: [200, 172], preppercache: [30, 24], bushplane: [72, 56],
   };
 
   // ================= HQ =================
@@ -3047,6 +3053,410 @@
     sandbag(ctx, -13, 14, 0.3);
     sandbag(ctx, -5, 16, -0.15);
   };
+  // ================= Homestead =================
+  // The farm the whole faction runs on, and it has to read as a HOME at a
+  // glance. Authored at its full 200x172 footprint (BUILDING_DESIGN matches it),
+  // so the stroke weights here are the same fine weights the rest of the
+  // compound uses rather than a small drawing magnified to fit.
+  // Occupancy is visible: lit windows, chimney smoke and a full laundry line
+  // when the yard is worked; shutters, a cold chimney and a bare line when it
+  // has been mustered out.
+  B.homestead = (ctx, t, o) => {
+    pad(ctx, o);
+    const manned = (o.garrison || 0) > 0;
+    // ---- worked ground: two crop blocks, finely furrowed ----
+    for (const [fx, fy, fw, fh] of [[10, -74, 78, 66], [10, 8, 78, 62]]) {
+      ctx.fillStyle = '#4c4a2e';
+      rr(ctx, fx, fy, fw, fh, 3); ctx.fill();
+      ctx.strokeStyle = 'rgba(40,38,24,0.5)'; ctx.lineWidth = 0.8; ctx.stroke();
+      ctx.strokeStyle = manned ? '#6f7a3a' : '#55583a';
+      ctx.lineWidth = 0.9;
+      for (let ry = fy + 5; ry < fy + fh - 2; ry += 4.6) {
+        ctx.beginPath(); ctx.moveTo(fx + 3, ry); ctx.lineTo(fx + fw - 3, ry); ctx.stroke();
+      }
+      // one row left fallow so the field is not a perfect grid
+      ctx.strokeStyle = 'rgba(96,82,58,0.35)'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(fx + 3, fy + fh * 0.42); ctx.lineTo(fx + fw - 3, fy + fh * 0.42); ctx.stroke();
+    }
+    // headland track between the blocks, wheel ruts down it
+    ctx.fillStyle = 'rgba(96,82,58,0.5)';
+    rr(ctx, 4, -8, 88, 14, 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(70,58,40,0.45)'; ctx.lineWidth = 0.7;
+    for (const ry of [-4, 1]) { ctx.beginPath(); ctx.moveTo(6, ry); ctx.lineTo(90, ry); ctx.stroke(); }
+    // ---- rail fence around the holding: two rails, close posts ----
+    ctx.strokeStyle = '#6b5a3f'; ctx.lineWidth = 0.9;
+    for (const seg of [[-92, 76, 92, 76], [-92, -76, -92, 76], [92, -76, 92, 76], [-92, -76, 92, -76]]) {
+      ctx.beginPath(); ctx.moveTo(seg[0], seg[1]); ctx.lineTo(seg[2], seg[3]); ctx.stroke();
+    }
+    for (let i = -92; i <= 92; i += 13) {
+      billboard(ctx, i, 76, () => {
+        ctx.strokeStyle = '#5c4d36'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -7); ctx.stroke();
+        ctx.strokeStyle = 'rgba(107,90,63,0.8)'; ctx.lineWidth = 0.7;
+        ctx.beginPath(); ctx.moveTo(-6.5, -2.4); ctx.lineTo(6.5, -2.4);
+        ctx.moveTo(-6.5, -5.2); ctx.lineTo(6.5, -5.2); ctx.stroke();
+      });
+    }
+    // ---- the farmhouse ----
+    gabled(ctx, -88, -62, 54, 44, 13, 13, '#9d8f70', '#7c6b52', { axis: 'x' });
+    ctx.strokeStyle = 'rgba(58,48,34,0.32)'; ctx.lineWidth = 0.5;   // roof shingling
+    for (let i = -84; i < -36; i += 5) { ctx.beginPath(); ctx.moveTo(i, -44); ctx.lineTo(i, -22); ctx.stroke(); }
+    // porch roof on posts along the SE face
+    ctx.fillStyle = 'rgba(80,68,48,0.75)';
+    ctx.beginPath();
+    ctx.moveTo(-88, -18); ctx.lineTo(-34, -18); ctx.lineTo(-42, 0); ctx.lineTo(-80, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(58,48,34,0.4)'; ctx.lineWidth = 0.6; ctx.stroke();
+    for (const px of [-78, -60, -44]) {
+      billboard(ctx, px, -1, () => {
+        ctx.strokeStyle = '#6b5a3f'; ctx.lineWidth = 1.1;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -12); ctx.stroke();
+      });
+    }
+    // front face: door, barred windows, and shutters when nobody is home
+    billboard(ctx, -61, -18, () => {
+      ctx.fillStyle = '#3f3527'; rr(ctx, -4, -15, 8, 15, 0.6); ctx.fill();
+      ctx.strokeStyle = '#5c4d36'; ctx.lineWidth = 0.5; ctx.stroke();
+      ctx.fillStyle = '#8b7a55'; ctx.beginPath(); ctx.arc(2.4, -7.4, 0.7, 0, TAU); ctx.fill();
+      for (const wx of [-16, 11]) {
+        ctx.fillStyle = manned ? 'rgba(255,214,140,0.85)' : '#3a3529';
+        rr(ctx, wx, -16, 6.4, 6.4, 0.5); ctx.fill();
+        ctx.strokeStyle = '#6b5a3f'; ctx.lineWidth = 0.6; ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(wx + 3.2, -16); ctx.lineTo(wx + 3.2, -9.6);
+        ctx.moveTo(wx, -12.8); ctx.lineTo(wx + 6.4, -12.8);
+        ctx.stroke();
+        if (!manned) {
+          ctx.strokeStyle = '#7a6849'; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(wx - 0.6, -14.4); ctx.lineTo(wx + 7, -11.2); ctx.stroke();
+        }
+      }
+    });
+    // chimney, and smoke while anyone is home
+    billboard(ctx, -76, -46, () => {
+      ctx.fillStyle = '#7a6a52'; rr(ctx, -3, -26, 6, 10, 0.5); ctx.fill();
+      ctx.fillStyle = '#5f5340'; ctx.fillRect(-3.6, -26, 7.2, 1.6);
+    });
+    if (manned) {
+      for (let i = 0; i < 4; i++) {
+        const p = (t * 0.42 + i * 0.25) % 1;
+        ctx.fillStyle = 'rgba(200,196,186,' + (0.28 * (1 - p)).toFixed(3) + ')';
+        ctx.beginPath();
+        ctx.arc(-76 + Math.sin(p * 5 + i) * 6, -84 - p * 26, 2.4 + p * 5, 0, TAU);
+        ctx.fill();
+      }
+    }
+    // ---- the barn ----
+    gabled(ctx, -90, 22, 52, 42, 12, 14, '#8a5f45', '#6a4a36', { axis: 'x' });
+    ctx.strokeStyle = 'rgba(50,34,24,0.32)'; ctx.lineWidth = 0.5;
+    for (let i = -86; i < -40; i += 5) { ctx.beginPath(); ctx.moveTo(i, 42); ctx.lineTo(i, 62); ctx.stroke(); }
+    billboard(ctx, -64, 64, () => {
+      ctx.fillStyle = '#2f2820'; rr(ctx, -13, -20, 26, 20, 0.8); ctx.fill();
+      ctx.strokeStyle = '#a8886a'; ctx.lineWidth = 0.7;                 // cross-braced doors
+      ctx.beginPath();
+      ctx.moveTo(-13, -20); ctx.lineTo(13, 0); ctx.moveTo(13, -20); ctx.lineTo(-13, 0);
+      ctx.moveTo(0, -20); ctx.lineTo(0, 0); ctx.stroke();
+      ctx.fillStyle = '#6a4a36'; ctx.fillRect(-14, -22.5, 28, 2.5);     // door rail
+      ctx.fillStyle = '#c8bb96';                                        // hay loft opening
+      ctx.beginPath();
+      ctx.moveTo(-5, -30); ctx.lineTo(5, -30); ctx.lineTo(5, -24); ctx.lineTo(-5, -24);
+      ctx.closePath(); ctx.fill();
+    });
+    // ---- grain silo: hooped drum, conical cap, service ladder ----
+    drum3d(ctx, -18, -50, 15, '#9a927e', 32);
+    billboard(ctx, -18, -50, () => {
+      ctx.fillStyle = '#6e6553';
+      ctx.beginPath(); ctx.moveTo(-15.6, -32); ctx.lineTo(0, -46); ctx.lineTo(15.6, -32);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.26)'; ctx.lineWidth = 0.6;
+      for (let i = -12; i <= 12; i += 4) { ctx.beginPath(); ctx.moveTo(i, -32); ctx.lineTo(i, -4); ctx.stroke(); }
+      for (const ry of [-26, -18, -10]) { ctx.beginPath(); ctx.moveTo(-14, ry); ctx.lineTo(14, ry); ctx.stroke(); }
+      ctx.strokeStyle = '#7c7461'; ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(9, -4); ctx.lineTo(9, -31); ctx.stroke();
+      for (let ry = -8; ry > -30; ry -= 4) { ctx.beginPath(); ctx.moveTo(7.4, ry); ctx.lineTo(10.6, ry); ctx.stroke(); }
+    });
+    // ---- yard clutter: the compound's mark on a farm ----
+    sandbag(ctx, -66, 4, 0.2);
+    sandbag(ctx, -50, 6, -0.1);
+    sandbag(ctx, -58, 10, 0.05);
+    drum3d(ctx, -96, -16, 8, '#5f7a6a', 12);
+    crateBox(ctx, -28, 16, 11);
+    crateBox(ctx, -14, 24, 9);
+    crateBox(ctx, -30, 30, 8);
+    fuelDrum(ctx, -6, 40, '#6a5a34');
+    fuelDrum(ctx, 2, 46, '#6a5a34');
+    // chicken run against the barn
+    ctx.fillStyle = 'rgba(120,110,84,0.25)';
+    rr(ctx, -34, 44, 26, 22, 2); ctx.fill();
+    ctx.strokeStyle = 'rgba(150,140,110,0.55)'; ctx.lineWidth = 0.6; ctx.stroke();
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = '#d8d2c4';
+      ctx.beginPath(); ctx.ellipse(-29 + i * 8, 50 + (i % 2) * 9, 1.8, 1.3, 0, 0, TAU); ctx.fill();
+    }
+    // laundry line from the porch to the silo while the family is in
+    if (manned) {
+      ctx.strokeStyle = 'rgba(210,205,190,0.5)'; ctx.lineWidth = 0.5;
+      ctx.beginPath(); ctx.moveTo(-44, -4); ctx.lineTo(-20, -30); ctx.stroke();
+      for (let i = 0; i < 4; i++) {
+        const f = 0.18 + i * 0.2;
+        const lx = -44 + 24 * f, ly = -4 - 26 * f + Math.sin(t + i) * 0.6;
+        ctx.fillStyle = ['#c9c2ae', '#8fa0b4', '#b9a894', '#cfc6b0'][i];
+        rr(ctx, lx - 2.4, ly, 4.8, 6.4, 0.5); ctx.fill();
+      }
+    }
+  };
+  // ================= Prepper Cache =================
+  // Deliberately small and scruffy — it should read as something BURIED, not
+  // built: a footlocker in a scraped hollow, a tarp corner pinned under rocks,
+  // and a stake so its owner can find it again. `kits` thins the pile as it is
+  // drawn down, so a nearly-spent cache looks nearly spent.
+  B.preppercache = (ctx, t, o) => {
+    const kits = o.kits === undefined ? 4 : o.kits;
+    // scraped dirt hollow with a spoil ring
+    ctx.fillStyle = 'rgba(58,48,34,0.55)';
+    ctx.beginPath(); ctx.ellipse(0, 2, 15, 9, 0, 0, TAU); ctx.fill();
+    ctx.fillStyle = 'rgba(96,82,58,0.5)';
+    ctx.beginPath(); ctx.ellipse(0, 2, 15, 9, 0, 0, TAU); ctx.stroke();
+    // the locker itself, sunk so only the lid and one flank show
+    isoBox(ctx, -8, -5, 16, 10, 4, '#5e6a4c', { r: 1 });
+    ctx.strokeStyle = '#3d4633'; ctx.lineWidth = 0.7;
+    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(8, 0); ctx.stroke();   // lid seam
+    // strap bands + a padlock hasp
+    ctx.strokeStyle = '#413a2c'; ctx.lineWidth = 1;
+    for (const bx of [-4, 3]) { ctx.beginPath(); ctx.moveTo(bx, -5); ctx.lineTo(bx, 5); ctx.stroke(); }
+    ctx.fillStyle = '#8b939e';
+    ctx.beginPath(); ctx.arc(0, -1, 1.2, 0, TAU); ctx.fill();
+    // tarp corner pinned under stones, flapping a little
+    ctx.fillStyle = 'rgba(74,86,62,0.85)';
+    ctx.beginPath();
+    ctx.moveTo(-13, 4); ctx.lineTo(-4, 1);
+    ctx.lineTo(-3, 7 + Math.sin(t * 1.4) * 0.5); ctx.lineTo(-12, 9);
+    ctx.closePath(); ctx.fill();
+    for (const [sx, sy] of [[-12.5, 4.5], [-11.5, 8.5]]) {
+      ctx.fillStyle = '#6b6455';
+      ctx.beginPath(); ctx.ellipse(sx, sy, 1.8, 1.2, 0, 0, TAU); ctx.fill();
+    }
+    // Stock still in it: ammo cans standing on the propped-open lid, one per
+    // remaining kit. They sit PROUD of the locker on purpose — the whole point
+    // of the drawing is that you can count a cache's remaining kits from across
+    // the field and decide whether it is worth walking to.
+    billboard(ctx, -1, -5, () => {
+      for (let i = 0; i < kits; i++) {
+        const cx = -6.5 + (i % 2) * 6.4, cy = -7.6 - Math.floor(i / 2) * 4.2;
+        ctx.fillStyle = i % 2 ? '#59653f' : '#4a5636';
+        rr(ctx, cx, cy, 5.4, 3.8, 0.6); ctx.fill();
+        ctx.strokeStyle = '#2f3826'; ctx.lineWidth = 0.5; ctx.stroke();
+        ctx.strokeStyle = '#7d8a5e'; ctx.lineWidth = 0.5;                 // carry handle
+        ctx.beginPath(); ctx.moveTo(cx + 1.6, cy); ctx.lineTo(cx + 3.8, cy); ctx.stroke();
+      }
+    });
+    // marker stake with a rag, so the owner can find it in the dark
+    billboard(ctx, 11, 4, () => {
+      ctx.strokeStyle = '#6b5a3f'; ctx.lineWidth = 1.1;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -9); ctx.stroke();
+      ctx.fillStyle = '#a8452f';
+      ctx.beginPath();
+      ctx.moveTo(0, -9); ctx.lineTo(4 + Math.sin(t * 2) * 0.8, -7.6); ctx.lineTo(0, -6.2);
+      ctx.closePath(); ctx.fill();
+    });
+  };
+  // ================= Broadcast Station =================
+  // A shed with a transmitter mast bolted to it and a satellite dish that never
+  // stops turning — the compound's one piece of outward-facing infrastructure.
+  // The stack of film cans against the wall grows with the footage banked, so
+  // you can read how much an enemy stands to burn before they burn it.
+  B.broadcast = (ctx, t, o) => {
+    pad(ctx, o);
+    const full = clamp((o.proof || 0) / 250, 0, 1);
+    // plank shed with a corrugated roof
+    isoBox(ctx, -22, -16, 34, 30, 15, '#7d7358', { r: 2 });
+    ctx.strokeStyle = 'rgba(58,48,34,0.35)'; ctx.lineWidth = 0.5;
+    for (let i = -20; i < 12; i += 4) { ctx.beginPath(); ctx.moveTo(i, -16); ctx.lineTo(i, 14); ctx.stroke(); }
+    // door + a window lit whenever it is on air
+    billboard(ctx, -6, 15, () => {
+      ctx.fillStyle = '#3a3227'; ctx.fillRect(-4, -12, 7, 12);
+      ctx.fillStyle = o.on ? 'rgba(255,214,140,0.85)' : '#3a3529';
+      ctx.fillRect(5, -13, 5, 4.5);
+      ctx.strokeStyle = '#5c4d36'; ctx.lineWidth = 0.5; ctx.strokeRect(5, -13, 5, 4.5);
+    });
+    // guyed lattice mast with a red aircraft-warning lamp
+    billboard(ctx, 14, -8, () => {
+      ctx.strokeStyle = '#9aa2ac'; ctx.lineWidth = 1.4;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -34); ctx.stroke();
+      ctx.lineWidth = 0.6;
+      for (let y = -4; y > -34; y -= 5) {          // lattice cross-bracing
+        ctx.beginPath();
+        ctx.moveTo(-2, y); ctx.lineTo(2, y - 2.5);
+        ctx.moveTo(2, y); ctx.lineTo(-2, y - 2.5);
+        ctx.moveTo(-2, y); ctx.lineTo(2, y);
+        ctx.stroke();
+      }
+      ctx.strokeStyle = 'rgba(154,162,172,0.45)';  // guy wires
+      ctx.beginPath();
+      ctx.moveTo(0, -32); ctx.lineTo(9, -2); ctx.moveTo(0, -32); ctx.lineTo(-9, -2);
+      ctx.stroke();
+      if (Math.sin(t * 2.6) > 0) {
+        ctx.fillStyle = '#ff5f5f';
+        ctx.beginPath(); ctx.arc(0, -35, 1.6, 0, TAU); ctx.fill();
+        ctx.fillStyle = 'rgba(255,95,95,0.22)';
+        ctx.beginPath(); ctx.arc(0, -35, 4.5, 0, TAU); ctx.fill();
+      }
+      // transmission rings pulsing off the mast while it has power
+      if (o.on) {
+        for (let i = 0; i < 3; i++) {
+          const p = ((t * 0.5 + i * 0.33) % 1);
+          ctx.strokeStyle = `rgba(180,220,255,${(0.35 * (1 - p)).toFixed(3)})`;
+          ctx.lineWidth = 0.9;
+          ctx.beginPath(); ctx.ellipse(0, -30, 4 + p * 20, (4 + p * 20) * 0.35, 0, 0, TAU); ctx.stroke();
+        }
+      }
+    });
+    // roof dish, slowly sweeping
+    billboard(ctx, -14, -14, () => {
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, -15); ctx.lineTo(0, -21); ctx.stroke();
+      ctx.save(); ctx.translate(0, -22); ctx.scale(Math.sin(t * 0.5), 1);
+      ctx.fillStyle = '#d8d2c4';
+      ctx.beginPath(); ctx.ellipse(0, 0, 5, 3.4, -0.4, 0, TAU); ctx.fill();
+      ctx.strokeStyle = '#8b939e'; ctx.lineWidth = 0.5; ctx.stroke();
+      ctx.restore();
+    });
+    // the vault: film cans stacked against the shed, one tier per 25% banked
+    const tiers = Math.ceil(full * 4);
+    for (let i = 0; i < tiers; i++) {
+      billboard(ctx, 16 + (i % 2) * 7, 12 - Math.floor(i / 2) * 5, () => {
+        ctx.fillStyle = i % 2 ? '#5a5240' : '#6a6149';
+        ctx.beginPath(); ctx.ellipse(0, -2, 4, 1.6, 0, 0, TAU); ctx.fill();
+        ctx.fillStyle = '#4a4438'; ctx.fillRect(-4, -3.4, 8, 1.6);
+        ctx.strokeStyle = '#2f2b22'; ctx.lineWidth = 0.4;
+        ctx.beginPath(); ctx.ellipse(0, -3.4, 4, 1.6, 0, 0, TAU); ctx.stroke();
+      });
+    }
+    sandbag(ctx, -26, 18, 0.2);
+    sandbag(ctx, -17, 20, -0.1);
+  };
+  // ================= Bush Plane =================
+  // A scraped dirt strip with the aircraft pegged down on it — NO concrete, no
+  // apron, nothing that reads as an airbase. The plane is drawn as a real
+  // silhouette in the ground plane (the same taildragger shape as D.bushflight)
+  // so it foreshortens correctly instead of being a pile of billboards, with
+  // only the fin and prop lifted upright.
+  B.bushplane = (ctx, t, o) => {
+    const gone = !!o.launched;
+    const body = '#8b9673', wing = '#97a37e', dark = '#5f6a4e';
+    // ---- the strip: a scraped lane with wheel ruts ----
+    ctx.fillStyle = 'rgba(84,70,50,0.45)';
+    ctx.beginPath();
+    ctx.moveTo(-40, 14); ctx.lineTo(34, -12); ctx.lineTo(36, -4); ctx.lineTo(-38, 22);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(60,50,36,0.4)'; ctx.lineWidth = 0.8;
+    for (const off of [2, 6]) {
+      ctx.beginPath(); ctx.moveTo(-38, 16 + off); ctx.lineTo(34, -10 + off); ctx.stroke();
+    }
+    if (gone) {                                    // flown: chocks and a loose rope
+      ctx.fillStyle = '#4a4438';
+      for (const c of [[-8, 4], [6, -1]]) { ctx.beginPath(); ctx.ellipse(c[0], c[1], 3, 1.8, 0, 0, TAU); ctx.fill(); }
+      ctx.strokeStyle = 'rgba(150,140,110,0.6)'; ctx.lineWidth = 0.6;
+      ctx.beginPath(); ctx.moveTo(-14, 8); ctx.lineTo(-2, 3); ctx.stroke();
+      return;
+    }
+    ctx.save();
+    ctx.rotate(-0.34);                             // parked along the strip
+    // ---- wing ----
+    ctx.fillStyle = wing;
+    ctx.beginPath();
+    ctx.moveTo(-5, -30);
+    ctx.quadraticCurveTo(2, -32.5, 6, -28.5);
+    ctx.lineTo(8, 28.5);
+    ctx.quadraticCurveTo(4, 32.5, -3, 30);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.34)'; ctx.lineWidth = 0.8; ctx.stroke();
+    ctx.strokeStyle = 'rgba(0,0,0,0.2)'; ctx.lineWidth = 0.6;
+    ctx.beginPath();
+    ctx.moveTo(4, -28); ctx.lineTo(5, -15); ctx.moveTo(6, 15); ctx.lineTo(7, 27);
+    ctx.stroke();
+    // struts
+    ctx.strokeStyle = dark; ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(0.5, -23); ctx.lineTo(-6, -6); ctx.moveTo(2, 23); ctx.lineTo(-4.5, 6);
+    ctx.stroke();
+    // ---- tailplane ----
+    ctx.fillStyle = wing;
+    ctx.beginPath();
+    ctx.moveTo(-21, -14); ctx.lineTo(-16.5, -13); ctx.lineTo(-16.5, 13); ctx.lineTo(-21, 14);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.34)'; ctx.lineWidth = 0.7; ctx.stroke();
+    // ---- fuselage ----
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(23, 0);
+    ctx.quadraticCurveTo(21, -5.8, 15, -6.7);
+    ctx.lineTo(4, -6.2);
+    ctx.lineTo(-17, -2.6);
+    ctx.lineTo(-27, -1.9);
+    ctx.lineTo(-27, 1.9);
+    ctx.lineTo(-17, 2.6);
+    ctx.lineTo(4, 6.2);
+    ctx.quadraticCurveTo(21, 5.8, 23, 0);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.34)'; ctx.lineWidth = 0.8; ctx.stroke();
+    // cabin glass + open jump door
+    ctx.fillStyle = 'rgba(120,150,175,0.6)';
+    ctx.beginPath();
+    ctx.moveTo(14.5, -5.4); ctx.lineTo(7.5, -5.5); ctx.lineTo(7.5, 5.5); ctx.lineTo(14.5, 5.4);
+    ctx.quadraticCurveTo(17.6, 0, 14.5, -5.4);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = dark; ctx.lineWidth = 0.6; ctx.stroke();
+    ctx.fillStyle = '#2f3629';
+    rr(ctx, -2.5, 3.8, 9, 3, 0.6); ctx.fill();
+    // tyres + tailwheel
+    ctx.strokeStyle = dark; ctx.lineWidth = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(3.8, -5.5); ctx.lineTo(2.4, -11); ctx.moveTo(3.8, 5.5); ctx.lineTo(2.4, 11);
+    ctx.stroke();
+    ctx.fillStyle = '#2b2e27';
+    for (const wy of [-11.8, 11.8]) { ctx.beginPath(); ctx.ellipse(2.4, wy, 4.3, 2.9, 0, 0, TAU); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(-23.5, 0, 2, 1.5, 0, 0, TAU); ctx.fill();
+    ctx.restore();
+    // ---- upright bits: fin above the boom, prop at the nose ----
+    billboard(ctx, -22, 7, () => {
+      ctx.fillStyle = '#6d7a5c';
+      ctx.beginPath();
+      ctx.moveTo(-3, 0); ctx.lineTo(-1.5, -11); ctx.lineTo(5.5, -9.5); ctx.lineTo(5, 0);
+      ctx.closePath(); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.3)'; ctx.lineWidth = 0.6; ctx.stroke();
+    });
+    billboard(ctx, 20, -8, () => {
+      ctx.strokeStyle = 'rgba(196,202,180,0.4)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.ellipse(0, -6, 1.4, 8.5, 0, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = 'rgba(210,216,196,0.8)'; ctx.lineWidth = 0.9;
+      const a = t * 0.8;
+      ctx.beginPath();
+      ctx.moveTo(-Math.cos(a) * 2, -6 - Math.sin(a) * 8.5);
+      ctx.lineTo(Math.cos(a) * 2, -6 + Math.sin(a) * 8.5);
+      ctx.stroke();
+    });
+    // ---- camo netting draped over the wing ----
+    ctx.fillStyle = 'rgba(84,96,64,0.26)';
+    ctx.beginPath();
+    ctx.moveTo(-8, -28); ctx.lineTo(10, -24); ctx.lineTo(12, 26); ctx.lineTo(-6, 29);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(96,110,74,0.4)'; ctx.lineWidth = 0.5;
+    for (let i = -26; i <= 26; i += 5) {
+      ctx.beginPath(); ctx.moveTo(-7 + i * 0.06, i); ctx.lineTo(11 + i * 0.04, i - 1.5); ctx.stroke();
+    }
+    // tie-down ropes to ground pegs
+    ctx.strokeStyle = 'rgba(150,140,110,0.65)'; ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(-4, -27); ctx.lineTo(-18, -31); ctx.moveTo(9, 26); ctx.lineTo(22, 31);
+    ctx.stroke();
+    // fuel drums, and one jerrycan per crewman already aboard
+    fuelDrum(ctx, -32, -12, '#6a5a34');
+    fuelDrum(ctx, -36, -5, '#6a5a34');
+    for (let i = 0; i < (o.crew || 0); i++) {
+      isoBox(ctx, 20 + i * 5, 14, 3.6, 2.8, 4, '#4f5a3c', { noShadow: true, r: 0.4 });
+    }
+  };
   // ================= Ham Radio Shack =================
   // a plank shack with a guyed lattice mast: the local Conviction booster
   B.hamradio = (ctx, t, o) => {
@@ -3469,8 +3879,21 @@
     // sky-aimed giant laser pointer on a tripod gimbal
     ctx.fillStyle = 'rgba(0,0,0,0.28)';
     ctx.beginPath(); ctx.ellipse(2, 3, 13, 6, 0, 0, TAU); ctx.fill();
+    // dug in like everything else the compound owns: a sandbag ring with the
+    // mount seated in it, and a car-battery bank cabled to the gimbal. Without
+    // this it read as a novelty on sticks rather than an air-defence position.
+    for (let i = 0; i < 9; i++) {
+      const a = (i / 9) * TAU + 0.3;
+      sandbag(ctx, Math.cos(a) * 13, Math.sin(a) * 13, a + Math.PI / 2);
+    }
+    isoBox(ctx, -12, 6, 7, 5, 3, '#2b3138', { noShadow: true, r: 0.6 });   // battery bank
+    ctx.strokeStyle = '#a8452f'; ctx.lineWidth = 0.7;                       // jumper leads
+    ctx.beginPath(); ctx.moveTo(-9, 6); ctx.quadraticCurveTo(-5, 2, -1, 1); ctx.stroke();
     billboard(ctx, 0, 0, () => {
-      // tripod
+      // pedestal + gimbal yoke rather than a bare tripod
+      ctx.fillStyle = '#4a515a';
+      ctx.beginPath(); ctx.moveTo(-4, 4); ctx.lineTo(4, 4); ctx.lineTo(2.6, -6); ctx.lineTo(-2.6, -6);
+      ctx.closePath(); ctx.fill();
       ctx.strokeStyle = '#59616c';
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -3478,6 +3901,8 @@
       ctx.moveTo(9, 2); ctx.lineTo(0, -10);
       ctx.moveTo(0, 4); ctx.lineTo(0, -10);
       ctx.stroke();
+      ctx.strokeStyle = '#6d757f'; ctx.lineWidth = 1.4;                     // yoke arms cradling the body
+      ctx.beginPath(); ctx.arc(0, -11, 4.6, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke();
       // the pointer body: fat silver pen angled at the sky
       ctx.save();
       ctx.translate(0, -12);
@@ -5297,7 +5722,26 @@
     ctx.restore();
   }
 
-  I.militia = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#5c6a48', head: ihFoil, weapon: iwRifle });
+  // ---------- the compound's people ----------
+  // TRUTHER MILITIA. Beefy by design (they soak a lot for what they cost), so
+  // the silhouette has to look padded rather than just re-coloured: mismatched
+  // plates lashed over a work coat, a fat bandolier, and the foil hat kept
+  // because it is the joke the whole faction is built on.
+  I.militia = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#8a7f5e', pants: '#4a4636', head: ihFoil, weapon: iwRifle,
+    pack: (c2) => {
+      // scrap plate carrier: two salvaged plates, visibly not a matching set
+      c2.fillStyle = '#5c5540'; rr(c2, -2.5, -9, 5, 3.2, 0.5); c2.fill();
+      c2.fillStyle = '#6a6149'; rr(c2, -2.2, -6.2, 4.4, 2.4, 0.4); c2.fill();
+      c2.strokeStyle = '#3c3729'; c2.lineWidth = 0.4;
+      c2.strokeRect(-2.5, -9, 5, 3.2);
+      // bandolier across the chest, shells picked out
+      c2.strokeStyle = '#7a5c37'; c2.lineWidth = 1.1;
+      c2.beginPath(); c2.moveTo(-2.8, -8.6); c2.lineTo(2.6, -4.6); c2.stroke();
+      c2.fillStyle = '#b8994a';
+      for (let i = 0; i < 4; i++) c2.fillRect(-2.2 + i * 1.3, -8.2 + i * 0.95, 0.7, 0.9);
+    },
+  });
   I.partisan = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a3f', head: ihFoil, weapon: iwRifle });
   I.agent = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#2e3742', head: ihFedora, weapon: iwPistol });
   I.pmc = (ctx, t, o) => isoTrooper(ctx, t, o, {
@@ -5403,7 +5847,43 @@
       }
     },
   });
-  I.laserguy = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#556249', head: ihFoil, weapon: iwLaser });
+  // LASER POINTER GUY. The old one was a militiaman holding a pen light. He is
+  // an ANTI-AIR trooper, so the drawing says so: welding goggles, a car battery
+  // on his back feeding a two-handed spotlight rig, and the beam angled UP at
+  // the thing he is trying to dazzle rather than levelled at the ground.
+  I.laserguy = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#5f6b4c', pants: '#424a36', head: ihFoil,
+    pack: (c2) => {
+      // car battery slung on the back, jumper leads running over the shoulder
+      c2.fillStyle = '#2b3138'; rr(c2, -4.6, -8.4, 3.2, 4.4, 0.5); c2.fill();
+      c2.fillStyle = '#8b939e'; c2.fillRect(-4.2, -8.7, 0.9, 0.7); c2.fillRect(-2.9, -8.7, 0.9, 0.7);
+      c2.strokeStyle = '#a8452f'; c2.lineWidth = 0.5;
+      c2.beginPath(); c2.moveTo(-3.6, -8.6); c2.quadraticCurveTo(-1, -10.4, 1.4, -7.4); c2.stroke();
+    },
+    weapon: (c2, t2, o2) => {
+      // two-handed emitter, held high and canted skyward
+      c2.save();
+      c2.translate(1.2, -7.4);
+      c2.rotate(-0.42);
+      c2.fillStyle = '#3c434c'; rr(c2, 0, -1.1, 6.4, 2.4, 0.6); c2.fill();
+      c2.strokeStyle = '#20242a'; c2.lineWidth = 0.5; c2.stroke();
+      c2.fillStyle = '#8b939e'; c2.fillRect(5.8, -0.8, 1.6, 1.8);      // emitter head
+      c2.fillStyle = '#c0392b'; c2.fillRect(1.2, -1.5, 1.2, 0.6);      // charge lamp
+      // fore grip under the tube
+      c2.strokeStyle = '#2c2f36'; c2.lineWidth = 0.9;
+      c2.beginPath(); c2.moveTo(2.6, 1.2); c2.lineTo(2.6, 2.6); c2.stroke();
+      if (o2.firing) {
+        const g2 = c2.createLinearGradient(7, 0, 20, -5);
+        g2.addColorStop(0, 'rgba(255,90,90,0.95)');
+        g2.addColorStop(1, 'rgba(255,90,90,0)');
+        c2.strokeStyle = g2; c2.lineWidth = 1.4;
+        c2.beginPath(); c2.moveTo(7.4, 0); c2.lineTo(21, -5); c2.stroke();
+        c2.fillStyle = 'rgba(255,180,180,0.9)';
+        c2.beginPath(); c2.arc(7.4, 0, 1.5, 0, TAU); c2.fill();
+      }
+      c2.restore();
+    },
+  });
   I.manpad = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#6b5a3f', head: ihFoil,
     weapon: (c2, t2, o2) => {
@@ -5684,6 +6164,150 @@
       if (o2.firing) {
         c2.fillStyle = 'rgba(255,240,170,0.95)';
         c2.beginPath(); c2.arc(10.2, -7.5, 2, 0, TAU); c2.fill();
+      }
+    },
+  });
+  // ---------- the Flat Earth field layer ----------
+  // HOMESTEAD MARKSMAN. Two jobs in one body, so the drawing shows both: a
+  // burlap ghillie and a scoped long rifle for the shooting, and a rack of
+  // cache boxes on the back for the logistics. He is the faction's most
+  // important unit and should be instantly tellable from a militiaman.
+  I.homesteader = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6c6a48', pants: '#4b4a34', head: c2 => ihHardhat(c2, '#7a6f4c'),
+    pack: (c2) => {
+      // ghillie: ragged strips breaking the outline up
+      c2.strokeStyle = 'rgba(96,102,64,0.9)'; c2.lineWidth = 0.6;
+      for (let i = 0; i < 7; i++) {
+        const sx = -3 + i * 0.95;
+        c2.beginPath();
+        c2.moveTo(sx, -8.8 + (i % 3) * 0.7);
+        c2.lineTo(sx - 0.7, -4.6 + (i % 2) * 1.4);
+        c2.stroke();
+      }
+      // cache boxes strapped high on the pack
+      c2.fillStyle = '#4f5a3c'; rr(c2, -4.8, -9.4, 2.8, 2.6, 0.4); c2.fill();
+      c2.fillStyle = '#59653f'; rr(c2, -4.6, -6.6, 2.6, 2.4, 0.4); c2.fill();
+      c2.strokeStyle = '#333a26'; c2.lineWidth = 0.35;
+      c2.strokeRect(-4.8, -9.4, 2.8, 2.6);
+    },
+    weapon: (c2, t2, o2) => {
+      c2.strokeStyle = '#4a3f2c'; c2.lineWidth = 1.4;                    // walnut stock + long barrel
+      c2.beginPath(); c2.moveTo(-1.4, -6); c2.lineTo(9.8, -7.6); c2.stroke();
+      c2.fillStyle = '#1c2026'; c2.fillRect(2.2, -9, 3, 1.5);            // scope tube
+      c2.strokeStyle = '#1c2026'; c2.lineWidth = 0.5;
+      c2.beginPath(); c2.moveTo(3, -7.6); c2.lineTo(3, -8.9); c2.moveTo(4.4, -7.7); c2.lineTo(4.4, -9); c2.stroke();
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,240,170,0.95)';
+        c2.beginPath(); c2.arc(10.6, -7.7, 2, 0, TAU); c2.fill();
+      }
+    },
+  });
+  // INVESTIGATIVE JOURNALIST. Unarmed and obviously so — the "weapon" is a
+  // camera with a long lens, held up to the eye, and the shutter fires instead
+  // of a muzzle flash. Press vest and a fat satchel of tape.
+  I.journalist = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#3f4652', pants: '#2f353e', head: ihSkin,
+    pack: (c2) => {
+      c2.fillStyle = '#d8d2c4'; rr(c2, -2.4, -8.8, 4.8, 2.6, 0.4); c2.fill();   // PRESS panel
+      c2.fillStyle = '#20242a'; c2.font = 'bold 1.9px Arial';
+      c2.textAlign = 'center'; c2.textBaseline = 'middle';
+      c2.fillText('PRESS', 0, -7.4);
+      c2.fillStyle = '#4a4235'; rr(c2, -5, -6.4, 2.8, 3.2, 0.5); c2.fill();     // tape satchel
+      c2.strokeStyle = '#6b5f4a'; c2.lineWidth = 0.5;
+      c2.beginPath(); c2.moveTo(-4, -6.4); c2.lineTo(-0.6, -9.2); c2.stroke();  // strap
+    },
+    weapon: (c2, t2, o2) => {
+      c2.fillStyle = '#23272e'; rr(c2, 1.2, -9.4, 3.4, 2.8, 0.5); c2.fill();    // body
+      c2.fillStyle = '#33383f'; rr(c2, 4.2, -9, 3.6, 2, 0.6); c2.fill();        // long lens
+      c2.fillStyle = 'rgba(150,190,220,0.8)';
+      c2.beginPath(); c2.arc(7.9, -8, 0.9, 0, TAU); c2.fill();                  // front element
+      // a red record dot, always live — it is always filming something
+      c2.fillStyle = Math.sin(t2 * 3) > 0 ? '#ff5f5f' : '#5a2020';
+      c2.beginPath(); c2.arc(1.9, -9.7, 0.5, 0, TAU); c2.fill();
+      if (o2.firing) {                                                          // shutter pop
+        c2.fillStyle = 'rgba(255,255,255,0.9)';
+        c2.beginPath(); c2.arc(8.6, -8, 2.2, 0, TAU); c2.fill();
+      }
+    },
+  });
+  // ANTI-MATERIEL RIFLE. The gun is the character: absurdly long, muzzle brake,
+  // folded bipod hanging under the barrel, and the man braced behind it.
+  I.amr = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#6a6b4e', pants: '#454636', head: c2 => ihHelmet(c2, '#5a5c46'),
+    pack: (c2) => {
+      c2.fillStyle = '#4d4f3a'; rr(c2, -4.4, -8.6, 2.6, 4, 0.5); c2.fill();     // ammo box
+      c2.fillStyle = '#8b7a3e';
+      for (let i = 0; i < 3; i++) c2.fillRect(-4.1 + i * 0.8, -8.3, 0.5, 1.3);  // big rounds
+    },
+    weapon: (c2, t2, o2) => {
+      c2.strokeStyle = '#31353c'; c2.lineWidth = 1.9;                            // heavy barrel
+      c2.beginPath(); c2.moveTo(-2, -6.4); c2.lineTo(11.5, -8); c2.stroke();
+      c2.fillStyle = '#20242a'; c2.fillRect(10.8, -9, 2.4, 2);                   // muzzle brake
+      c2.fillStyle = '#1c2026'; c2.fillRect(2, -9.4, 3.4, 1.6);                  // optic
+      c2.strokeStyle = '#3a4048'; c2.lineWidth = 0.6;                            // folded bipod
+      c2.beginPath(); c2.moveTo(7.4, -7.4); c2.lineTo(9.4, -4.6); c2.moveTo(7.4, -7.4); c2.lineTo(6.2, -4.4); c2.stroke();
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,236,150,0.95)';
+        c2.beginPath(); c2.arc(12.8, -8.1, 2.8, 0, TAU); c2.fill();
+        c2.strokeStyle = 'rgba(255,220,140,0.5)'; c2.lineWidth = 0.8;            // brake blast
+        c2.beginPath(); c2.moveTo(12, -6.2); c2.lineTo(15, -4.6); c2.moveTo(12, -10); c2.lineTo(15, -11.4); c2.stroke();
+      }
+    },
+  });
+  // BREACHER. Close work: heavy vest, visored helmet, a stubby shotgun and a
+  // pry bar across the back. Wide and low where the Marksman is thin and tall.
+  I.breacher = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#55503f', pants: '#3a3830', head: c2 => ihHelmet(c2, '#44483c'),
+    pack: (c2) => {
+      // slab of a chest rig with shell loops
+      c2.fillStyle = '#3f4436'; rr(c2, -3, -9.2, 6, 4.6, 0.7); c2.fill();
+      c2.strokeStyle = '#2a2e24'; c2.lineWidth = 0.4; c2.strokeRect(-3, -9.2, 6, 4.6);
+      c2.fillStyle = '#a8452f';
+      for (let i = 0; i < 5; i++) c2.fillRect(-2.5 + i * 1.1, -8.8, 0.7, 1.6);
+      // pry bar slung diagonally
+      c2.strokeStyle = '#8b939e'; c2.lineWidth = 1;
+      c2.beginPath(); c2.moveTo(-4.4, -3.6); c2.lineTo(-1.6, -10.6); c2.stroke();
+      c2.strokeStyle = '#6d757f'; c2.lineWidth = 1.4;
+      c2.beginPath(); c2.moveTo(-1.6, -10.6); c2.lineTo(-0.6, -11.2); c2.stroke();
+    },
+    weapon: (c2, t2, o2) => {
+      c2.strokeStyle = '#2c2f36'; c2.lineWidth = 1.6;                            // stubby barrel
+      c2.beginPath(); c2.moveTo(0, -6.4); c2.lineTo(4.6, -7); c2.stroke();
+      c2.fillStyle = '#5b4a32'; rr(c2, -1.6, -6.8, 2, 1.6, 0.3); c2.fill();      // stock
+      c2.fillStyle = '#3a4048'; c2.fillRect(2.2, -5.8, 1.8, 0.9);                // pump
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,214,120,0.95)';                                  // fat scatter bloom
+        c2.beginPath(); c2.arc(6, -7.1, 2.6, 0, TAU); c2.fill();
+        c2.fillStyle = 'rgba(255,180,90,0.45)';
+        c2.beginPath(); c2.moveTo(5, -7.1); c2.lineTo(11, -9.6); c2.lineTo(11, -4.6); c2.closePath(); c2.fill();
+      }
+    },
+  });
+  // EX-SPECIAL FORCES. Black kit, balaclava, carbine — and the thing that
+  // matters, a row of demolition charges on the chest rig. Reads as a
+  // professional among preppers, which is exactly what it is.
+  I.specops = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#2a2e30', pants: '#232628', head: c2 => ihHelmet(c2, '#1d2022'),
+    pack: (c2) => {
+      c2.fillStyle = '#1e2224'; rr(c2, -2.8, -9.2, 5.6, 4.4, 0.6); c2.fill();    // plate rig
+      // charges: bricks with a lamp each, the unit's whole reason to exist
+      for (let i = 0; i < 3; i++) {
+        c2.fillStyle = '#4a4034';
+        rr(c2, -2.3 + i * 1.7, -8.7, 1.3, 2.2, 0.3); c2.fill();
+        c2.fillStyle = Math.sin(t * 4 + i) > 0.4 ? '#ff5f5f' : '#4a2222';
+        c2.fillRect(-2.1 + i * 1.7, -8.5, 0.5, 0.5);
+      }
+      c2.strokeStyle = '#3c434c'; c2.lineWidth = 0.45;                            // comms whip
+      c2.beginPath(); c2.moveTo(-3, -8.8); c2.lineTo(-4.2, -13); c2.stroke();
+    },
+    weapon: (c2, t2, o2) => {
+      c2.strokeStyle = '#1c2026'; c2.lineWidth = 1.3;                             // suppressed carbine
+      c2.beginPath(); c2.moveTo(-0.8, -6.4); c2.lineTo(5.4, -7.2); c2.stroke();
+      c2.fillStyle = '#2a2e34'; rr(c2, 5.2, -7.9, 2.6, 1.5, 0.5); c2.fill();      // can
+      c2.fillStyle = '#141719'; c2.fillRect(1.4, -8.4, 2.2, 1.1);                 // optic
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(200,220,255,0.7)';                                    // muted flash
+        c2.beginPath(); c2.arc(8.4, -7.2, 1.5, 0, TAU); c2.fill();
       }
     },
   });
@@ -7370,6 +7994,299 @@
       c.beginPath(); c.arc(3.2, -3.7, 1, 0, TAU); c.stroke();
     },
   });
+
+  // ---------- the Bug Out Van and its kits ----------
+  // Every kit is the SAME van underneath — one chassis, one cab, one paint job
+  // — and everything that tells them apart is bolted to the roof or hanging off
+  // the back. That is the point: an enemy reads the silhouette above the roof
+  // line and knows instantly whether it is looking at a repair truck or a demo
+  // van, while the family resemblance keeps them all obviously Flat Earth.
+  const VAN_BODY = '#a2946f';
+  const vanTiers = (body = VAN_BODY) => [
+    { // box body: tall slab with a rounded nose
+      poly: [[12, -2.6], [12, 2.6], [10.5, 5.4], [-11.5, 5.4], [-11.5, -5.4], [10.5, -5.4]],
+      h: 6.4, body,
+      detail: (c) => {
+        c.fillStyle = shade(body, 0.14); rr(c, -10.5, -4.4, 19, 8.8, 1.4); c.fill();   // roof panel
+        c.fillStyle = shade(body, -0.5); c.fillRect(-11.2, -4.6, 1.2, 9.2);            // rear door seam
+        c.strokeStyle = shade(body, -0.42); c.lineWidth = 0.5;                          // side ribs
+        for (let i = -8; i <= 4; i += 3) { c.beginPath(); c.moveTo(i, -4.6); c.lineTo(i, 4.6); c.stroke(); }
+        c.fillStyle = '#1c2026'; c.fillRect(9.4, -4, 1.9, 8);                           // windscreen
+        c.fillStyle = 'rgba(150,175,205,0.3)'; c.fillRect(9.6, -3.6, 1.4, 7.2);
+        c.fillStyle = 'rgba(240,244,230,0.9)';                                          // headlights
+        c.fillRect(11.7, -3, 0.8, 1.2); c.fillRect(11.7, 1.8, 0.8, 1.2);
+      },
+    },
+  ];
+  const vanUnder = (c, t, o) => wheels(c, t, o, [[-7, -6.4], [-7, 6.4], [7.2, -6.4], [7.2, 6.4]], 5.6, 3.2);
+  // a roof-mounted weapon that tracks its target, shared by the armed kits
+  const vanTurret = (draw) => (ctx, t, o) => {
+    const a = o.turret !== undefined ? o.turret : (o.facing || 0);
+    ctx.save();
+    ctx.translate(0, -7.6);
+    ctx.transform(1, 0.5, -1, 0.5, 0, 0);
+    ctx.rotate(a);
+    draw(ctx, t, o);
+    ctx.restore();
+  };
+
+  // EMPTY: a plain panel van with a roof rack and nothing on it. Deliberately
+  // the most boring thing the faction owns — it is a ferry until it is not.
+  I.bugoutvan = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers(),
+    above: (c) => {
+      c.strokeStyle = shade(VAN_BODY, -0.35); c.lineWidth = 0.7;
+      c.strokeRect(-7, -4, 13, 8);                                   // bare roof rack
+      c.beginPath(); c.moveTo(-7, 0); c.lineTo(6, 0); c.stroke();
+    },
+  });
+  // REPAIR TRUCK: welding bottles, a tool chest and a swinging jib, amber
+  // beacon turning. Unarmed and obviously a service vehicle.
+  I.van_engineer = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#8e8a5e'),
+    above: (c, t2) => {
+      c.fillStyle = '#4a5a3e'; rr(c, -6.4, -3.6, 4.4, 7.2, 0.6); c.fill();     // tool chest
+      for (const gx of [-0.6, 1.4]) {                                            // gas bottles
+        c.fillStyle = gx < 0 ? '#8a6a2c' : '#2f5f7a';
+        rr(c, gx, -3, 1.6, 6, 0.7); c.fill();
+        c.strokeStyle = 'rgba(0,0,0,0.35)'; c.lineWidth = 0.4; c.stroke();
+      }
+      c.strokeStyle = '#9aa2ac'; c.lineWidth = 1;                                // jib arm
+      c.beginPath(); c.moveTo(4, 0); c.lineTo(8.5, Math.sin(t2 * 0.5) * 3); c.stroke();
+      const on = Math.sin(t2 * 5) > 0;                                           // amber beacon
+      c.fillStyle = on ? '#ffb648' : '#6a5628';
+      c.beginPath(); c.arc(5.4, -3.4, 1.3, 0, TAU); c.fill();
+      if (on) { c.fillStyle = 'rgba(255,182,72,0.25)'; c.beginPath(); c.arc(5.4, -3.4, 3.2, 0, TAU); c.fill(); }
+    },
+  });
+  // TECHNICAL: pintle machine gun on the roof, ammo can and gun shield.
+  I.van_militia = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#98895f'),
+    above: (c) => {                                                              // sandbagged roof lip
+      c.fillStyle = '#7d7457';
+      for (let i = -6; i <= 4; i += 3.4) { c.beginPath(); c.ellipse(i, 4, 1.8, 1, 0, 0, TAU); c.fill(); }
+    },
+  });
+  T.van_militia = vanTurret((c, t2, o2) => {
+    c.fillStyle = '#4a4438'; rr(c, -2, -1.4, 4, 2.8, 0.5); c.fill();             // receiver
+    c.strokeStyle = '#2c2f36'; c.lineWidth = 1.2;
+    c.beginPath(); c.moveTo(1.6, 0); c.lineTo(8.4, 0); c.stroke();               // barrel
+    c.fillStyle = '#5c5540'; rr(c, 1, -2.6, 1.4, 5.2, 0.4); c.fill();            // gun shield
+    c.fillStyle = '#4e5a3e'; rr(c, -3.4, 0.8, 2.4, 2, 0.4); c.fill();            // ammo can
+    if (o2.firing) {
+      c.fillStyle = 'rgba(255,230,140,0.95)';
+      c.beginPath(); c.arc(9.2, 0, 1.8, 0, TAU); c.fill();
+    }
+  });
+  // LASER TECHNICAL: the Giant Laser Pointer rig on the bed, with the car
+  // batteries that feed it stacked behind the cab. Reads as air defence from
+  // the silhouette — the emitter sits high and points UP.
+  I.van_laserguy = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#7f8a66'),
+    above: (c, t2) => {
+      c.fillStyle = '#2b3138'; rr(c, -7.4, -3.4, 5, 6.8, 0.6); c.fill();        // battery bank
+      c.fillStyle = '#8b939e';
+      for (let i = 0; i < 3; i++) c.fillRect(-6.8 + i * 1.5, -3.8, 0.9, 0.7);
+      c.strokeStyle = '#a8452f'; c.lineWidth = 0.5;                              // jumper leads to the mount
+      c.beginPath(); c.moveTo(-2.6, 0); c.quadraticCurveTo(0, -2.4, 2.4, -0.6); c.stroke();
+      const on = Math.sin(t2 * 4) > 0;                                           // charge lamp
+      c.fillStyle = on ? '#ff8a8a' : '#5a2626';
+      c.beginPath(); c.arc(-7.8, 2.6, 1, 0, TAU); c.fill();
+    },
+  });
+  T.van_laserguy = vanTurret((c, t2, o2) => {
+    c.fillStyle = '#2e3238'; c.beginPath(); c.arc(0, 0, 2.6, 0, TAU); c.fill();   // gimbal ring
+    c.fillStyle = '#3c434c'; rr(c, -2.2, -1.3, 8.4, 2.6, 0.7); c.fill();          // emitter tube
+    c.strokeStyle = '#20242a'; c.lineWidth = 0.5; c.stroke();
+    c.fillStyle = '#8b939e'; c.fillRect(5.8, -1, 2, 2);                           // emitter head
+    c.fillStyle = '#c0392b'; c.fillRect(-1, -1.8, 1.4, 0.7);                      // clicky button
+    c.fillStyle = '#5f5641'; rr(c, 1.2, -3.4, 1.6, 6.8, 0.4); c.fill();           // operator shield
+    if (o2.firing) {
+      const g2 = c.createLinearGradient(8, 0, 24, 0);
+      g2.addColorStop(0, 'rgba(255,90,90,0.95)');
+      g2.addColorStop(1, 'rgba(255,90,90,0)');
+      c.strokeStyle = g2; c.lineWidth = 1.6;
+      c.beginPath(); c.moveTo(8, 0); c.lineTo(24, 0); c.stroke();
+      c.fillStyle = 'rgba(255,190,190,0.9)';
+      c.beginPath(); c.arc(8, 0, 1.7, 0, TAU); c.fill();
+    }
+  });
+  // HUNTER: the anti-materiel rifle on a roof cradle — long, thin, and it
+  // out-reaches everything else the faction can drive.
+  I.van_amr = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#6f7350'),
+    above: (c) => {
+      c.fillStyle = '#3f4634'; rr(c, -6, -3, 4, 6, 0.6); c.fill();               // spotter's hatch
+      c.fillStyle = '#20242a'; rr(c, -5.4, -2.4, 2.8, 4.8, 0.4); c.fill();
+    },
+  });
+  T.van_amr = vanTurret((c, t2, o2) => {
+    c.fillStyle = '#3a4048'; rr(c, -3, -1.1, 5, 2.2, 0.4); c.fill();             // cradle
+    c.strokeStyle = '#31353c'; c.lineWidth = 1.7;
+    c.beginPath(); c.moveTo(1.4, 0); c.lineTo(12.4, 0); c.stroke();              // very long barrel
+    c.fillStyle = '#20242a'; c.fillRect(11.8, -1.1, 2.2, 2.2);                   // muzzle brake
+    c.fillStyle = '#1c2026'; c.fillRect(-0.6, -2.2, 3.2, 1.4);                   // big optic
+    if (o2.firing) {
+      c.fillStyle = 'rgba(255,236,150,0.95)';
+      c.beginPath(); c.arc(14.4, 0, 2.6, 0, TAU); c.fill();
+    }
+  });
+  // DEMO VAN: hazard-striped, riding low on its springs, stacked with drums
+  // and a spool of det cord. Should look like something you do not stand near.
+  I.van_breacher = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#8d6a44'),
+    above: (c, t2) => {
+      for (const [dx, dy] of [[-6.4, -2.4], [-6.4, 2.4], [-2.6, 0]]) {           // drums in the back
+        c.fillStyle = '#a8452f';
+        c.beginPath(); c.ellipse(dx, dy, 2.1, 2.1, 0, 0, TAU); c.fill();
+        c.strokeStyle = '#6d2c1e'; c.lineWidth = 0.5; c.stroke();
+      }
+      c.strokeStyle = '#e0c14a'; c.lineWidth = 1.4;                               // det cord spool
+      c.beginPath(); c.arc(2.4, 0, 2, 0, TAU); c.stroke();
+      const on = Math.sin(t2 * 6) > 0;                                            // hazard strobe
+      c.fillStyle = on ? '#ff7a3a' : '#5a2f18';
+      c.beginPath(); c.arc(6, -3, 1.2, 0, TAU); c.fill();
+    },
+  });
+  T.van_breacher = vanTurret((c, t2, o2) => {
+    c.fillStyle = '#4a4438'; rr(c, -1.6, -1.2, 3.2, 2.4, 0.4); c.fill();          // stubby launcher
+    c.strokeStyle = '#2c2f36'; c.lineWidth = 2.2;
+    c.beginPath(); c.moveTo(1.2, 0); c.lineTo(5.2, 0); c.stroke();
+    if (o2.firing) {
+      c.fillStyle = 'rgba(255,190,110,0.95)';
+      c.beginPath(); c.arc(6.6, 0, 2.8, 0, TAU); c.fill();
+    }
+  });
+  // CHUCK WAGON: canvas hoops over the bed, crates and a water butt. The one
+  // that reloads Marksmen in the field, so it reads as supply, not war.
+  I.van_homesteader = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#9d9270'),
+    above: (c, t2) => {
+      c.fillStyle = 'rgba(226,220,198,0.95)';                                     // canvas tilt
+      rr(c, -8, -4.2, 14, 8.4, 3); c.fill();
+      c.strokeStyle = 'rgba(140,132,110,0.9)'; c.lineWidth = 0.6;
+      for (let i = -7; i <= 4; i += 3.2) { c.beginPath(); c.moveTo(i, -4.2); c.lineTo(i, 4.2); c.stroke(); }
+      c.fillStyle = '#4f5a3c';                                                    // cache boxes on the tail
+      rr(c, -10.4, -2.4, 2.4, 2.2, 0.4); c.fill();
+      rr(c, -10.4, 0.4, 2.4, 2.2, 0.4); c.fill();
+      c.fillStyle = '#5f7a6a';                                                    // water butt
+      c.beginPath(); c.ellipse(6.4, 2.6, 1.8, 1.8, 0, 0, TAU); c.fill();
+    },
+  });
+  // NEWS VAN: a mast that actually telescopes up when it is parked and filing,
+  // plus the dish. Unarmed, and the tallest silhouette of the six.
+  I.van_journalist = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24, under: vanUnder, tiers: vanTiers('#8f96a0'),
+    above: (c, t2, o2) => {
+      c.fillStyle = '#d8d2c4'; rr(c, -8, -4, 12, 8, 1); c.fill();                 // white livery panel
+      c.fillStyle = '#2b3138'; c.font = 'bold 3px Arial';
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText('NEWS', -2, 0);
+      // mast rises while it is standing still and filing
+      const up = o2 && o2.moving ? 0 : 1;
+      c.strokeStyle = '#9aa2ac'; c.lineWidth = 1.1;
+      c.beginPath(); c.moveTo(5, 0); c.lineTo(5, -2 - up * 3); c.stroke();
+      c.save();
+      c.translate(5, -2 - up * 3);
+      c.rotate(Math.sin(t2 * 0.7) * 0.35);
+      c.fillStyle = '#e6e2d6';
+      c.beginPath(); c.ellipse(0, -1.6, 3.2, 2.1, 0, 0, TAU); c.fill();
+      c.strokeStyle = '#8b939e'; c.lineWidth = 0.5; c.stroke();
+      c.restore();
+    },
+  });
+
+  // The Bush Plane in the air. A high-wing taildragger seen from above: long
+  // tapered wing, slim tapering fuselage, proper tailplane and fin, spinner and
+  // prop disc, and fat tundra tyres slung under the wing roots.
+  // Registered in D (top-down), not I: the engine rotates aircraft art by
+  // isoAngle so the nose points along the craft's real screen travel. An iso
+  // billboard here would make it fly sideways.
+  D.bushflight = (ctx, t, o) => {
+    const body = '#8b9673', wing = '#97a37e', dark = '#5f6a4e';
+    ctx.save();
+    // ---- wing, drawn first so the fuselage sits proud on top of it ----
+    ctx.fillStyle = wing;
+    ctx.beginPath();
+    ctx.moveTo(-2.6, -17.5);
+    ctx.quadraticCurveTo(1.4, -19, 3.6, -16.8);   // rounded port tip
+    ctx.lineTo(4.6, 16.8);
+    ctx.quadraticCurveTo(2.2, 19, -1.6, 17.5);    // rounded starboard tip
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.34)'; ctx.lineWidth = 0.7; ctx.stroke();
+    // aileron hinge lines out near the tips
+    ctx.strokeStyle = 'rgba(0,0,0,0.22)'; ctx.lineWidth = 0.5;
+    ctx.beginPath();
+    ctx.moveTo(2.4, -16.4); ctx.lineTo(2.9, -9); ctx.moveTo(3.4, 9); ctx.lineTo(3.9, 16.2);
+    ctx.stroke();
+    // lift struts running down to the belly
+    ctx.strokeStyle = dark; ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(0.4, -13.5); ctx.lineTo(-3.4, -3.6);
+    ctx.moveTo(1.2, 13.5); ctx.lineTo(-2.6, 3.6);
+    ctx.stroke();
+    // ---- tailplane ----
+    ctx.fillStyle = wing;
+    ctx.beginPath();
+    ctx.moveTo(-12.4, -8.2); ctx.lineTo(-9.6, -7.6); ctx.lineTo(-9.6, 7.6); ctx.lineTo(-12.4, 8.2);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.34)'; ctx.lineWidth = 0.6; ctx.stroke();
+    // ---- fuselage: nose cone back to a slim tail boom ----
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.moveTo(13.4, 0);
+    ctx.quadraticCurveTo(12.2, -3.4, 8.6, -3.9);
+    ctx.lineTo(2.4, -3.6);
+    ctx.lineTo(-9.8, -1.5);
+    ctx.lineTo(-15.6, -1.1);
+    ctx.lineTo(-15.6, 1.1);
+    ctx.lineTo(-9.8, 1.5);
+    ctx.lineTo(2.4, 3.6);
+    ctx.quadraticCurveTo(12.2, 3.4, 13.4, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.34)'; ctx.lineWidth = 0.7; ctx.stroke();
+    // vertical fin, read as a slim blade along the boom
+    ctx.fillStyle = dark;
+    ctx.beginPath();
+    ctx.moveTo(-15.4, 0); ctx.lineTo(-11.4, -0.9); ctx.lineTo(-9.2, 0); ctx.lineTo(-11.4, 0.9);
+    ctx.closePath(); ctx.fill();
+    // ---- cabin glass: windscreen and the door windows ----
+    ctx.fillStyle = 'rgba(120,150,175,0.62)';
+    ctx.beginPath();
+    ctx.moveTo(8.4, -3.1); ctx.lineTo(4.4, -3.2); ctx.lineTo(4.4, 3.2); ctx.lineTo(8.4, 3.1);
+    ctx.quadraticCurveTo(10.2, 0, 8.4, -3.1);
+    ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = dark; ctx.lineWidth = 0.5; ctx.stroke();
+    // the jump door, open on the starboard side
+    ctx.fillStyle = '#2f3629';
+    rr(ctx, -1.4, 2.2, 5.2, 1.7, 0.4); ctx.fill();
+    // team markers in the door while anyone is still aboard
+    for (let i = 0; i < Math.min(o.crew || 0, 3); i++) {
+      ctx.fillStyle = '#23272a';
+      ctx.beginPath(); ctx.arc(2.4 - i * 1.7, 3.0, 0.75, 0, TAU); ctx.fill();
+    }
+    // ---- tundra tyres under the wing roots, plus the tailwheel ----
+    ctx.strokeStyle = dark; ctx.lineWidth = 0.7;
+    ctx.beginPath();
+    ctx.moveTo(2.2, -3.2); ctx.lineTo(1.4, -6.4); ctx.moveTo(2.2, 3.2); ctx.lineTo(1.4, 6.4);
+    ctx.stroke();
+    ctx.fillStyle = '#2b2e27';
+    for (const wy of [-6.9, 6.9]) { ctx.beginPath(); ctx.ellipse(1.4, wy, 2.5, 1.7, 0, 0, TAU); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(-13.6, 0, 1.2, 0.9, 0, 0, TAU); ctx.fill();
+    // ---- spinner and prop disc ----
+    ctx.fillStyle = '#6d7a5c';
+    ctx.beginPath(); ctx.ellipse(13.2, 0, 1.6, 2.1, 0, 0, TAU); ctx.fill();
+    ctx.strokeStyle = 'rgba(196,202,180,0.45)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(14.4, 0, 1.1, 7.2, 0, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = 'rgba(210,216,196,0.75)'; ctx.lineWidth = 0.8;
+    const pa = t * 9;
+    ctx.beginPath();
+    ctx.moveTo(14.4, -Math.cos(pa) * 7.2); ctx.lineTo(14.4, Math.cos(pa) * 7.2);
+    ctx.stroke();
+    ctx.restore();
+  };
 
   // Killdozer: home-armored bulldozer with a big front blade
   I.killdozer = (ctx, t, o) => isoVehicle(ctx, t, o, {

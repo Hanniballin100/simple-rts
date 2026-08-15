@@ -74,14 +74,20 @@ const FAMILY_STYLE = { flat: 'flat', resistance: 'scrap', glob: 'glob', deep: 'g
 const FACTIONS = {
   flat: {
     name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
-    desc: 'Defend the ice wall. A dug-in prepper compound that wins by REFUSING TO BELIEVE YOU: the Institute of Truth disproves whatever the enemy is actually fielding, and a disproved thing stops working on you for the rest of the game. Megaphone Prophets patch up the line and talk enemy troops into walking over, militia man the Pillboxes, the Killdozer plows the road, and nothing they own flies — the whole air wing floats.',
-    economy: { workers: 5 },
-    // the compound is a tent city — losing the bunker is a setback, not the end
-    hqRebuild: { cost: 350, grace: 60 },
+    desc: 'They are not here to win, they are here to still be here. Farms worked by the people who fight, so every body you muster is income switched off — and Marksmen bury the tech tree on the enemy\'s doorstep instead of building it at home. Kill the Bunker and nothing happens. They are finished when the last homestead burns.',
+    // Matches the Rig of Truth's `limit: 3`. If this stayed above the cap the
+    // AI would read itself as permanently STARVED (workers < economy.workers),
+    // which pins it in the recovery branch that ignores the build reserve.
+    economy: { workers: 3 },
+    // NO hqRebuild. The homesteads ARE the redundancy now — see FLAT_LAST_STAND.
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
-    air: ['wballoon', 'balloon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
-    extras: ['prophet', 'deerstand', 'fireworks', 'quadrunner', 'schoolbus', 'engineer'], advanced: ['combine'],
-    structs: ['hamradio', 'revivaltent', 'wall', 'gate', 'refinery', 'superweapon'],
+    air: ['balloon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
+    // AMR gunners and Breachers are NOT built here — they are militia who
+    // reached a prepper cache (see CACHE_LOADOUT). The tent trains the people
+    // who make that possible, and nothing else.
+    extras: ['homesteader', 'journalist', 'engineer', 'bugoutvan', 'fireworks', 'quadrunner'],
+    advanced: [],   // pending the Institute of Truth / Broadcast Station rework
+    structs: ['homestead', 'broadcast', 'bushplane', 'wall', 'gate', 'refinery'],
     powers: {
       passive: { name: 'Horizon Is a Lie', desc: 'Enemy aircraft are always visible on your radar.' },
       // The dome is real, and for fourteen seconds everyone else has to agree.
@@ -90,22 +96,23 @@ const FACTIONS = {
       sig: { name: 'The Firmament', desc: 'Target a zone: for 14s the sky over it is SOLID. Enemy aircraft inside grind against the dome (12 dmg/s, badly slowed) and enemy shells and missiles crossing it burn up on contact.', kind: 'zone', cd: 90, r: 215, dur: 14, dps: 12 },
     },
     buildingNames: {
-      hq: 'Bunker of Truth', powerplant: 'Diesel Shack', barracks: 'Recruitment Tent',
+      hq: 'Bunker of Truth', powerplant: 'Diesel Generator', barracks: 'Recruitment Tent',
       factory: 'Truck Garage', airpad: 'Balloon Dock', tech: 'Institute of Truth',
       pillbox: 'Patriot Pillbox', laserpointer: 'Giant Laser Pointer',
-      hamradio: 'Ham Radio Shack', revivaltent: 'Revival Tent',
+      homestead: 'Homestead', preppercache: 'Prepper Cache', bushplane: 'Bush Plane',
+      broadcast: 'Broadcast Station',
       wall: 'Ice Wall Segment', gate: 'Checkpoint Gate', mine: 'IED',
-      superweapon: 'Katyusha Battery',
     },
   },
   resistance: {
     name: 'The Resistance', family: 'RESISTANCE', emoji: '📡',
-    desc: 'Off-grid guerrillas. Dirt-cheap Partisans and fast gun-truck Technicals hit before the lamestream reacts. The cheapest structures anywhere — none of them built to last. Fast scrap-built Salvage Rigs keep the minerals moving.',
+    desc: 'Off-grid guerrillas who hit before the lamestream reacts. Dirt-cheap bodies, the fastest and flimsiest buildings anywhere, and another basement whenever they lose one.',
     economy: { workers: 4 },
-    // a cell that loses its radio finds another basement
-    hqRebuild: { cost: 300, grace: 60 },
+    // a cell that loses its radio finds another basement — and finding one is
+    // cheap, because that is the entire point of being a cell
+    hqRebuild: { cost: 150, grace: 60 },
     worker: 'salvagerig', infantry: 'partisan', aa: 'manpad', vehicle: 'technical',
-    air: ['wballoon', 'fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
+    air: ['fpv', 'shahed'], tower: 'watchtower', aaTower: 'aanest',
     extras: ['rpgpartisan', 'marksman', 'chembiplane', 'engineer'], advanced: ['cruisetruck'],
     structs: ['wall', 'gate', 'refinery', 'superweapon'],
     powers: {
@@ -123,7 +130,7 @@ const FACTIONS = {
   },
   glob: {
     name: 'Globalists', family: 'GLOBALISTS', emoji: '🌐',
-    desc: 'Order through orbit — and paid for in full. PMC Contractors hold the line, M1 Abrams columns roll over it, and Bradleys deliver fire teams that shoot from the ports. Overhead is the real budget: AH-64 gunships, stealth F-35s, A-10s on the gun run — and once the Black Site Lab opens, B-52s carpet whole blocks off the map. Everything is expensive. Everything works.',
+    desc: 'Order through orbit, paid for in full. The line holds, the armour rolls over it, and the real budget is overhead. Everything is expensive. Everything works.',
     economy: { workers: 3 },
     worker: 'harvester', infantry: 'pmc', aa: 'jammer', vehicle: 'abrams',
     airFocus: 1.5, // still THE air power, but the AI fields an army under it too
@@ -146,7 +153,7 @@ const FACTIONS = {
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Its assets run silent — Agents, Unmarked Rigs and the Redacted tank all vanish the moment they hold still, and strike first from concealment. The air wing flies stealth: the TR-3B haunts the map unseen, B-1 Lancers rule the sky, and the B-2 Spirit erases city blocks — none of them visible until the ordnance is already falling. A detector is the only way to find any of them.',
+    desc: 'It was never elected and never leaves. Its assets run silent and strike first from concealment, its air wing arrives before anyone sees it, and a detector is the only way to find any of it.',
     economy: { workers: 3 },
     // Continuity of Government: it was never in that building anyway
     hqRebuild: { cost: 0, grace: 75, auto: 25 },
@@ -169,7 +176,7 @@ const FACTIONS = {
   },
   hollow: {
     name: 'Hollow Earthers', family: 'EARTHERS', emoji: '🕳️',
-    desc: 'The real world is below — and it left its machines behind. The Servitorium turns out Mole Servitors by the dozen; the Mechanicum takes them apart and builds something better — a Tech Priest to read the old marks, or a Lantern Guard whose bolter barrage clears the ground before the halberd arrives. A Guard that has proven itself is entombed in a Dreadnought. Excavation Rigs crack open DIG SITES and the Priests carry the relics home: no relic, no ascension. Overhead, Vril Discs hold the sky and Tesla Ornithopters strafe the ground; Quake Drill Trucks and Seismic Imitators speak with the voice of the earth itself.',
+    desc: 'The real world is below, and it left its machines behind. Servitors come out of the ground by the dozen; the Mechanicum takes them apart and builds something better. No relic, no ascension.',
     economy: { workers: 4 },
     worker: 'borerig', infantry: 'moleservitor', aa: 'slinger', vehicle: 'quaketruck',
     air: ['ornithopter', 'vrildisc'], tower: 'seismic', aaTower: 'geyser',
@@ -192,7 +199,7 @@ const FACTIONS = {
   },
   grey: {
     name: 'The Greys', family: 'ALIENS', emoji: '👽',
-    desc: 'You will be probed. Grey Drones are feeble alone — but a Handler\'s network makes the swarm lethal, a Technician shields it, and a Tall White Overseer binds scattered packs into one mind. Probe Drones paint your units for the kill. Overhead, the Mothership vaporizes one target at a time with a narrow annihilation lance while its bound Tic Tac escort screens the sky. No miners: Zero-Point Cores conjure minerals from the vacuum.',
+    desc: 'No workers, no wages. The structures themselves pay out, the abductions replace what dies, and everything on the field was grown for a purpose it did not choose.',
     economy: { workers: 0, start: 150 },
     worker: null, infantry: 'greydrone', aa: 'beamer', vehicle: 'tripod',
     air: ['orb', 'probedrone'], tower: 'pylon', aaTower: 'tractor',
@@ -212,7 +219,7 @@ const FACTIONS = {
   },
   reptilian: {
     name: 'The Reptilians', family: 'ALIENS', emoji: '🦎',
-    desc: 'They walk among us — and bite. The nest runs on SLAVES: cheap, bought with minerals, worked in the crystal fields until they drop — and every death, theirs or the enemy\'s, feeds the LOOSH that buys the caste: Nephilim shock-troops, fear-wielding Priests, the winged Draco Royal. Reptoid Warriors hold the line while the Sirrush devours all it kills; overhead, Gargoyle Brood swarm and Dread Screechers wail. The pit restocks itself. The pit always restocks itself.',
+    desc: 'They have been here the whole time, wearing your face. The pit is worked to death and refilled from your own ranks, and the throne takes an army by asking it nicely.',
     economy: { workers: 5, start: 200 },
     worker: 'slave', infantry: 'raptoid', aa: 'beamer', vehicle: 'sirrush',
     air: ['gargoyle', 'screecher'], tower: 'pylon', aaTower: 'tractor',
@@ -257,6 +264,214 @@ const REPAIR_FREE_VALUE = 0.25; // priceless structures bill at this × their HP
 const DEMOLISH_TIME = 2.5;     // seconds from ordering it to the building dropping
 const DEMOLISH_REFUND = 0.5;   // fraction of build cost paid back on completion
 
+// ---------- SUSPICION & SCRUTINY (how hiding works) ----------
+// Stealth is not a switch that a detector flips. It is a CONTEST between how
+// noticeable you are being and how hard the other side is looking at the ground
+// you are standing on.
+//
+//   SUSPICION = stealthSkill x what you are doing right now
+//   SCRUTINY  = what the observer has watching that spot
+//   revealed when  SUSPICION x SCRUTINY >= SUSPICION_CAUGHT
+//
+// The consequences fall out of the formula rather than being special-cased: an
+// elite can sit still inside a busy base and go unseen, the same elite is
+// caught the moment it runs, and a tank is invisible in open country however
+// fast it drives. Holding still helping is simply what the numbers do, which is
+// why `cloakStill` stops needing to be its own mechanic.
+// Suspicion is a METER, 0-100, that grows and cools rather than a rate read off
+// what you happen to be doing this instant. Behaviour sets a TARGET and the
+// meter walks toward it, so breaking into a run does not light you up
+// immediately and stopping does not make you safe immediately — you have to
+// actually hold still long enough to go quiet. Rising is fast, cooling is slow:
+// getting noticed is easier than being forgotten.
+const SUSPICION_MAX = 100;
+const SUSPICION_RISE = 55;     // meter points per second climbing toward target
+const SUSPICION_FALL = 16;     // ...and bleeding back down
+const SUSPICION_CAUGHT = 1.0;  // revealed when (suspicion/100) x scrutiny hits this
+const SUSP_STILL = 0.6;        // multiplier while holding position
+const SUSP_MOVING = 1.0;       // ...walking
+const SUSP_SPRINT = 1.5;       // ...at full speed
+const SUSP_STILL_AFTER = 1.2;  // seconds of not moving before "still" applies
+// Hold-still cloakers (MIB, Journalist) are built around stopping: they hide
+// better than their skill suggests when planted, and worse when they do not.
+const SUSP_CLOAKSTILL_MOVE = 1.7;
+// What an observer's things contribute to scrutiny over a spot they can see.
+const SCRUTINY_UNIT = 0.10;    // per unit with the spot inside its sight
+const SCRUTINY_BLDG = 0.15;    // per building — a base is a lot of eyes
+const SCRUTINY_DETECTOR = 2.5; // a real detector dominates, but stillness can still beat it
+const SCRUTINY_DISPROVED = 2;  // "Stealth Is a Psyop": everything you own looks twice as hard
+// FIRING HARD-REVEALS. A muzzle flash is not a suspicion modifier, it is a
+// location broadcast — no amount of skill hides it, and it lasts long enough to
+// be shot at. (Pad aircraft stay lit until they land: see EXPOSE_PAD.)
+const EXPOSE_FIRING = 5;       // seconds a shot keeps you visible, anywhere
+// How well each stealth thing hides at rest. Lower is better. Infantry beat
+// vehicles, vehicles beat aircraft, and a buried mine beats everything.
+const STEALTH_SKILL = {
+  mine: 0.25,
+  specops: 0.5, frontcompany: 0.55, bushplane: 0.6,
+  agent: 0.7, mib: 0.7, homesteader: 0.7,
+  // 0.55, not 0.85. At 0.85 a Journalist filming DISCREETLY sat at 61
+  // suspicion, and a busy base catches anything over ~59 — so the quiet stance
+  // was caught in the exact place it exists to work, and the two stances
+  // collapsed into one. At 0.55 discreet reads ~43 (sit there all day) and
+  // doorstep still pins at 100 (get the story, get found), which is the
+  // decision the unit is built around.
+  journalist: 0.55,
+  blackrig: 1.0, disinfovan: 1.1,
+  tr3b: 1.15, b2: 1.2, b1: 1.25,
+  spooktank: 1.3,
+};
+const STEALTH_SKILL_DEFAULT = 0.9;
+
+// ---------- THE HOMESTEAD ECONOMY (Flat Earth) ----------
+// The Flat Earthers do not mine for a living — they FARM, and the farmhands are
+// the same bodies that fight. A Homestead finishes with HOMESTEAD_SLOTS militia
+// already working it, and pays out in proportion to how many are still at home:
+// every militia mustered off the land is a quarter of that farm's income gone.
+// That is the whole faction in one number. An army in the field is an economy
+// switched off, and a full treasury means nobody is fighting.
+//
+// Bodies lost in the field come back on a slow drip (HOMESTEAD_REFILL each), so
+// attrition costs income for a long time after the battle ends.
+const HOMESTEAD_SLOTS = 4;             // militia a homestead holds at full strength
+// A new farm opens with a COUPLE of hands, not a full yard, and fills up slowly.
+// At 4-on-completion a Flat Earther could plant two homesteads and have eight
+// free rifles walking at you before anyone else had a barracks running — the
+// farms were an early-game militia printer. Starting at 2 and growing one every
+// HOMESTEAD_REFILL makes a full yard something you arrive at around the midgame,
+// and makes losing a farmhand hurt for a long time.
+const HOMESTEAD_START = 2;             // militia a freshly built homestead comes with
+const HOMESTEAD_RATE = 0.22;           // minerals/sec per militia actually stationed
+const HOMESTEAD_REFILL = 45;           // seconds to grow each missing body back
+const HOMESTEAD_CAP = 6;               // hard cap — this is also the victory condition
+// The compound builds FAR. A Flat Earther plants homesteads across half a
+// county, which is why the faction can be spread out enough to be hard to
+// finish off. Everyone else stays on BUILD_RADIUS.
+const FLAT_BUILD_RADIUS = 900;
+// Without a Diesel Generator the three powered structures do not stop, they
+// CRAWL — a quarter speed, where everyone else browns out to a half.
+const FLAT_BROWNOUT = 0.25;
+
+// ---------- PROOF (the Flat Earth strategic currency) ----------
+// Minerals come out of the ground; PROOF comes off a camera. An Investigative
+// Journalist films enemy structures and battles, carries the footage back, and
+// banks it at a Broadcast Station — and the bank is a BUILDING, not a number on
+// the HUD. Proof sits in the station that holds it, which means it can be taken
+// from you: burn the station and every frame inside it burns with it.
+// That is the whole risk profile of the faction's tech layer. Minerals are safe
+// in an abstract treasury; proof is stacked in a shed with an aerial on it.
+const PROOF_CAP = 250;          // per station — a full one stops accepting
+const PROOF_CARRY = 40;         // how much footage a Journalist holds before it must go home
+const PROOF_FILM_DISCREET = 4;  // proof/sec filming quietly (low suspicion)
+const PROOF_FILM_DOORSTEP = 11; // ...and shoving a lens in their face (high suspicion)
+// what the two stances do to the meter while filming (added to the target)
+const PROOF_SUSP_DISCREET = 10;
+const PROOF_SUSP_DOORSTEP = 70;
+const PROOF_BATTLE_BONUS = 3;   // extra proof per enemy body that dies on camera
+
+// ---------- BROADCASTS (what proof buys) ----------
+// Spent at the Broadcast Station. Timed ones are pressure; permanent ones are
+// the faction's tech tree, and the two dearest need the Institute of Truth
+// standing to unlock — the Institute stops being a research building and
+// becomes the thing that lets you say the biggest words.
+// `kind`: 'zone' picks a spot on the map, 'instant' fires where it stands,
+// 'permanent' is bought once and never expires.
+const BROADCASTS = {
+  leaked: {
+    name: 'Leaked Footage', cost: 45, kind: 'zone', dur: 25, r: 260,
+    desc: 'Everything in the target area is laid bare for 25s — units, structures, and whatever was trying not to be seen.',
+  },
+  followmoney: {
+    name: 'Follow the Money', cost: 70, kind: 'permanent',
+    desc: 'You have their books. Every enemy refinery, drop-off and worker is permanently visible, wherever it goes.',
+  },
+  awakening: {
+    name: 'Mass Awakening', cost: 80, kind: 'instant', dur: 45, mul: 1.3,
+    desc: 'The people have seen it. Every Truther Militia you own hits 30% harder for 45s.',
+  },
+  sponsors: {
+    name: 'Sponsors Pulled Out', cost: 95, kind: 'instant', dur: 30, mul: 0.5,
+    desc: 'Their backers are running. Every enemy earns HALF — mining and structure income both — for 30s.',
+  },
+  deadair: {
+    name: 'Dead Air', cost: 110, kind: 'instant', dur: 30, mul: 0.5,
+    desc: 'They are transmitting nothing and hearing less. Enemy scrutiny is halved for 30s: for that window your Marksmen and Ex-Special Forces are twice as hard to notice.',
+  },
+  archive: {
+    name: 'The Archive', cost: 140, kind: 'permanent', req: 'tech', bonus: 100,
+    desc: 'Deep storage under the Institute. Every Broadcast Station banks 100 more proof, forever.',
+  },
+  syndication: {
+    name: 'Syndication', cost: 180, kind: 'permanent',
+    desc: 'The show is carried everywhere. Every homestead you own works one more militia — permanently, on every farm you will ever build.',
+  },
+  household: {
+    name: 'Household Name', cost: 200, kind: 'permanent', req: 'tech', mul: 0.75,
+    desc: 'They already know who you are. Every broadcast from here on costs 25% less.',
+  },
+};
+
+// ---------- prepper caches ----------
+// A cache is a buried kit dump, and a militia that reaches one walks away as
+// something else (see CACHE_KITS). It is the Flat Earther tech tree, and unlike
+// every other faction's it lives at the FRONT: a cache planted inside your own
+// build radius is refused outright, so the kit only ever exists where the
+// Marksman was brave enough to bury it.
+// Finite on purpose — a cache that refilled would be a permanent forward
+// barracks nothing could resolve. Four kits, then it is an empty box.
+const CACHE_COST = 45;
+const CACHE_KITS = 4;                  // militia conversions before it is spent
+const CACHE_CARRY = 2;                 // caches a Marksman carries at a time
+const CACHE_CAP = 6;                   // live caches per player
+const CACHE_RESUPPLY = 4;              // seconds at a homestead to reload a Marksman
+const CACHE_CONVERT = 3;               // seconds a militia spends drawing its kit
+// A cache must be buried ON SOMEBODY'S DOORSTEP — within this of an enemy
+// structure. Outside-your-own-radius alone was not a real constraint: you could
+// stash the whole tech tree in a safe empty corner and walk militia out to it
+// at leisure, which is all of the payoff and none of the risk. Now the ground
+// that qualifies is ground the enemy is standing on.
+const CACHE_ENEMY_R = 620;
+// What a militia can draw. Sidegrades, never a ladder — you pick the kit for
+// the job in front of you, and the choice is made at the front where you can
+// already see what you are up against.
+const CACHE_LOADOUT = ['amr', 'breacher'];
+
+// ---------- the Bush Plane ----------
+// The faction's one act of reach, and it is a late-game ambush rather than an
+// air force. It is built like a building and sits on the strip STEALTHED; you
+// walk three Homestead Marksmen aboard, and they come off the other end as
+// Ex-Special Forces. It flies once, drops, and is gone.
+// Scouted ground only — a strike this hard should require you to have LOOKED,
+// and it stops the plane being a blind map-wide delete button.
+const BUSHPLANE_CREW = 3;              // Marksmen required before it will fly
+const BUSHPLANE_SPEED = 240;           // how fast it crosses to the drop
+const DEMO_CHARGES = 2;                // charges each Ex-Special Forces carries
+const DEMO_FUSE = 6;                   // seconds from planting to the bang
+const DEMO_DMG = 900;                  // straight to the structure, before armor
+const DEMO_PLANT = 2.5;                // seconds spent setting it
+
+// ---------- Bug Out Van kits ----------
+// One body climbs in and the van is rebuilt around it. The van keeps its own
+// hull (hp, armor, speed) and takes the stat block below; unload and both come
+// back out intact. A van carrying a KIT body is not a transport any more — the
+// bay is full of whatever they welded in there.
+// `art` is the drawing key: every kit looks different on the field, so an enemy
+// can read what is coming at them from the silhouette alone.
+const BUGOUT_KITS = {
+  engineer:    { name: 'Repair Truck',  art: 'repair',  dmg: 0,  atkRange: 0,   cooldown: 1,   repair: 10 },
+  militia:     { name: 'Technical',     art: 'mg',      dmg: 12, atkRange: 150, cooldown: 0.35 },
+  // the compound's mobile air defence: the Giant Laser Pointer rig bolted to a
+  // van bed. Full damage skyward, feeble against anything on the ground
+  // (dmgVsGround) — same bargain every AA trooper in the game makes.
+  laserguy:    { name: 'Laser Technical', art: 'laser', dmg: 15, dmgVsGround: 5, atkRange: 215, cooldown: 0.55, targets: 'both' },
+  amr:         { name: 'Hunter',        art: 'hunter',  dmg: 78, atkRange: 285, cooldown: 2.4, vehBonus: 2.6, bldgBonus: 0.12 },
+  breacher:    { name: 'Demo Van',      art: 'demo',    dmg: 44, atkRange: 60,  cooldown: 1.4, bldgBonus: 3.2 },
+  // the Chuck Wagon reloads Marksmen IN THE FIELD — the round trip home is the
+  // cache system's whole tax, and this is what buys it off
+  homesteader: { name: 'Chuck Wagon',   art: 'wagon',   dmg: 0,  atkRange: 0,   cooldown: 1,   resupplies: true },
+  journalist:  { name: 'News Van',      art: 'news',    dmg: 0,  atkRange: 0,   cooldown: 1,   investigator: true, proofDropoff: true },
+};
+
 // ---------- DISPROOF (the Flat Earth economy of denial) ----------
 // The Institute of Truth does not research new toys — it proves the enemy's
 // toys are FAKE, and a disproved thing stops working on you for the rest of
@@ -264,11 +479,22 @@ const DEMOLISH_REFUND = 0.5;   // fraction of build cost paid back on completion
 // that ticks on its own it is REACTIVE: you scout what they are actually
 // fielding and deny that, so no two games research the same order. One at a
 // time, no refunds, and every Ham Radio Shack standing shortens the wait.
+// Bought at the Institute of Truth, paid in MINERALS — proof is the Broadcast
+// Station's currency, so the faction has two strategic taps that draw on
+// different economies: minerals buy DENIAL, proof buys PRESSURE.
+//
+// Two of these used to be off-switches rather than counters. "Stealth Is a
+// Psyop" deleted the Deep State's entire identity for 260, and "Crisis Actors"
+// permanently voided every conversion, abduction and sleeper mechanic three
+// factions are built around. One purchase, no counterplay, forever — the kind
+// of card that makes a matchup unplayable instead of interesting.
+// Both are GRADED now. They are still the hard counter; the other side still
+// gets to play.
 const DISPROOFS = {
   stealth:    { name: 'Stealth Is a Psyop',      cost: 260, time: 45,
-                desc: 'Nothing can hide from you. Cloaked, stealthed, burrowed and disguised units are all plainly visible, permanently, with no detector needed.' },
+                desc: 'Nobody is that good. Everything you own looks TWICE as hard — enemy infiltrators need half the suspicion to give themselves away, and the ones holding perfectly still are the only ones you will still miss.' },
   actors:     { name: 'Crisis Actors',           cost: 250, time: 42,
-                desc: 'Every last one of them is a paid actor, and nobody real ever changes sides. Your people cannot be converted, mind-controlled, abducted or recruited as sleepers by anyone — and any of yours already turned come straight back.' },
+                desc: 'They are paid, and paid people go home. Taking one of your people takes THREE TIMES as long, and anyone they do take walks back to you 30s later. Any of yours already turned come straight back.' },
   ballistics: { name: 'Ballistics Is a Theory',  cost: 220, time: 38,
                 desc: 'Shells cannot arc over a flat earth. Enemy artillery and other lobbed weapons scatter wildly when they fire at anything of yours.' },
   nukes:      { name: 'Nukes Are Fake',          cost: 320, time: 55,
@@ -276,6 +502,14 @@ const DISPROOFS = {
   sky:        { name: 'The Sky Is Closed',       cost: 340, time: 60,
                 desc: 'The firmament is shut for good. Enemy aircraft over your base take 9 damage a second and fly at half speed — your own wing floats, so it never touches them.' },
 };
+// The Bloodline Coup's hold. 45s was long enough that a well-timed cast
+// decided a fight outright — the borrowed army had time to win it before
+// anybody came back.
+const COUP_HOLD = 20;
+
+// how Crisis Actors grades: slower to take, and never permanent
+const ACTORS_SLOW = 3;      // conversion and abduction attempts against you take this much longer
+const ACTORS_RETURN = 30;   // ...and anyone they manage to take walks home after this
 const DISPROOF_SKY_R = 340;   // how far the closed sky reaches from your structures
 
 // ---------- Quantitative Easing (Globalist passive) ----------
@@ -340,7 +574,7 @@ const SUPER_DEFS = {
   deep:       { charge: 150, kind: 'emp',     desc: 'Total Blackout — enemy structures in the zone go dark for 20s' },
   hollow:     { charge: 180, kind: 'quake',   desc: 'The Big One — a quake dismantles every structure in the zone' },
   grey:       { charge: 180, kind: 'ray',     desc: 'Pyramid Death Ray — a sustained beam annihilates the zone' },
-  reptilian:  { charge: 190, kind: 'coup',    desc: 'Bloodline Coup — costs 60 loosh to fire and drinks up to 200: the more blood banked, the WIDER the zone. Enemies inside fight for YOU for 45s' },
+  reptilian:  { charge: 190, kind: 'coup',    desc: 'Bloodline Coup — costs 60 loosh to fire and drinks up to 200: the more blood banked, the WIDER the zone. Enemies inside fight for YOU for 20s' },
 };
 
 // ---------- units ----------
@@ -362,11 +596,21 @@ const UNIT_TYPES = {
   // armed; the Bore Rig is a slow armored hauler with a drill for a face.
   harvester:  { name: 'Mining Rig',   role: 'worker', builtAt: 'hq', hp: 200, speed: 55, dmg: 5, atkRange: 90, cooldown: 1,   sight: 200, cost: 110, r: 13, buildTime: 9,  carry: 14, shape: 'square', limit: 4 },
   blackrig:   { name: 'Unmarked Rig', role: 'worker', builtAt: 'hq', hp: 190, speed: 58, dmg: 6, atkRange: 95, cooldown: 1,   sight: 260, cost: 105, r: 13, buildTime: 9,  carry: 12, shape: 'square', limit: 4, cloakStill: true },
-  truthrig:   { name: 'Rig of Truth', role: 'worker', builtAt: 'hq', hp: 150, speed: 60, dmg: 4, atkRange: 85, cooldown: 0.9, sight: 190, cost: 90,  r: 12, buildTime: 8,  carry: 9,  shape: 'square', limit: 6 },
+  // Cut to 3 (from 6): mining is no longer the Flat Earth economy, it is the
+  // BRIDGE to the first homestead or two. A big rig fleet competed with the
+  // farms for the same money and blunted the whole point of the faction.
+  truthrig:   { name: 'Rig of Truth', role: 'worker', builtAt: 'hq', hp: 150, speed: 60, dmg: 4, atkRange: 85, cooldown: 0.9, sight: 190, cost: 90,  r: 12, buildTime: 8,  carry: 9,  shape: 'square', limit: 3 },
   salvagerig: { name: 'Salvage Rig',  role: 'worker', builtAt: 'hq', hp: 130, speed: 72, dmg: 4, atkRange: 90, cooldown: 0.9, sight: 200, cost: 80,  r: 12, buildTime: 7,  carry: 8,  shape: 'square', limit: 5 },
   borerig:    { name: 'Bore Rig',     role: 'worker', builtAt: 'hq', hp: 240, speed: 45, dmg: 8, atkRange: 24, cooldown: 1.1, sight: 170, cost: 120, r: 13, buildTime: 10, carry: 16, shape: 'square', limit: 5 },
   // basic infantry
-  militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 75,  speed: 80, dmg: 5,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 45, r: 9,  buildTime: 5, plantMine: true },
+  // Flat line infantry, and the faction's UNIT OF ACCOUNT — every homestead
+  // holds four, every prepper cache converts one, and the Bug Out Van hauls
+  // them. Deliberately BEEFY and deliberately not good: a lot of hit points
+  // wrapped around a mediocre rifle, because their job is to survive the walk
+  // to a cache and come back up as something that can actually fight.
+  // They are also free (homesteads grow them), so the sticker price is not the
+  // real cost — the real cost is a quarter of a farm's income going quiet.
+  militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 140, speed: 74, dmg: 6,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 50, r: 9,  buildTime: 5, plantMine: true },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4, plantMine: true },
   // the Reptilian workforce: cheap, unarmed, worked in the crystal fields
   // until they drop (~lifespan seconds, staggered). Every death — overwork,
@@ -519,13 +763,84 @@ const UNIT_TYPES = {
   // one bullet, one man: light infantry die to a single round, but the same
   // round barely dents armor plate or concrete (vehBonus/bldgBonus < 1)
   rpgpartisan: { name: 'RPG Partisan', role: 'combat', builtAt: 'barracks', hp: 55, speed: 85, dmg: 26, atkRange: 150, cooldown: 2.2, sight: 230, cost: 75, r: 9, buildTime: 6, bldgBonus: 2, vehBonus: 2.2, rocketArt: true },
-  marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 110, atkRange: 260, cooldown: 3.0, sight: 300, cost: 85, r: 9, buildTime: 7, vehBonus: 0.35, bldgBonus: 0.35 },
-  // Flat's hunter: the Deer Stand Marksman only shoots from INSIDE a forest
-  // (he has to climb his stand first) and is invisible among the trees until
-  // the muzzle flash (forestOnly). A heavier rifle than the Resistance
-  // marksman — and the same uselessness against armor.
-  deerstand:   { name: 'Deer Stand Marksman', role: 'combat', builtAt: 'barracks', hp: 60, speed: 68, dmg: 130, atkRange: 300, cooldown: 3.4, sight: 320, cost: 130, r: 9, buildTime: 9, vehBonus: 0.3, bldgBonus: 0.3, forestOnly: true },
+  // bldgBonus 0.08, same as the Homestead Marksman and for the same reason: a
+  // precision rifle was doing 12.8 dps to structures, more than ANY line
+  // infantry in the game. Snipers kill people; the cell's answer to a building
+  // is the RPG Partisan.
+  marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 110, atkRange: 260, cooldown: 3.0, sight: 300, cost: 85, r: 9, buildTime: 7, vehBonus: 0.35, bldgBonus: 0.08 },
+  // ---------- the Flat Earth field layer ----------
+  // THE HOMESTEAD MARKSMAN is the most important body the faction owns, and it
+  // does two jobs that are really one job: it is the rifle that watches the
+  // approaches, and it is the LOGISTICS. It goes out unseen (stealth — broken
+  // only by its own muzzle flash, then it fades again), buries prepper caches
+  // in enemy country, and walks home for more.
+  // The old Deer Stand version could only shoot from a treeline; this one has
+  // given up the stand for a ghillie and works anywhere.
+  // bldgBonus 0.08: a rifle round does essentially nothing to a wall, and at
+  // the old 0.3 a Marksman out-damaged a militiaman against buildings, which is
+  // backwards. Snipers kill people. The faction's answer to structures is the
+  // Breacher, the Killdozer and demolition charges.
+  homesteader: { name: 'Homestead Marksman', role: 'combat', builtAt: 'barracks', hp: 65, speed: 70,
+                 dmg: 130, atkRange: 300, cooldown: 3.4, sight: 320, cost: 150, r: 9, buildTime: 9,
+                 vehBonus: 0.3, bldgBonus: 0.08, stealth: true, caches: CACHE_CARRY },
+  // EX-SPECIAL FORCES — what a Homestead Marksman becomes when it boards the
+  // Bush Plane, and the only way to get one.
+  // NOT a better sniper. The faction already has a sniper, and three more of
+  // them landing behind the line is just three more rifles. These are DEMOLITION
+  // men: they carry charges, and a charge does not care how many hit points a
+  // building has. Three of them dropped on a Fusion Plant, a superweapon or a
+  // packed airfield removes it, and the enemy's first warning is the fuse.
+  // The rifle is there so they can defend the walk in, not so they can trade.
+  // same reasoning as the Marksman: the carbine was doing 48 dps to structures,
+  // which quietly made the charges optional. The charge IS the unit.
+  specops: { name: 'Ex-Special Forces', role: 'combat', builtAt: null, hp: 165, speed: 84,
+             dmg: 34, atkRange: 150, cooldown: 0.7, sight: 320, cost: 0, r: 9, buildTime: 0,
+             bldgBonus: 0.25, stealth: true, charges: DEMO_CHARGES },
+  // The Bush Plane once it is off the ground. A REAL aircraft from the moment
+  // it lifts: no weapon, no stealth, and every SAM, AA nest and interceptor on
+  // the map gets a shot at it on the way in. Losing it loses the whole team,
+  // which is the risk that pays for landing three demolition men behind a line.
+  // (The strip it launches from is BUILDING_TYPES.bushplane — different table.)
+  bushflight: { name: 'Bush Plane', role: 'combat', builtAt: null, hp: 300, speed: 190,
+                dmg: 0, atkRange: 0, cooldown: 1, sight: 300, cost: 0, r: 12, buildTime: 0,
+                flying: true, shape: 'tri' },
+  // ---------- cache kit: what a militia comes back up as ----------
+  // Neither of these is built anywhere. A militia walks to a prepper cache,
+  // spends CACHE_CONVERT seconds in it, and climbs out as one of them.
+  // ANTI-MATERIEL RIFLE: a rifle that treats a tank like a filing cabinet.
+  // Enormous against armor, long, slow, and nearly worthless against people.
+  amr:      { name: 'Anti-Materiel Rifle', role: 'combat', builtAt: null, hp: 90, speed: 66,
+              dmg: 70, atkRange: 265, cooldown: 2.6, sight: 280, cost: 0, r: 9, buildTime: 0,
+              vehBonus: 2.6, bldgBonus: 0.12 },
+  // BREACHER: door-to-door work. Short reach, brutal inside it, and the only
+  // infantry answer the faction has to a garrisoned building.
+  // bldgBonus 1.0 — no structure bonus at all, just a fast gun up close. It was
+  // 2.4 (120 dps), then 1.5 (75), and both still beat a 185-mineral Killdozer's
+  // 65 from a body that costs one militia and a cache charge. The KILLDOZER is
+  // the faction's demolition answer; the Breacher is what clears the doorway in
+  // front of it. 50 dps, and it has to stand at 55 range to get it.
+  breacher: { name: 'Breacher', role: 'combat', builtAt: null, hp: 175, speed: 76,
+              dmg: 30, atkRange: 55, cooldown: 0.6, sight: 190, cost: 0, r: 9, buildTime: 0,
+              armor: 0.2, bldgBonus: 1.0 },
+  // THE INVESTIGATIVE JOURNALIST gathers PROOF — it walks up to enemy
+  // structures and battles and documents them, then carries the footage home.
+  // Unarmed, fragile, sees a very long way, and spots what is hiding.
+  // (Stealth mode / rush mode and the proof economy itself are still open —
+  // this is the body; the Broadcast Station rework wires up what it earns.)
+  journalist: { name: 'Investigative Journalist', role: 'combat', builtAt: 'barracks', hp: 70, speed: 88,
+                dmg: 0, atkRange: 0, cooldown: 1, sight: 330, cost: 90, r: 9, buildTime: 7,
+                cloakStill: true, cloakDelay: 1.5, detector: true, investigator: true },
   // vehicles
+  // THE BUG OUT VAN rolls off the line as nothing at all: a panel van, quick,
+  // unarmed, with the seats pulled out. What it BECOMES depends on who climbs
+  // in — one body, welded into the role it brought with it (see BUGOUT_KITS).
+  // Empty, it is still useful: it is the only thing the faction has that can
+  // haul militia to a forward cache instead of walking them there.
+  // Unload and you get the passenger back and the van back; kill it loaded and
+  // you lose both.
+  bugoutvan: { name: 'Bug Out Van', role: 'combat', builtAt: 'factory', hp: 300, speed: 92,
+               dmg: 0, atkRange: 0, cooldown: 1, sight: 220, cost: 120, r: 13, buildTime: 9,
+               shape: 'square', armor: 0.15, cargoCap: 4, bailOut: true, loader: true },
   // Killdozer: a home-armored bulldozer — crawling, nearly bulletproof
   // (armor), and it plows through walls and buildings (heavy bldgBonus)
   killdozer: { name: 'Killdozer',        role: 'combat', builtAt: 'factory', hp: 520, speed: 36,  dmg: 26, atkRange: 30,  cooldown: 1.2,  sight: 180, cost: 185, r: 14, buildTime: 12, bldgBonus: 3, armor: 0.5, shape: 'square' },
@@ -609,7 +924,11 @@ const UNIT_TYPES = {
   // dominate the entire sky for 150 minerals.
   apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 16, dmgVsGround: 16, atkRange: 150, cooldown: 0.72, sight: 270, cost: 190, r: 11, buildTime: 11, flying: true, targets: 'ground', lowAir: true, shape: 'tri', rocketArt: true },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
-  fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri' },
+  // detector: with the Weather Balloon gone the cell had NO counter-stealth at
+  // all — the only faction in the game without any. A swarm of camera drones is
+  // the natural place for it: cheap, fragile, and it has to be flown out and
+  // kept alive over the thing you want seen.
+  fpv:      { name: 'FPV Swarm',        role: 'combat', builtAt: 'airpad', hp: 40,  speed: 150, dmg: 5,  atkRange: 55,  cooldown: 0.45, sight: 260, cost: 40,  r: 7,  buildTime: 4,  flying: true, shape: 'tri', detector: true },
   // Shahed: a purchasable loitering munition — flies at its target and dives
   // in for one big blast, destroying itself (kamikaze)
   shahed:   { name: 'Shahed',           role: 'combat', builtAt: 'airpad', hp: 60,  speed: 135, dmg: 0,  atkRange: 22,  cooldown: 1,    sight: 320, cost: 55,  r: 9,  buildTime: 5,  flying: true, shape: 'tri', kamikaze: { dmg: 95, splash: 48, bldgBonus: 1.5 } },
@@ -762,7 +1081,10 @@ const BUILDING_TYPES = {
   // flat-earth fortification: unarmed concrete with firing slits — worthless
   // empty, mean when garrisoned (pooled squad fire, same rules as civilian
   // structures). The militia man their own walls.
-  pillbox:    { name: 'Pillbox', hp: 460, w: 42, h: 38, cost: 80, buildTime: 9, sight: 250, power: -10, cap: 6, slots: 3 },
+  // Unarmed concrete with firing slits — worthless empty, mean when manned, and
+  // the militia inside shoot a long way further than they could out of a window
+  // (garrisonRange, against the GARRISON_RANGE 200 everything else gets).
+  pillbox:    { name: 'Pillbox', hp: 460, w: 42, h: 38, cost: 80, buildTime: 9, sight: 250, power: -10, cap: 6, slots: 3, garrisonRange: 310 },
   tower5g:    { hp: 340, w: 40, h: 40, cost: 100, buildTime: 12, sight: 280, power: -30, cap: 5, dmg: 6,  atkRange: 215, cooldown: 0.9,  targets: 'ground', weapon: 'pulse' },
   stalagmite: { hp: 320, w: 40, h: 40, cost: 80,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 11, atkRange: 180, cooldown: 0.7,  targets: 'ground' },
   // Hollow ground defense: the Seismic Imitator slams a resonant piston and a
@@ -796,7 +1118,13 @@ const BUILDING_TYPES = {
   // Globalist premium income: a server farm that prints money off the grid.
   // Power-hungry (fits their infrastructure identity), capped so it's a floor,
   // not a runaway — the late-game answer for a faction with no field income.
-  datacenter:     { name: 'Data Center', hp: 380, w: 54, h: 54, cost: 170, buildTime: 15, sight: 180, power: -30, income: 16, cap: 4, req: 'tech' },
+  // DIMINISHING: each Data Center after the first pays 25% less than the one
+  // before it (16, 12, 9, 6.75 — 43.75 across four instead of a flat 64), so a
+  // farm of them stops being the obvious answer to every spare 170 minerals.
+  // `needsReq`: they are wired into the Black Site Lab, not merely unlocked by
+  // it. Lose the Lab and every Data Center goes dark until you rebuild it —
+  // which makes the Lab a target worth defending rather than a tick-box.
+  datacenter:     { name: 'Data Center', hp: 380, w: 54, h: 54, cost: 170, buildTime: 15, sight: 180, power: -30, income: 16, cap: 4, req: 'tech', diminish: 0.75, needsReq: true },
   // Refinery: a forward mineral drop-off. Workers deposit here instead of
   // hauling all the way home, so a base can push out to distant fields, and it
   // can be planted off-grid (anywhere).
@@ -840,12 +1168,43 @@ const BUILDING_TYPES = {
   // (see SUPER_DEFS); expensive, power-hungry, one per player
   superweapon: { name: 'Superweapon', hp: 550, w: 76, h: 76, cost: 500, buildTime: 25, sight: 220, power: -100, cap: 1, req: 'tech', superweapon: true },
   // ---------- flat-earth compound infrastructure ----------
-  // The Revival Tent is the field hospital the compound gathers at: its canvas
-  // shade mends anything of yours standing under it (healAura). The Ham Radio
-  // Shack is the research annexe — every one still standing shortens whatever
-  // the Institute of Truth is currently disproving (research).
-  revivaltent: { name: 'Revival Tent', hp: 300, w: 56, h: 50, cost: 180, buildTime: 12, sight: 200, power: 0,   cap: 2, healAura: { r: 190, rate: 7 } },
-  hamradio:    { name: 'Ham Radio',    hp: 220, w: 36, h: 36, cost: 90,  buildTime: 9,  sight: 260, power: -10, cap: 4, research: 0.25 },
+  // THE HOMESTEAD — the faction's economy, population and life bar in one
+  // building. It finishes already worked by HOMESTEAD_SLOTS militia and pays
+  // HOMESTEAD_RATE per second for each one still at home, so the income is a
+  // live readout of how many people are NOT at the front. Muster the yard and
+  // the farm goes quiet until the bodies grow back.
+  // Garrisoned militia are the farmhands and the defenders both — the same
+  // four rifles either work the land or shoot out of the windows.
+  // `beacon`: every player can see it. Deliberate. It is the win condition, and
+  // a win condition nobody can find turns every lost game into a search party.
+  // A proper farmstead footprint, not a shed: house, barn, silo, yard and
+  // worked fields, with room for the hands to actually be seen working it.
+  homestead: { name: 'Homestead', hp: 900, w: 150, h: 129, cost: 200, buildTime: 15, sight: 290, power: 0,
+               cap: HOMESTEAD_CAP, slots: HOMESTEAD_SLOTS, homestead: true },
+  // A buried kit dump. Never built from the menu — a Homestead Marksman plants
+  // it (see UNIT_TYPES.homesteader), and only OUTSIDE its owner's build radius.
+  // Holds CACHE_KITS conversions, then it is an empty box and folds up.
+  // Plainly visible and plainly killable — the tension is that it sits in
+  // enemy country, not that it is hidden. A cache nobody can find is a free
+  // forward barracks; a cache everyone can see is a decision for both sides.
+  preppercache: { name: 'Prepper Cache', hp: 140, w: 26, h: 22, cost: 0, buildTime: 0, sight: 150, power: 0,
+                  anywhere: true, cache: true },
+  // ================= Broadcast Station =================
+  // The proof bank, and a deliberately fragile one. Everything the Journalist
+  // risked their neck for is stacked inside this shed, so it is the single most
+  // worthwhile thing an enemy can burn on the Flat Earth map — and unlike the
+  // Bunker, losing it actually costs you something you cannot get back.
+  // Draws power (one of only four things that do), and there can be two: the
+  // second is not more capacity, it is REDUNDANCY. Each banks its own footage,
+  // a Journalist delivers to whichever is nearer, and a raid only ever takes
+  // what the station it burned was holding.
+  broadcast: { name: 'Broadcast Station', hp: 420, w: 62, h: 56, cost: 220, buildTime: 18,
+               sight: 260, power: -50, cap: 2, proofBank: true },
+  // Single use, and it is a building right up until the moment it is not: it
+  // sits hidden on the pad, you walk three Homestead Marksmen aboard, and it
+  // takes off once and never comes back (see BUSHPLANE).
+  bushplane: { name: 'Bush Plane', hp: 300, w: 70, h: 56, cost: 260, buildTime: 18, sight: 200, power: 0,
+               cap: 2, req: 'airpad', stealth: true, bushplane: true },
   // the deployed Front Company. Never built from a menu — an unmarked van
   // establishes it (see UNIT_TYPES.frontco). thief.cut is the share taken from
   // every enemy delivery to a drop-off within thief.r.
@@ -911,30 +1270,46 @@ const MAP_SETTINGS = {
 const BUILDING_MODS = {
   flat: { // DUG IN. The compound is slow to raise and hard to shift: sandbags,
           // poured slab and plywood, built by a big workforce that stays put.
-    hq:         { hp: 980,  power: 55 },
-    powerplant: { cost: 70,  hp: 300, power: 70,  buildTime: 10, w: 52, h: 52 },
-    barracks:   { cost: 90,  hp: 470, buildTime: 12, w: 50, h: 50 },
-    factory:    { cost: 145, hp: 540, buildTime: 17 },
-    airpad:     { cost: 120, hp: 460, buildTime: 17, req: 'tech' }, // the sky must be proven fake first
-    tech:       { cost: 250, hp: 510 },
+    //
+    // OFF THE GRID BY DOCTRINE, and now almost completely. Every structure the
+    // compound raises carries its own fuel — car batteries, a genset out back,
+    // a barrel of diesel and no paperwork. `power: 0` across the board, so
+    // there is nothing to black out and nothing to browning-out.
+    //
+    // The three exceptions are the three things a prepper cannot improvise:
+    // TRAINING, MACHINE TOOLS and RESEARCH. The Recruitment Tent, the Truck
+    // Garage and the Institute of Truth draw real load, and only a Diesel
+    // Generator answers it. One generator covers all three; a second is
+    // redundancy, and you will want it, because the generator is a BEACON —
+    // every player sees it the moment it finishes, forever, scouted or not.
+    // That is the trade: the faction that cannot be browned out advertises the
+    // one building that would brown it out.
+    hq:         { hp: 1600, power: 0, slots: 5 }, // the Bunker: enormous, and you can man it
+    powerplant: { cost: 90,  hp: 300, power: 200, buildTime: 12, w: 52, h: 52, cap: 3, beacon: true },
+    // OFF THE GRID. Training militia needs a tent, a sergeant and a field —
+    // none of which plug into anything. Only the Garage and the Institute draw.
+    barracks:   { cost: 90,  hp: 470, buildTime: 12, w: 50, h: 50, power: 0 },
+    factory:    { cost: 145, hp: 540, buildTime: 17 },                // draws (-40)
+    airpad:     { cost: 120, hp: 460, buildTime: 17, req: 'tech', power: 0 }, // the sky must be proven fake first
+    tech:       { cost: 250, hp: 510 },                               // draws (-80)
     mine:       { cost: 15, explodes: { r: 75, dmg: 70, fire: { r: 40, dur: 2.5, dps: 8 } } }, // cheap IEDs are their thing
-    // OFF THE GRID BY DOCTRINE. The compound's guns run on diesel, car
-    // batteries and distrust — never the mains. Mechanically this is the
-    // compensation for the worst power ceiling in the game (55 + 6x70 = 475,
-    // against a Globalist 970): their defences cannot be browned out, so a
-    // base that overspends on production still shoots back.
+    refinery:     { power: 0 },
     pillbox:      { power: 0 },
     laserpointer: { power: 0 },
   },
   resistance: { // NOTHING STAYS PUT. Containers dragged into place and wired up
                 // in minutes: the cheapest and by far the FASTEST structures in
                 // the game, and the flimsiest. The cell expects to lose them.
-    hq:         { hp: 700,  power: 55 },
-    powerplant: { cost: 50,  hp: 175, power: 65,  buildTime: 5,  w: 52, h: 52 },
-    barracks:   { cost: 60,  hp: 250, buildTime: 6,  w: 50, h: 50 },
-    factory:    { cost: 105, hp: 300, buildTime: 9 },
-    airpad:     { cost: 80,  hp: 260, buildTime: 8 }, // the Drone Shop: no proof-of-sky required
-    tech:       { cost: 200, hp: 300 },
+    // Still the flimsiest in the game and still the fastest to raise — but the
+    // old numbers made a cell's whole estate free damage. The Pirate Radio
+    // Bunker in particular folded to a single push, which is a poor fate for a
+    // faction whose fiction is that it keeps coming back.
+    hq:         { hp: 1000, power: 55 },
+    powerplant: { cost: 50,  hp: 230, power: 65,  buildTime: 5,  w: 52, h: 52 },
+    barracks:   { cost: 60,  hp: 330, buildTime: 6,  w: 50, h: 50 },
+    factory:    { cost: 105, hp: 400, buildTime: 9 },
+    airpad:     { cost: 80,  hp: 340, buildTime: 8 }, // the Drone Shop: no proof-of-sky required
+    tech:       { cost: 200, hp: 400 },
     // same doctrine, harder: a cell that plugs its guns into the mains is a
     // cell that can be switched off. Scrounged generators only (see the flat
     // note above — both off-grid factions pay for it with a low power cap)
@@ -990,6 +1365,22 @@ for (const fk of Object.keys(FACTIONS)) {
   for (const [bk, base] of Object.entries(BUILDING_TYPES)) {
     FBUILD[fk][bk] = { ...base, ...(BUILDING_MODS[fk] || {})[bk] };
   }
+}
+
+// ---------- Bug Out Van variants ----------
+// Each kit becomes a REAL unit type, generated from the empty van plus its
+// overrides. Loading a body swaps the van for its variant the same way an
+// ascension swaps a body (see ASCEND), which means combat, selection, the
+// sidebar and the art layer all treat it as an ordinary unit and none of them
+// need to know the Bug Out Van exists.
+// `cargoCap: 0` on every variant is load-bearing: a kitted van has a welded bay
+// and cannot ferry anyone, and the empty van has no weapon — so the van is
+// never both armed and carrying, without a rule anywhere enforcing it.
+for (const [body, kit] of Object.entries(BUGOUT_KITS)) {
+  UNIT_TYPES['van_' + body] = {
+    ...UNIT_TYPES.bugoutvan, ...kit,
+    vanKit: body, cargoCap: 0, loader: false, cost: 0, buildTime: 0, builtAt: null,
+  };
 }
 
 // ---------- global pace tuning ----------
