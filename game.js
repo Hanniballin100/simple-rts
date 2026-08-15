@@ -75,7 +75,6 @@ const STRUCT_GAP = 8;        // min world gap between structure footprints (RA2-
                              // squeezing between — the path grid + A* handle it.
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let leverageTargeting = null; // LEVERAGE_PLAYS key awaiting a target structure
-let cacheTargeting = null;   // Marksman ids awaiting a ground click to bury a cache
 let dropTargeting = null;    // Bush Plane building id awaiting its drop zone
 let demoTargeting = null;    // Ex-Special Forces ids awaiting an enemy structure
 let bcastTargeting = null;   // BROADCASTS key awaiting a spot on the map
@@ -243,9 +242,21 @@ const buildingName = b => (facOf(b.owner) && facOf(b.owner).buildingNames[b.type
 // neutral structures fall back to the base table
 const bstats = (owner, type) => (FBUILD[state.factions[owner]] || BUILDING_TYPES)[type];
 const bstatsOf = b => bstats(b.owner, b.type);
+// ---------- what counts as INFANTRY ----------
+// This used to be spelled `builtAt === 'barracks'` in eleven places, which was
+// fine while every foot soldier in the game came out of a barracks. It stopped
+// being true the moment the Flat Earthers started GROWING militia on farms and
+// RETRAINING them at the tent: militia, AMR gunners, Breachers and Ex-Special
+// Forces all have builtAt: null, so every one of those eleven checks quietly
+// said "not infantry" and took garrisoning, transport-boarding, crushing and
+// the cloning vats with it.
+// Ask what the unit IS instead of where it came from: a combat body, on foot,
+// person-sized. Vehicles and aircraft carry a `shape`; infantry do not.
+const isFootSoldier = t => !!t && t.role === 'combat' && !t.flying && !t.shape && (t.r || 0) <= 10;
+
 const canGarrison = u => {
   const t = UNIT_TYPES[u.type];
-  return t.builtAt === 'barracks' && t.role === 'combat' && !t.flying;
+  return isFootSoldier(t);
 };
 // Which structures actually emit units, and so have somewhere to send them.
 // Derived from the unit table rather than listed by hand, so a new production
@@ -272,8 +283,7 @@ const isLowAir = stats => stats.flying && !stats.plane && (stats.flyH || 28) <= 
 // tank tracks vs footsoldiers: who rolls over whom. Heavy ground hulls crush
 // un-armored foot troops; armored riot gear, giants and vehicles are safe.
 const isCrusher = stats => !stats.flying && stats.r >= 12;
-const isCrushable = stats => !stats.flying && stats.r <= 10 && (stats.armor || 0) < 0.25 &&
-  (!stats.builtAt || stats.builtAt === 'barracks');
+const isCrushable = stats => !stats.flying && stats.r <= 10 && (stats.armor || 0) < 0.25 && !stats.shape;
 
 // ---------- audio state (functions below) ----------
 
@@ -870,10 +880,10 @@ function makeUnit(owner, type, x, y) {
   // must never expire in one synchronized wave. The work regime (Drive
   // button) stretches or slashes the lifespans of NEW slaves.
   if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + simRandom() * 0.5) * driveLifeMul(owner);
-  // a Marksman walks out of the tent already carrying its caches, and an
-  // Ex-Special Forces comes off the plane with its charges
-  if (t.caches) u.caches = t.caches;
+  // an Ex-Special Forces comes off the plane with its charges
   if (t.charges) u.charges = t.charges;
+  // militia (and what they retrain into) carry a service record
+  if (type === 'militia' || RETRAIN[type]) { u.vetXp = 0; u.maxHp = t.hp; }
   state.units.push(u);
   return u;
 }
@@ -1197,79 +1207,103 @@ function slotsOf(b) {
   return bt.homestead ? homesteadSlotsOf(b.owner) : (bt.slots || 0);
 }
 
-// ---------- prepper caches ----------
-// The one hard rule: a cache may not be buried inside its owner's own build
-// radius. The Flat Earthers can build further out than anyone (FLAT_BUILD_
-// RADIUS), so "outside it" means genuinely deep — which is the point. Their
-// tech tree lives in enemy country, and the Marksman has to carry it there.
-function cacheCount(owner) {
-  return state.buildings.reduce((n, b) =>
-    n + (b.owner === owner && b.hp > 0 && bstatsOf(b).cache ? 1 : 0), 0);
-}
-// is there an enemy structure close enough to make this ground worth the risk?
-function nearEnemyBase(owner, x, y) {
-  return state.buildings.some(b => b.hp > 0 && b.owner !== owner && b.owner !== NEUTRAL &&
-    dist(b, { x, y }) <= CACHE_ENEMY_R);
-}
-function canPlantCache(owner, x, y) {
-  if (cacheCount(owner) >= CACHE_CAP) return 'cap';
-  if (state.minerals[owner] < CACHE_COST) return 'funds';
-  // You cannot bury a cache somewhere you have never been. This is a FOG rule
-  // before it is a placement rule: the near-an-enemy test below reads the real
-  // world, so answering it over unexplored ground would tell you whether they
-  // have a building there — a free scout for the price of a hover. Refusing on
-  // "you have not looked" leaks nothing, and it is what the unit would say.
-  if (tileStateFor(owner, x, y) === 0) return 'unscouted';
-  // THE TWO ZONES DO NOT OVERLAP. Being on their doorstep beats being near
-  // home: the "too close" rule exists to stop you stashing the tech tree in a
-  // safe backyard, and ground an enemy structure is sitting on is not a safe
-  // backyard whatever the distance from your own HQ says. Without this the two
-  // radii could intersect on a small map and lock out the very ground the
-  // mechanic is meant to be fought over.
-  const front = nearEnemyBase(owner, x, y);
-  if (!front && withinBuildRadius(owner, x, y)) return 'tooclose';
-  if (!front) return 'nofront';
-  if (placementBlocked(owner, 'preppercache', x, y)) return 'blocked';
+// ---------- RETRAINING ----------
+// A militiaman walks into the Recruitment Tent and something else walks out.
+// The body is consumed and its farm slot is freed, so the land starts growing a
+// replacement immediately — you pay in minerals now and in that farm's income
+// until the replacement arrives, which is what keeps this a throttle rather
+// than a printer.
+function canRetrain(owner, kit) {
+  const R = RETRAIN[kit];
+  if (!R) return 'unknown';
+  if (!hasStruct(owner, RETRAIN_AT)) return 'notent';
+  if (state.minerals[owner] < R.cost) return 'funds';
   return null;
 }
-// why a refused cache was refused — the player gets told, because "nothing
-// happened" is the worst possible feedback for a rule they cannot see
-const CACHE_REFUSAL = {
-  cap: 'Cache limit reached',
+const RETRAIN_REFUSAL = {
+  notent: 'No Recruitment Tent',
   funds: 'Insufficient funds',
-  tooclose: 'Too close to home — bury it beyond your build radius',
-  unscouted: 'You have not scouted this ground',
-  nofront: 'Too far from the enemy — a cache goes on their doorstep',
-  blocked: 'No room to bury it here',
 };
-function plantCache(u, x, y) {
-  if (!u.caches) return false;
-  const why = canPlantCache(u.owner, x, y);
-  if (why) { if (u.owner === localOwner) eva(CACHE_REFUSAL[why]); return false; }
-  state.minerals[u.owner] -= CACHE_COST;
-  const b = makeBuilding(u.owner, 'preppercache', x, y);
-  b.kits = CACHE_KITS;
-  // Every cache is STOCKED with one kit, set when it goes in the ground and
-  // changeable any time. That is what makes drawing gear a single right-click
-  // instead of a menu: the militia do not choose, the cache already decided.
-  b.kit = CACHE_LOADOUT[0];
-  u.caches--;
-  if (u.owner === localOwner) eva('Cache buried');
-  return true;
-}
-// draw a kit: the militia is spent and something else climbs out in its place.
-// The cache loses a charge, and an empty cache folds up — it is a box, not a
-// barracks, and it was never meant to outlive its contents.
-function drawKit(u, b, kit) {
-  if (!b || b.hp <= 0 || !b.kits || !CACHE_LOADOUT.includes(kit)) return false;
-  if (u.type !== 'militia' || u.owner !== b.owner) return false;
+// Do the swap. Rank carries over: spending your best body should GIVE you a
+// good specialist, or nobody would ever retrain anyone but the greenest man
+// they had and the decision would collapse.
+function retrainInto(u, kit) {
+  if (u.type !== 'militia' || canRetrain(u.owner, kit)) return false;
+  state.minerals[u.owner] -= RETRAIN[kit].cost;
   const n = makeUnit(u.owner, kit, u.x, u.y);
   n.facing = u.facing;
-  u.hp = 0; u.abducted = true;          // spent, no wreck and no death cry
-  b.kits--;
-  Particles.pulse(b.x, b.y, 18, [235, 200, 120]);
-  if (b.kits <= 0) { b.hp = 0; if (b.owner === localOwner) eva('Cache empty'); }
+  n.vetXp = u.vetXp || 0;
+  // THE SPECIALIST INHERITS THE FARM SLOT. One rule for everything the land
+  // raised: it holds its slot while it lives, wherever it is and whatever it
+  // became. Mustering a militiaman is a RENTAL — the farm goes quiet while he
+  // is out and starts paying again when he walks home. Retraining him is
+  // PERMANENT — that slot never farms again until the specialist dies.
+  // Without this the farm grew a replacement for every man you converted, so
+  // conversion was free army growth and nobody would ever field a militiaman.
+  // With it, your headcount is fixed by your farms and conversion is a quality
+  // upgrade you pay for in income, for as long as the upgrade is alive.
+  n.homeFarm = u.homeFarm;
+  u.hp = 0; u.abducted = true;        // consumed, no wreck and no death cry
+  Particles.pulse(u.x, u.y, 16, [235, 200, 120]);
   return true;
+}
+
+// ---------- VETERANCY ----------
+// Militia only, because a specialist is already an answer and a militiaman is
+// the person who had to live long enough to be asked. Ranks multiply hit points
+// and damage, so a survivor is genuinely worth keeping rather than being raw
+// material you have not spent yet.
+function vetRankOf(u) {
+  const xp = u.vetXp || 0;
+  let r = 0;
+  for (let i = 0; i < VET_RANKS.length; i++) if (xp >= VET_RANKS[i].xp) r = i;
+  return r;
+}
+// ---------- THE MOB ----------
+// How much harder this militiaman hits for the company he keeps. Only militia
+// count, in both directions: a specialist standing in the crowd contributes
+// nothing and gains nothing, which is what makes pulling a man out to retrain
+// him a real loss to the five he leaves behind.
+function mobMul(u) {
+  if (u.type !== 'militia') return 1;
+  let near = 0;
+  for (const o of state.units) {
+    if (o === u || o.hp <= 0 || o.owner !== u.owner || o.type !== 'militia' || o.garrisoned) continue;
+    if (dist(o, u) > MOB_R) continue;
+    if (++near >= MOB_MAX) break;
+  }
+  return 1 + near * MOB_PER;
+}
+
+function vetMul(u, field) {
+  if (!UNIT_TYPES[u.type] || u.vetXp === undefined) return 1;
+  return VET_RANKS[vetRankOf(u)][field];
+}
+// Award for a kill, and a smaller share to everyone else who was in the fight —
+// the militiaman who tanked the hits earned something too.
+function creditVeterancy(killer, victim) {
+  if (killer && killer.kind === 'unit' && killer.hp > 0 && vetEligible(killer)) {
+    grantVetXp(killer, VET_XP_KILL);
+  }
+  for (const u of state.units) {
+    if (u === killer || u.hp <= 0 || !vetEligible(u)) continue;
+    if (u.owner === victim.owner) continue;
+    if (dist(u, victim) > UNIT_TYPES[u.type].sight) continue;
+    grantVetXp(u, VET_XP_ASSIST);
+  }
+}
+function vetEligible(u) { return u.vetXp !== undefined; }
+function grantVetXp(u, amount) {
+  const before = vetRankOf(u);
+  u.vetXp = (u.vetXp || 0) + amount;
+  const after = vetRankOf(u);
+  if (after > before) {
+    // promotion tops the body up as well as raising the ceiling — surviving is
+    // supposed to feel like a reward, not like a bigger health bar you cannot fill
+    u.maxHp = Math.round(UNIT_TYPES[u.type].hp * VET_RANKS[after].hp);
+    u.hp = Math.min(u.maxHp, u.hp + (u.maxHp - Math.round(UNIT_TYPES[u.type].hp * VET_RANKS[before].hp)));
+    if (u.owner === localOwner) Particles.pulse(u.x, u.y, 14, [255, 225, 120]);
+  }
 }
 
 // ---------- the homestead: who is home, and what that is worth ----------
@@ -1479,7 +1513,6 @@ function placementBlocked(owner, type, x, y) {
 // How far from an anchor this owner may build. Everyone gets BUILD_RADIUS; the
 // Flat Earthers homestead across half a county (FLAT_BUILD_RADIUS), which is
 // what lets their win condition be spread out enough to be worth spreading out.
-// It is also the fence the prepper caches must clear — see canPlantCache.
 function buildRadiusOf(owner) {
   return state.factions[owner] === 'flat' ? FLAT_BUILD_RADIUS : BUILD_RADIUS;
 }
@@ -1857,7 +1890,7 @@ function castWeather(owner, x, y) {
 
 function castClone(owner, unit) {
   // the vats only fit people-shaped things — no vehicles, no aircraft
-  if (UNIT_TYPES[unit.type].builtAt !== 'barracks') return false;
+  if (!isFootSoldier(UNIT_TYPES[unit.type])) return false;
   const home = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'barracks')
     || state.buildings.find(b => b.owner === owner && b.hp > 0 && b.type === 'hq');
   if (!home) return false;
@@ -2164,7 +2197,7 @@ function updateAbilities(dt) {
           let best = null, bestCost = 0;
           for (const u of state.units) {
             if (u.owner !== owner || u.hp <= 0 || UNIT_TYPES[u.type].role !== 'combat' || u.garrisoned ||
-                UNIT_TYPES[u.type].builtAt !== 'barracks') continue;
+                !isFootSoldier(UNIT_TYPES[u.type])) continue;
             const c = UNIT_TYPES[u.type].cost || 0;
             if (c > bestCost) { bestCost = c; best = u; }
           }
@@ -2880,6 +2913,8 @@ function dealDamage(attacker, target, dmg, stats) {
   if (target.kind === 'unit' && target.hardenedUntil > state.time) dmg *= 0.72;
   // "Nukes Are Fake": the mushroom cloud was a film set, so it only half hurts
   if (stats.sup && target.owner !== undefined && disproved(target.owner, 'nukes')) dmg *= 0.5;
+  // who last hit it, so the death sweep can credit the kill to somebody
+  if (attacker && attacker.kind === 'unit' && attacker.id !== undefined) target.lastHitBy = attacker.id;
   target.hp -= dmg;
   // loosh harvest: book it once, on the lethal blow. A Reptilian killer reaps
   // loosh from any kill (more from enemy infantry); a Reptilian owner reaps it
@@ -2888,7 +2923,7 @@ function dealDamage(attacker, target, dmg, stats) {
     target.looshBooked = true;
     if (attacker && attacker.owner !== target.owner && isReptilian(attacker.owner)) {
       const tt = UNIT_TYPES[target.type];
-      const infantry = tt.role === 'combat' && !tt.flying && tt.builtAt === 'barracks';
+      const infantry = isFootSoldier(tt);
       grantLoosh(attacker.owner, infantry ? 6 : 3);
     }
     grantLoosh(target.owner, 2); // grantLoosh no-ops for non-Reptilian owners
@@ -3255,6 +3290,8 @@ function fireAt(u, target, t) {
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing / decloak first-strike bonus
     // Mass Awakening: the people have seen it, and the militia hit like it
     if (u.type === 'militia' && bcastActive(u.owner, 'awakening')) dmg *= BROADCASTS.awakening.mul;
+    dmg *= vetMul(u, 'dmg');   // the ones who lived hit harder
+    dmg *= mobMul(u);          // ...and a crowd hits harder than a man
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
     if (u.weakenedUntil > state.time) dmg *= 0.55; // shouted down by a Megaphone Prophet
     // recovered UFO tech (a held Crash Site): reverse-engineered weapons
@@ -3785,7 +3822,7 @@ function updateAuras(u, stats, dt) {
       for (const a of state.units) {
         if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned) continue;
         const at = UNIT_TYPES[a.type];
-        if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
+        if (!isFootSoldier(at)) continue;
         if (dist(a, u) <= stats.buffAura.r) a.buffedUntil = state.time + 0.7;
       }
     }
@@ -3799,7 +3836,7 @@ function updateAuras(u, stats, dt) {
       for (const a of state.units) {
         if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned) continue;
         const at = UNIT_TYPES[a.type];
-        if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
+        if (!isFootSoldier(at)) continue;
         if (dist(a, u) <= stats.hardenAura.r) a.hardenedUntil = state.time + 0.6;
       }
     }
@@ -3821,7 +3858,7 @@ function updateAuras(u, stats, dt) {
     if (u.cvT >= stats.convert.every) {
       u.cvT = 0;
       const victim = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL && e.hp > 0 &&
-        !e.garrisoned && UNIT_TYPES[e.type].builtAt === 'barracks' && UNIT_TYPES[e.type].role === 'combat' &&
+        !e.garrisoned && isFootSoldier(UNIT_TYPES[e.type]) &&
         dist(e, u) <= stats.convert.r);
       if (victim) {
         // Crisis Actors: they listen, they just stop listening later
@@ -4326,34 +4363,24 @@ function updateUnit(u, dt) {
       break;
     }
 
-    // ---------- Marksman: walk out there and bury it ----------
-    case 'plant': {
-      if (!u.caches) { u.order = { type: 'idle' }; break; }
-      if (moveToward(u, o.x, o.y, dt, 8)) {
-        plantCache(u, u.x, u.y);
-        u.order = { type: 'idle' };
+
+    // ---------- militia: walk into the tent and come out as something ----------
+    case 'retrain': {
+      const tent = findEntity(o.destId);
+      if (!tent || tent.hp <= 0 || tent.owner !== u.owner || !tent.done || u.type !== 'militia') {
+        u.order = { type: 'idle' }; break;
       }
-      break;
-    }
-    // ---------- Marksman: home for more ----------
-    // The round trip is the tax on the whole cache system. A Chuck Wagon in the
-    // field pays it off (BUGOUT_KITS.homesteader), which is most of why you
-    // would build one.
-    case 'resupply': {
-      const src = findEntity(o.destId);
-      const ok = src && src.hp > 0 && src.owner === u.owner &&
-        (src.kind === 'building' ? (bstatsOf(src).homestead || src.type === 'barracks')
-                                 : vanKitOf(src) === 'homesteader');
-      if (!ok) { u.order = { type: 'idle' }; break; }
-      if (moveToward(u, src.x, src.y, dt, entityRadius(src) * 0.8 + 10, src.id)) {
-        u.resupplyT = (u.resupplyT || 0) + dt;
-        if (u.resupplyT >= CACHE_RESUPPLY) {
-          u.resupplyT = 0;
-          u.caches = UNIT_TYPES[u.type].caches || 0;
-          if (u.owner === localOwner) eva('Marksman resupplied');
-          u.order = { type: 'idle' };
+      if (moveToward(u, tent.x, tent.y, dt, entityRadius(tent) + 14, tent.id)) {
+        u.retrainT = (u.retrainT || 0) + dt;
+        if (u.retrainT >= (RETRAIN[o.kit] || { time: 5 }).time) {
+          u.retrainT = 0;
+          const why = canRetrain(u.owner, o.kit);
+          if (why) {
+            if (u.owner === localOwner) eva(RETRAIN_REFUSAL[why]);
+            u.order = { type: 'idle' };
+          } else retrainInto(u, o.kit);
         }
-      } else u.resupplyT = 0;
+      } else u.retrainT = 0;
       break;
     }
     // ---------- Ex-Special Forces: stick a charge on it ----------
@@ -4472,21 +4499,11 @@ function updateUnit(u, dt) {
       }
       break;
     }
-    // ---------- militia: walk to the cache and come back up as something ----------
-    case 'drawkit': {
-      const b = findEntity(o.destId);
-      if (!b || b.hp <= 0 || !b.kits || b.owner !== u.owner) { u.order = { type: 'idle' }; break; }
-      if (moveToward(u, b.x, b.y, dt, entityRadius(b) * 0.8 + 10, b.id)) {
-        u.kitT = (u.kitT || 0) + dt;
-        if (u.kitT >= CACHE_CONVERT) { u.kitT = 0; drawKit(u, b, o.kit); }
-      } else u.kitT = 0;
-      break;
-    }
 
-    case 'probe': {
       // probe drone: fly onto the mark and PAINT it — lasting vision plus a
       // designation that makes the owner's whole army hit it 30% harder. The
       // drone survives and can be re-tasked to paint the next target.
+    case 'probe': {
       const tgt = findEntity(o.targetId);
       if (!tgt || tgt.kind !== 'unit' || tgt.hp <= 0 || tgt.garrisoned || tgt.transit) {
         u.order = { type: 'idle' };
@@ -5717,7 +5734,7 @@ function aiCapture(owner, f, army, workers, hq, power) {
     if (score > bestScore) { bestScore = score; best = b; }
   }
   if (best && bestScore >= 12) { // only if the payoff clears the bar
-    const claimer = army.find(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
+    const claimer = army.find(s => s.order.type === 'idle' && isFootSoldier(UNIT_TYPES[s.type]));
     if (claimer) claimer.order = { type: 'garrison', destId: best.id };
   }
 }
@@ -5936,15 +5953,6 @@ function rightCommand(x, y) {
   // orders on right-click, so after pressing Bury Cache or Set Charge the
   // right-click has to DO the thing rather than order a move over the top of
   // it. Left-click still works; both routes go through the same commands.
-  if (cacheTargeting) {
-    const ids = cacheTargeting;
-    cacheTargeting = null;
-    const why = canPlantCache(localOwner, x, y);
-    if (why) eva(CACHE_REFUSAL[why]);
-    else { cmd('plant', { u: ids, x, y }); sfx('click'); }
-    refreshPanel();
-    return;
-  }
   if (demoTargeting) {
     const ids = demoTargeting;
     demoTargeting = null;
@@ -6053,21 +6061,6 @@ function issueCommand(owner, unitIds, x, y) {
       sfx('click'); return;
     }
   }
-  // right-click one of your own prepper caches with militia selected: they walk
-  // over and draw whatever it is stocked with. This is the ordinary way to gear
-  // up — the per-kit buttons are still there for when you want the other one.
-  const cch = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.kits > 0 &&
-    bstatsOf(b).cache && Math.abs(x - b.x) <= b.w / 2 + 12 && Math.abs(y - b.y) <= b.h / 2 + 12);
-  if (cch) {
-    let any = false, room = cch.kits;
-    for (const u of units) {
-      if (room <= 0) break;
-      if (u.type !== 'militia' || u.garrisoned) continue;
-      u.order = { type: 'drawkit', destId: cch.id, kit: cch.kit || CACHE_LOADOUT[0] };
-      room--; any = true;
-    }
-    if (any) { sfx('click'); return; }
-  }
 
   // right-click an empty Bug Out Van with a body that has a kit: WELD IT IN.
   // This deliberately beats the generic transport check below — "put a unit in
@@ -6093,7 +6086,7 @@ function issueCommand(owner, unitIds, x, y) {
     for (const u of units) {
       if (boarding >= cap) break;
       const ut = UNIT_TYPES[u.type];
-      if (ut.flying || ut.builtAt !== 'barracks' || ut.r > 10 || u.garrisoned) continue;
+      if (!isFootSoldier(ut) || u.garrisoned) continue;
       u.order = { type: 'board', destId: trn.id };
       boarding++; any = true;
     }
@@ -6141,7 +6134,7 @@ function issueCommand(owner, unitIds, x, y) {
 // cursor reticle so the player sees "attack / repair / capture / ..." on hover.
 function hoverContext(x, y) {
   if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || wallDrag ||
-      cacheTargeting || dropTargeting || demoTargeting || bcastTargeting) return null;
+      dropTargeting || demoTargeting || bcastTargeting) return null;
   const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner);
   if (!units.length) return null;
   // hollow tunnel node
@@ -6886,7 +6879,7 @@ function startGame(faction, seed, opts) {
 function panelSignature() {
   let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
     (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (wallDrag ? 'w' : '') +
-    (cacheTargeting ? 'c' : '') + (dropTargeting || '') + (demoTargeting ? 'd' : '') + (bcastTargeting || '') +
+    (dropTargeting || '') + (demoTargeting ? 'd' : '') + (bcastTargeting || '') +
     // leverage crosses a play's price threshold -> its button enables
     (state.leverage[localOwner] ? 'L' + Object.values(LEVERAGE_PLAYS).filter(pl => state.leverage[localOwner] >= pl.cost).length : '') +
     (isReptilian(localOwner) ? 'd' + slaveDriveOf(localOwner) : '') +
@@ -6909,7 +6902,6 @@ function panelSignature() {
       // walks aboard, so the crew count has to be part of the signature
       if (bt.bushplane) s += 'F' + planeCrew(e) + (e.launched ? '!' : '');
       // the ✓ moves between the Stock buttons, and the count ticks down
-      if (bt.cache) s += 'C' + e.kits + (e.kit || '');
       if (e.rites) s += 'M' + e.rites.join('.'); // the Mechanicum queue owns a cancel button each
       // Repair/Stop swap as damage is taken and mended — the button has to follow
       s += 'R' + (e.repairing ? '1' : canRepair(e) ? '2' : '0');
@@ -6921,9 +6913,9 @@ function panelSignature() {
       if (e.sleeperFor === localOwner) s += 'A1'; // asset: owns a Wake button
       // Bury Cache <-> Resupply swap as the last cache goes in the ground, and
       // Set Charge disappears with the last charge
-      if (ut.caches) s += 'K' + (e.caches || 0);
       if (ut.charges) s += 'X' + (e.charges || 0);
       if (ut.investigator) s += 'J' + stanceOf(e) + (e.proof > 0 ? 'f' : '-');
+      if (e.vetXp !== undefined) s += 'V' + vetRankOf(e);
       if (ut.vanKit || ut.loader) s += 'V' + (ut.vanKit || '-') + (e.cargo || []).length;
     }
   }
@@ -7118,9 +7110,7 @@ function refreshPanel() {
   // same words structure placement does — including how to back out. This runs
   // LAST because the selection panels rewrite the info line; unlike `placing`
   // they do not take the panel over, so the Cancel toggle stays reachable.
-  const aimHint = cacheTargeting
-    ? 'Burying a cache — click past your build radius and near their base, right-click to place, Esc to cancel'
-    : demoTargeting ? 'Setting a charge — click an enemy structure, Esc to cancel'
+  const aimHint = demoTargeting ? 'Setting a charge — click an enemy structure, Esc to cancel'
     : dropTargeting ? 'Choosing a drop zone — click scouted ground, Esc to cancel'
     : bcastTargeting ? `${BROADCASTS[bcastTargeting].name} — click the area to expose, Esc to cancel` : null;
   if (aimHint) elSelInfo.textContent = aimHint;
@@ -7177,23 +7167,6 @@ function panelForBuilding(first, addAction) {
         if (B.kind === 'zone') { bcastTargeting = key; sfx('click'); refreshPanel(); }
         else { cmd('broadcast', { k: key }); sfx('click'); refreshPanel(); }
       };
-      addAction(btn);
-    }
-    return;
-  }
-  // ---------- a prepper cache in the field ----------
-  // Pick what it hands out, then right-click it with militia. The cache holds
-  // the decision so the militia do not have to.
-  if (bt.cache && first.owner === localOwner) {
-    elSelInfo.textContent = `${buildingName(first)} — ${first.kits} kit${first.kits === 1 ? '' : 's'} left` +
-      ` — stocked: ${UNIT_TYPES[first.kit || CACHE_LOADOUT[0]].name}` +
-      ' — right-click it with militia to draw';
-    for (const kit of CACHE_LOADOUT) {
-      const on = (first.kit || CACHE_LOADOUT[0]) === kit;
-      const btn = document.createElement('button');
-      btn.textContent = `${on ? '✓ ' : ''}Stock ${UNIT_TYPES[kit].name}`;
-      btn.title = unitBlurb(kit);
-      btn.onclick = () => { cmd('cachekit', { b: first.id, k: kit }); sfx('click'); refreshPanel(); };
       addAction(btn);
     }
     return;
@@ -7368,13 +7341,20 @@ function panelForSelection(addAction) {
     if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
     if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
     if (ut.plantMine) info += ' — buries free IEDs on its own while standing idle';
+    if (uu.type === 'militia') {
+      const m = mobMul(uu);
+      if (m > 1) info += ` — mob +${Math.round((m - 1) * 100)}%`;
+    }
+    if (uu.vetXp !== undefined) {
+      const r = vetRankOf(uu);
+      if (r > 0) info += ` — ${VET_RANKS[r].name} (+${Math.round((VET_RANKS[r].dmg - 1) * 100)}% dmg/hp)`;
+    }
     if (ut.investigator) {
       const cap = journoCap(uu);
       info += ` — ${Math.round(uu.proof || 0)}/${cap} footage` +
         (uu.filming ? ` (FILMING, ${stanceOf(uu)})` : '') +
         ((uu.proof || 0) >= cap ? ' — full, file it' : '');
     }
-    if (ut.caches) info += ` — carrying ${uu.caches || 0} cache${(uu.caches || 0) === 1 ? '' : 's'}`;
     if (uu.charges) info += ` — ${uu.charges} demolition charge${uu.charges === 1 ? '' : 's'}`;
     if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
   }
@@ -7419,52 +7399,6 @@ function panelForSelection(addAction) {
   }
   // ---------- Flat Earth field logistics ----------
   const mine = selection.filter(s => s.kind === 'unit' && s.owner === localOwner && s.hp > 0);
-  // Marksmen: bury a cache (ground-targeted), or walk home for more
-  const carriers = mine.filter(u => UNIT_TYPES[u.type].caches);
-  if (carriers.length) {
-    const loaded = carriers.filter(u => u.caches > 0);
-    if (loaded.length) {
-      const btn = document.createElement('button');
-      const held = loaded.reduce((n, u) => n + u.caches, 0);
-      // toggles, like structure placement does. Right-click now COMMITS the
-      // plant rather than cancelling it, so the button has to be the way out —
-      // otherwise the only cancel is an Escape key nobody was told about.
-      btn.textContent = cacheTargeting ? 'Cancel (Esc)' : `Bury Cache (${held})`;
-      btn.title = cacheTargeting ? 'Stop placing — nothing is spent.'
-        : `${CACHE_COST} minerals. Must be planted OUTSIDE your build radius and NEAR AN ENEMY ` +
-          `structure. Holds ${CACHE_KITS} kits, then it is gone.`;
-      btn.onclick = () => { cacheTargeting = cacheTargeting ? null : idsOf(loaded); sfx('click'); refreshPanel(); };
-      addAction(btn);
-    }
-    const empties = carriers.filter(u => !u.caches);
-    if (empties.length) {
-      const src = nearest(empties[0], state.buildings, b => b.owner === localOwner && b.hp > 0 && b.done &&
-        (bstatsOf(b).homestead || b.type === 'barracks'));
-      if (src) {
-        const btn = document.createElement('button');
-        btn.textContent = `Resupply (${empties.length})`;
-        btn.title = `Walk to a homestead or the Recruitment Tent and reload. ${CACHE_RESUPPLY}s.`;
-        btn.onclick = () => { cmd('resupply', { u: idsOf(empties), b: src.id }); sfx('click'); refreshPanel(); };
-        addAction(btn);
-      }
-    }
-  }
-  // militia standing anywhere on the map: send them to the nearest cache and
-  // pick what they come back up as
-  const grunts = mine.filter(u => u.type === 'militia' && !u.garrisoned);
-  if (grunts.length) {
-    const cache = nearest(grunts[0], state.buildings, b => b.owner === localOwner && b.hp > 0 && b.kits > 0);
-    if (cache) {
-      for (const kit of CACHE_LOADOUT) {
-        const btn = document.createElement('button');
-        btn.textContent = `Draw ${UNIT_TYPES[kit].name} (${grunts.length})`;
-        btn.title = `${unitBlurb(kit)}\nSends them to the nearest cache (${cache.kits} kits left). ` +
-          `Each conversion spends one militia and one kit.`;
-        btn.onclick = () => { cmd('drawkit', { u: idsOf(grunts), b: cache.id, k: kit }); sfx('click'); refreshPanel(); };
-        addAction(btn);
-      }
-    }
-  }
   // Bug Out Van: weld a body in, or cut it back out
   const emptyVans = mine.filter(u => UNIT_TYPES[u.type].loader && !(u.cargo || []).length);
   const bodies = mine.filter(u => BUGOUT_KITS[u.type]);
@@ -7493,6 +7427,30 @@ function panelForSelection(addAction) {
     btn.title = 'Rides in the back instead of being welded in. A van carrying passengers has no weapon.';
     btn.onclick = () => { cmd('board', { u: idsOf(riders), v: emptyVans[0].id }); sfx('click'); refreshPanel(); };
     addAction(btn);
+  }
+  // militia: walk them into the tent and pick what comes out
+  const grunts = mine.filter(u => u.type === 'militia' && !u.garrisoned);
+  if (grunts.length) {
+    const tent = nearest(grunts[0], state.buildings, b =>
+      b.owner === localOwner && b.hp > 0 && b.done && b.type === RETRAIN_AT);
+    for (const kit of Object.keys(RETRAIN)) {
+      const why = tent ? canRetrain(localOwner, kit) : 'notent';
+      const btn = document.createElement('button');
+      btn.textContent = `Retrain ${UNIT_TYPES[kit].name} — ${RETRAIN[kit].cost}`;
+      btn.disabled = !!why;
+      btn.title = unitBlurb(kit) +
+        `
+Walks a militiaman into the Recruitment Tent and spends him. His farm ` +
+        `starts growing a replacement, and his rank goes with him.` +
+        (why ? `
+(${RETRAIN_REFUSAL[why] || why})` : '');
+      btn.onclick = () => {
+        if (!tent) return;
+        cmd('retrain', { u: idsOf(grunts), b: tent.id, k: kit });
+        sfx('click'); refreshPanel();
+      };
+      addAction(btn);
+    }
   }
   // Journalists: which way they are working, and what they are holding
   const crews = mine.filter(u => UNIT_TYPES[u.type].investigator);
@@ -8009,7 +7967,6 @@ function drawBuildingIso(b) {
   // the cached sprite, so each has to be part of its signature.
   const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt + '|' + conn +
     (b.garrison ? '|g' + b.garrison.length : '') +
-    (b.kits !== undefined ? '|k' + b.kits + (b.kit || '') : '') +
     (b.proof ? '|p' + Math.floor(b.proof / 25) : '') +
     (b.crew || b.launched ? '|f' + (b.crew || []).length + (b.launched ? '!' : '') : '') +
     (superKind ? '|' + superKind + '|' + (fireP >= 0 ? Math.round(fireP * 14) : 'x') : '');
@@ -8019,7 +7976,7 @@ function drawBuildingIso(b) {
       w: b.w, h: b.h, color: COLORS[b.owner], on,
       fam: FAMILY_STYLE[state.factions[b.owner]], faction: state.factions[b.owner], wx: b.x, wy: b.y,
       turret: b.turret, // towers with their own weapon art track their target
-      garrison: (b.garrison || []).length, kits: b.kits, proof: b.proof,
+      garrison: (b.garrison || []).length, proof: b.proof,
       crew: (b.crew || []).length, launched: !!b.launched,
       conn: { e: !!(conn & 1), w: !!(conn & 2), n: !!(conn & 4), s: !!(conn & 8) },
       superKind, fireP,
@@ -8413,6 +8370,20 @@ function drawUnitIso(u) {
       const at = clamp(SUSPICION_CAUGHT / scrut, 0, 1);
       ctx.fillStyle = 'rgba(255,255,255,0.85)';
       ctx.fillRect(ix - w / 2 + w * at - 0.5, py - 1, 1.4, 5);
+    }
+  }
+  // ---------- rank chevrons ----------
+  // A promoted militiaman looks different from a fresh one, because otherwise
+  // "keep him alive" is advice about a number you cannot see. Own units only.
+  if (u.owner === localOwner && u.vetXp !== undefined && !u.garrisoned) {
+    const r = vetRankOf(u);
+    for (let i = 0; i < r; i++) {
+      const cy = sy + rs * 0.55 + i * 2.6;
+      ctx.strokeStyle = 'rgba(255,225,120,0.95)';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(ix - 3.5, cy); ctx.lineTo(ix, cy - 2.2); ctx.lineTo(ix + 3.5, cy);
+      ctx.stroke();
     }
   }
   // ---------- footage in the camera (your own Journalists) ----------
@@ -9039,50 +9010,6 @@ function drawOverlays() {
     ctx.globalAlpha = 1;
     ctx.restore();
   }
-
-  // ---------- burying a cache ----------
-  // Same ghost language as building placement, with the sense INVERTED: the
-  // green rings are the zone you may NOT bury in, because a cache is only legal
-  // outside your own build radius. Showing the forbidden ground is the only way
-  // that rule is learnable without reading a tooltip.
-  if (cacheTargeting) {
-    ctx.save();
-    isoShear(ctx);
-    const t = bstats(localOwner, 'preppercache');
-    const why = canPlantCache(localOwner, mouse.x, mouse.y);
-    // Over ground you have never seen the ghost goes GREY, not red or blue.
-    // A yes/no there would be answered by the real world and would quietly
-    // reveal whether an enemy structure sits in the dark — the ghost must not
-    // be a scouting tool. Grey means "no idea, go and look".
-    const dark = why === 'unscouted';
-    ctx.globalAlpha = 0.5;
-    ctx.fillStyle = dark ? '#9aa2ac' : why ? '#ff5f5f' : '#4da3ff';
-    ctx.fillRect(mouse.x - t.w / 2, mouse.y - t.h / 2, t.w, t.h);
-    ctx.globalAlpha = 0.75;
-    ctx.lineWidth = 2;
-    // Only YOUR OWN build radius is drawn. There is deliberately no marker for
-    // where the enemy is — that is the thing the Marksman has to go and find.
-    ctx.strokeStyle = 'rgba(255,95,95,0.45)';
-    ctx.setLineDash([8, 8]);
-    for (const b of state.buildings) {
-      if (b.owner !== localOwner || b.hp <= 0 || !b.done) continue;
-      if (b.type !== 'hq' && b.type !== 'powerplant' && !bstatsOf(b).anchor) continue;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, buildRadiusOf(localOwner), 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.setLineDash([]);
-    ctx.restore();
-    // why it is refused, floating over the cursor (this layer is already in
-    // iso screen space — the ground-plane shear was restored above)
-    if (why) {
-      ctx.fillStyle = dark ? 'rgba(190,196,204,0.95)' : 'rgba(255,150,150,0.95)';
-      ctx.font = 'bold 11px monospace';
-      ctx.textAlign = 'center';
-      ctx.fillText(CACHE_REFUSAL[why].toUpperCase(),
-        isoX(mouse.x, mouse.y), isoY(mouse.x, mouse.y) - 20);
-    }
-  }
 }
 
 function drawBar(cx, y, w, frac) {
@@ -9306,24 +9233,12 @@ const COMMANDS = {
   evacuate:    (o, p) => { for (const b of cmdBuildings(p.b, o)) evacuate(b); },
   unload:      (o, p) => { for (const u of cmdUnits(p.u, o)) unloadTransport(u); },
   // ---------- Flat Earth field logistics ----------
-  // Marksmen go bury a cache at a spot. Legality (funds, cap, and the
-  // build-radius fence) is re-checked when they arrive, not when you clicked.
-  plant:       (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.caches) u.order = { type: 'plant', x: p.x, y: p.y }; },
-  resupply:    (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].caches) u.order = { type: 'resupply', destId: p.b }; },
-  drawkit:     (o, p) => {
-    if (!CACHE_LOADOUT.includes(p.k)) return;
-    for (const u of cmdUnits(p.u, o)) if (u.type === 'militia') u.order = { type: 'drawkit', destId: p.b, kit: p.k };
-  },
   broadcast:   (o, p) => fireBroadcast(o, p.k, p.x, p.y),
   film:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].investigator) u.order = { type: 'film', destId: p.b }; },
   filepiece:   (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.proof > 0) u.order = { type: 'filepiece', destId: p.b }; },
   stance:      (o, p) => {
     if (!JOURNO_STANCES.includes(p.v)) return;
     for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].investigator) u.stance = p.v;
-  },
-  cachekit:    (o, p) => {
-    const b = cmdBuilding(p.b, o);
-    if (b && bstatsOf(b).cache && CACHE_LOADOUT.includes(p.k)) b.kit = p.k;
   },
   fitkit:      (o, p) => {
     const van = cmdUnit(p.v, o), body = cmdUnit(p.u, o);
@@ -9336,6 +9251,12 @@ const COMMANDS = {
     for (const u of cmdUnits(p.u, o)) if (!u.garrisoned) u.order = { type: 'board', destId: v.id };
   },
   demo:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.charges) u.order = { type: 'demo', destId: p.b }; },
+  retrain:     (o, p) => {
+    if (!RETRAIN[p.k]) return;
+    const tent = cmdBuilding(p.b, o);
+    if (!tent) return;
+    for (const u of cmdUnits(p.u, o)) if (u.type === 'militia') u.order = { type: 'retrain', destId: tent.id, kit: p.k };
+  },
   boardplane:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.type === 'homesteader') u.order = { type: 'boardplane', destId: p.b }; },
   launchplane: (o, p) => { const b = cmdBuilding(p.b, o); if (b) launchPlane(b, p.x, p.y); },
   establish:   (o, p) => { for (const u of cmdUnits(p.u, o)) u.order = { type: 'establish' }; },
@@ -9391,7 +9312,7 @@ const COMMANDS = {
   ability:     (o, p) => {
     if (p.m === 'zone') (isFlat(o) ? castFirmament : castWeather)(o, p.x, p.y);
     else if (p.m === 'recall') castRecall(o, p.x, p.y);
-    else if (p.m === 'unit') { const u = cmdUnit(p.u, o); if (u && UNIT_TYPES[u.type].builtAt === 'barracks') castClone(o, u); }
+    else if (p.m === 'unit') { const u = cmdUnit(p.u, o); if (u && isFootSoldier(UNIT_TYPES[u.type])) castClone(o, u); }
   },
 };
 
@@ -9407,8 +9328,8 @@ function commandIsWellFormed(c) {
     case 'build': case 'cancelbuild': case 'place': return !!BUILDING_TYPES[p.t];
     case 'train': case 'canceltrain': return !!UNIT_TYPES[p.t];
     case 'research': return !!DISPROOFS[p.k];
-    case 'drawkit': case 'cachekit': return CACHE_LOADOUT.includes(p.k);
     case 'broadcast': return !!BROADCASTS[p.k];
+    case 'retrain': return !!RETRAIN[p.k];
     case 'stance': return JOURNO_STANCES.includes(p.v);
     case 'leverage': return !!LEVERAGE_PLAYS[p.k];
     case 'rite': return !!ASCEND[p.k];
@@ -9583,6 +9504,7 @@ function stepSim() {
         state.armorWrecks.push({ id: nextId++, x: u.x, y: u.y, tier: UNIT_TYPES[u.type].armorTier, owner: u.owner, until: state.time + 45 });
       }
       creditBattleFootage(u);   // anything dying on camera is worth filming
+      creditVeterancy(u.lastHitBy ? findEntity(u.lastHitBy) : null, u);
       // a Bush Plane shot down on the run in takes its whole team with it
       if (u.type === 'bushflight' && u.crewCount && !u.abducted) bushPlaneLost(u);
       // a kitted Bug Out Van takes the body welded into it down with the wreck
@@ -9990,17 +9912,6 @@ canvas.addEventListener('mousedown', e => {
       return;
     }
     // ---------- Flat Earth field logistics, all ground- or structure-targeted ----------
-    if (cacheTargeting) {
-      const ids = cacheTargeting;
-      cacheTargeting = null;
-      // the refusal reasons live in canPlantCache; show one now rather than
-      // letting the Marksman walk all the way out to be told no
-      const why = canPlantCache(localOwner, p.x, p.y);
-      if (why) eva(CACHE_REFUSAL[why]);
-      else { cmd('plant', { u: ids, x: p.x, y: p.y }); sfx('click'); }
-      refreshPanel();
-      return;
-    }
     if (bcastTargeting) {
       const key = bcastTargeting;
       bcastTargeting = null;
@@ -10033,7 +9944,7 @@ canvas.addEventListener('mousedown', e => {
       if (mode === 'zone' || mode === 'recall') cmd('ability', { m: mode, x: p.x, y: p.y });
       if (mode === 'unit') {
         const target = state.units.find(u => u.owner === localOwner && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
-        if (target && UNIT_TYPES[target.type].builtAt !== 'barracks') eva('Cloning Vats accept infantry only');
+        if (target && !isFootSoldier(UNIT_TYPES[target.type])) eva('Cloning Vats accept infantry only');
         else if (target) cmd('ability', { m: 'unit', u: target.id });
       }
       refreshPanel();
@@ -10089,7 +10000,7 @@ canvas.addEventListener('mousedown', e => {
     mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
     if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || plantArmed || wallDrag ||
-        cacheTargeting || dropTargeting || demoTargeting || bcastTargeting) {
+        dropTargeting || demoTargeting || bcastTargeting) {
       placing = null;
       attackMoveArmed = false;
       abilityTargeting = null;
@@ -10220,7 +10131,7 @@ window.addEventListener('keydown', e => {
   if (!started) return;
   const k = e.key.toLowerCase();
 
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; plantArmed = false; wallDrag = null; cacheTargeting = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; plantArmed = false; wallDrag = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
 

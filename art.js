@@ -1745,7 +1745,7 @@
     // authored at 200x172 and drawn into a 150x129 footprint, so it scales DOWN
     // to 0.75. Deliberately that way round: downscaling only ever sharpens
     // linework, where magnifying a small drawing is what made it look coarse.
-    homestead: [200, 172], preppercache: [30, 24], bushplane: [72, 56],
+    homestead: [200, 172], bushplane: [72, 56],
   };
 
   // ================= HQ =================
@@ -3035,6 +3035,10 @@
   // ================= Patriot Pillbox =================
   // squat poured concrete: a drum, a low cap, dark firing slits — worthless
   // until the militia climb in and man them
+  // Poured concrete with a belt-fed gun in the slit. It draws its own weapon
+  // (ownWeaponArt) rather than taking the engine's generic turret, because a
+  // pillbox gun does not sit on a pintle on the roof — it pokes out of the wall,
+  // and swinging the whole box would look absurd.
   B.pillbox = (ctx, t, o) => {
     pad(ctx, o);
     isoBox(ctx, -11, -11, 22, 22, 9, '#8b877a', { r: 3 });
@@ -3049,6 +3053,28 @@
       ctx.fillStyle = '#181a1d';
       ctx.fillRect(-2.5, -7.5, 5, 1.8);
     });
+    // the gun itself: a short barrel run out of the front slit, tracking within
+    // the arc the concrete allows rather than spinning freely
+    const aim = o.turret !== undefined ? o.turret : 0.6;
+    billboard(ctx, 1, 11, () => {
+      ctx.save();
+      ctx.translate(0, -6.6);
+      // clamp the swing — a hole in a wall only points so far. Math.max/min
+      // inline rather than game.js's clamp(): art.js loads first, and this
+      // should not quietly depend on script order.
+      ctx.rotate(Math.max(-0.55, Math.min(0.55, Math.sin(aim) * 0.55)));
+      ctx.fillStyle = '#2b2f34';
+      rr(ctx, -1, -0.9, 9, 1.8, 0.6); ctx.fill();
+      ctx.fillStyle = '#3c434c';
+      rr(ctx, 7.4, -1.3, 1.8, 2.6, 0.4); ctx.fill();   // flash hider
+      ctx.restore();
+    });
+    // spent brass and a stacked ammo can by the rear door
+    isoBox(ctx, -17, 8, 5, 4, 3.5, '#4e5a3e', { noShadow: true, r: 0.5 });
+    ctx.fillStyle = 'rgba(190,160,70,0.5)';
+    for (const [bx, by] of [[-6, 15], [-2, 17], [-9, 18]]) {
+      ctx.beginPath(); ctx.ellipse(bx, by, 1.2, 0.7, 0, 0, TAU); ctx.fill();
+    }
     // sandbags at the door
     sandbag(ctx, -13, 14, 0.3);
     sandbag(ctx, -5, 16, -0.15);
@@ -3062,8 +3088,50 @@
   // when the yard is worked; shutters, a cold chimney and a bare line when it
   // has been mustered out.
   B.homestead = (ctx, t, o) => {
-    pad(ctx, o);
+    // NO concrete pad. A farm is not a facility — the poured apron every other
+    // structure sits on was the single thing making this read as "base" rather
+    // than "somewhere people live", so the ground under it is just ground.
     const manned = (o.garrison || 0) > 0;
+    // ---- treeline: a windbreak along the north and west edges ----
+    // Drawn FIRST so the buildings sit inside it rather than on top of it, and
+    // deliberately ragged — a homestead should look like it was tucked into
+    // cover rather than dropped on a clearing. It is also the faction's whole
+    // pitch: this is a place that does not want to be found.
+    const TREES = [
+      [-96, -70], [-74, -82], [-50, -88], [-24, -84], [2, -90], [30, -86],
+      [58, -90], [84, -80], [96, -58], [-100, -44], [-98, -16], [-102, 14],
+      [-94, 44], [-86, 68], [92, -26], [98, 20], [88, 56], [64, 78], [-60, 82],
+    ];
+    for (const [tx, ty] of TREES) {
+      const seed = ((tx * 31 + ty * 17) % 7 + 7) % 7;
+      const scale = 0.8 + seed * 0.07;
+      // canopy shadow pooled on the ground
+      ctx.fillStyle = 'rgba(28,34,20,0.28)';
+      ctx.beginPath(); ctx.ellipse(tx + 3, ty + 3, 11 * scale, 6 * scale, 0, 0, TAU); ctx.fill();
+      billboard(ctx, tx, ty, () => {
+        ctx.strokeStyle = '#4a3f2c'; ctx.lineWidth = 1.6 * scale;
+        ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -9 * scale); ctx.stroke();
+        // three overlapping blobs, darkest at the base, so it reads as mass
+        const greens = ['#3f5230', '#4a6038', '#556d3f'];
+        for (let i = 0; i < 3; i++) {
+          ctx.fillStyle = greens[i];
+          ctx.beginPath();
+          ctx.ellipse((i - 1) * 4 * scale, -13 * scale - i * 2.5 * scale,
+                      9 * scale - i * 1.6, 7 * scale - i * 1.3, 0, 0, TAU);
+          ctx.fill();
+        }
+      });
+    }
+    // scrub and long grass breaking the outline where the fence will run
+    for (const [gx, gy] of [[-70, 74], [-30, 80], [12, 84], [50, 80], [78, 68], [-90, 30]]) {
+      ctx.strokeStyle = 'rgba(96,110,66,0.7)'; ctx.lineWidth = 0.8;
+      for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(gx + i * 2.2, gy);
+        ctx.lineTo(gx + i * 2.6, gy - 5 - (i % 2 ? 2 : 0));
+        ctx.stroke();
+      }
+    }
     // ---- worked ground: two crop blocks, finely furrowed ----
     for (const [fx, fy, fw, fh] of [[10, -74, 78, 66], [10, 8, 78, 62]]) {
       ctx.fillStyle = '#4c4a2e';
@@ -3204,61 +3272,6 @@
         rr(ctx, lx - 2.4, ly, 4.8, 6.4, 0.5); ctx.fill();
       }
     }
-  };
-  // ================= Prepper Cache =================
-  // Deliberately small and scruffy — it should read as something BURIED, not
-  // built: a footlocker in a scraped hollow, a tarp corner pinned under rocks,
-  // and a stake so its owner can find it again. `kits` thins the pile as it is
-  // drawn down, so a nearly-spent cache looks nearly spent.
-  B.preppercache = (ctx, t, o) => {
-    const kits = o.kits === undefined ? 4 : o.kits;
-    // scraped dirt hollow with a spoil ring
-    ctx.fillStyle = 'rgba(58,48,34,0.55)';
-    ctx.beginPath(); ctx.ellipse(0, 2, 15, 9, 0, 0, TAU); ctx.fill();
-    ctx.fillStyle = 'rgba(96,82,58,0.5)';
-    ctx.beginPath(); ctx.ellipse(0, 2, 15, 9, 0, 0, TAU); ctx.stroke();
-    // the locker itself, sunk so only the lid and one flank show
-    isoBox(ctx, -8, -5, 16, 10, 4, '#5e6a4c', { r: 1 });
-    ctx.strokeStyle = '#3d4633'; ctx.lineWidth = 0.7;
-    ctx.beginPath(); ctx.moveTo(-8, 0); ctx.lineTo(8, 0); ctx.stroke();   // lid seam
-    // strap bands + a padlock hasp
-    ctx.strokeStyle = '#413a2c'; ctx.lineWidth = 1;
-    for (const bx of [-4, 3]) { ctx.beginPath(); ctx.moveTo(bx, -5); ctx.lineTo(bx, 5); ctx.stroke(); }
-    ctx.fillStyle = '#8b939e';
-    ctx.beginPath(); ctx.arc(0, -1, 1.2, 0, TAU); ctx.fill();
-    // tarp corner pinned under stones, flapping a little
-    ctx.fillStyle = 'rgba(74,86,62,0.85)';
-    ctx.beginPath();
-    ctx.moveTo(-13, 4); ctx.lineTo(-4, 1);
-    ctx.lineTo(-3, 7 + Math.sin(t * 1.4) * 0.5); ctx.lineTo(-12, 9);
-    ctx.closePath(); ctx.fill();
-    for (const [sx, sy] of [[-12.5, 4.5], [-11.5, 8.5]]) {
-      ctx.fillStyle = '#6b6455';
-      ctx.beginPath(); ctx.ellipse(sx, sy, 1.8, 1.2, 0, 0, TAU); ctx.fill();
-    }
-    // Stock still in it: ammo cans standing on the propped-open lid, one per
-    // remaining kit. They sit PROUD of the locker on purpose — the whole point
-    // of the drawing is that you can count a cache's remaining kits from across
-    // the field and decide whether it is worth walking to.
-    billboard(ctx, -1, -5, () => {
-      for (let i = 0; i < kits; i++) {
-        const cx = -6.5 + (i % 2) * 6.4, cy = -7.6 - Math.floor(i / 2) * 4.2;
-        ctx.fillStyle = i % 2 ? '#59653f' : '#4a5636';
-        rr(ctx, cx, cy, 5.4, 3.8, 0.6); ctx.fill();
-        ctx.strokeStyle = '#2f3826'; ctx.lineWidth = 0.5; ctx.stroke();
-        ctx.strokeStyle = '#7d8a5e'; ctx.lineWidth = 0.5;                 // carry handle
-        ctx.beginPath(); ctx.moveTo(cx + 1.6, cy); ctx.lineTo(cx + 3.8, cy); ctx.stroke();
-      }
-    });
-    // marker stake with a rag, so the owner can find it in the dark
-    billboard(ctx, 11, 4, () => {
-      ctx.strokeStyle = '#6b5a3f'; ctx.lineWidth = 1.1;
-      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -9); ctx.stroke();
-      ctx.fillStyle = '#a8452f';
-      ctx.beginPath();
-      ctx.moveTo(0, -9); ctx.lineTo(4 + Math.sin(t * 2) * 0.8, -7.6); ctx.lineTo(0, -6.2);
-      ctx.closePath(); ctx.fill();
-    });
   };
   // ================= Broadcast Station =================
   // A shed with a transmitter mast bolted to it and a satellite dish that never
@@ -6199,6 +6212,47 @@
       if (o2.firing) {
         c2.fillStyle = 'rgba(255,240,170,0.95)';
         c2.beginPath(); c2.arc(10.6, -7.7, 2, 0, TAU); c2.fill();
+      }
+    },
+  });
+  // BELT-FED GUNNER. Reads as PLANTED even standing still: a wide low stance
+  // over a bipod, a box of belt hanging off the receiver, and the belt itself
+  // feeding up into the gun. Deployed, the bipod legs splay and the muzzle
+  // glows — you should be able to tell across the map which gunners are set up
+  // and which are still walking.
+  I.beltfed = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#5f6647', pants: '#43492f', head: c2 => ihHelmet(c2, '#4a5038'),
+    pack: (c2, t2, o2) => {
+      // ammo box on the hip with a belt running up to the breech
+      c2.fillStyle = '#3f4634'; rr(c2, -4.6, -5.6, 3.2, 3.4, 0.4); c2.fill();
+      c2.strokeStyle = '#b8994a'; c2.lineWidth = 0.7;
+      c2.beginPath();
+      c2.moveTo(-3, -5.4); c2.quadraticCurveTo(-0.5, -6.6, 1.6, -6.4);
+      c2.stroke();
+      c2.fillStyle = '#c8a94e';
+      for (let i = 0; i < 4; i++) c2.fillRect(-2.6 + i * 1.1, -6.2 - (i % 2) * 0.3, 0.5, 0.9);
+      if (o2 && o2.deployed) {   // dug in: spoil and a spent-brass pile
+        c2.fillStyle = 'rgba(120,104,72,0.5)';
+        c2.beginPath(); c2.ellipse(0, 0.6, 6.5, 1.8, 0, 0, TAU); c2.fill();
+      }
+    },
+    weapon: (c2, t2, o2) => {
+      const set = !!(o2 && o2.deployed);
+      c2.strokeStyle = '#2c2f36'; c2.lineWidth = 1.6;                 // heavy barrel
+      c2.beginPath(); c2.moveTo(-0.6, -6.4); c2.lineTo(7.8, -7); c2.stroke();
+      c2.fillStyle = '#3a4048'; rr(c2, 0.6, -7.6, 3.4, 2, 0.4); c2.fill();  // receiver
+      c2.fillStyle = '#20242a'; c2.fillRect(7.4, -7.8, 1.6, 1.6);     // flash hider
+      // bipod: splayed when deployed, folded under the barrel when walking
+      c2.strokeStyle = '#3a4048'; c2.lineWidth = 0.6;
+      c2.beginPath();
+      if (set) { c2.moveTo(6, -6.6); c2.lineTo(8.2, -2.6); c2.moveTo(6, -6.6); c2.lineTo(4.2, -2.6); }
+      else { c2.moveTo(6, -6.6); c2.lineTo(7.4, -4.6); }
+      c2.stroke();
+      if (o2 && o2.firing) {
+        c2.fillStyle = 'rgba(255,236,150,0.95)';
+        c2.beginPath(); c2.arc(9.4, -7.1, 2.2, 0, TAU); c2.fill();
+        c2.fillStyle = 'rgba(255,200,110,0.45)';                      // muzzle bloom
+        c2.beginPath(); c2.arc(9.4, -7.1, 3.6, 0, TAU); c2.fill();
       }
     },
   });

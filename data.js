@@ -74,7 +74,7 @@ const FAMILY_STYLE = { flat: 'flat', resistance: 'scrap', glob: 'glob', deep: 'g
 const FACTIONS = {
   flat: {
     name: 'Flat Earthers', family: 'EARTHERS', emoji: '🥞',
-    desc: 'They are not here to win, they are here to still be here. Farms worked by the people who fight, so every body you muster is income switched off — and Marksmen bury the tech tree on the enemy\'s doorstep instead of building it at home. Kill the Bunker and nothing happens. They are finished when the last homestead burns.',
+    desc: 'They are not here to win, they are here to still be here. Farms worked by the people who fight, so every body you muster is income switched off. Militia cannot be bought at any price — they are grown, one at a time, and the ones who live get harder to kill. Kill the Bunker and nothing happens. They are finished when the last homestead burns.',
     // Matches the Rig of Truth's `limit: 3`. If this stayed above the cap the
     // AI would read itself as permanently STARVED (workers < economy.workers),
     // which pins it in the recovery branch that ignores the build reserve.
@@ -82,9 +82,9 @@ const FACTIONS = {
     // NO hqRebuild. The homesteads ARE the redundancy now — see FLAT_LAST_STAND.
     worker: 'truthrig', infantry: 'militia', aa: 'laserguy', vehicle: 'killdozer',
     air: ['balloon', 'barrageballoon'], tower: 'pillbox', aaTower: 'laserpointer',
-    // AMR gunners and Breachers are NOT built here — they are militia who
-    // reached a prepper cache (see CACHE_LOADOUT). The tent trains the people
-    // who make that possible, and nothing else.
+    // AMR gunners and Breachers are NOT built here — they are militia RETRAINED
+    // here (see RETRAIN). The tent trains the specialists and the support; the
+    // line itself comes off the farms.
     extras: ['homesteader', 'journalist', 'engineer', 'bugoutvan', 'fireworks', 'quadrunner'],
     advanced: [],   // pending the Institute of Truth / Broadcast Station rework
     structs: ['homestead', 'broadcast', 'bushplane', 'wall', 'gate', 'refinery'],
@@ -99,7 +99,7 @@ const FACTIONS = {
       hq: 'Bunker of Truth', powerplant: 'Diesel Generator', barracks: 'Recruitment Tent',
       factory: 'Truck Garage', airpad: 'Balloon Dock', tech: 'Institute of Truth',
       pillbox: 'Patriot Pillbox', laserpointer: 'Giant Laser Pointer',
-      homestead: 'Homestead', preppercache: 'Prepper Cache', bushplane: 'Bush Plane',
+      homestead: 'Homestead', bushplane: 'Bush Plane',
       broadcast: 'Broadcast Station',
       wall: 'Ice Wall Segment', gate: 'Checkpoint Gate', mine: 'IED',
     },
@@ -342,7 +342,9 @@ const HOMESTEAD_SLOTS = 4;             // militia a homestead holds at full stre
 // and makes losing a farmhand hurt for a long time.
 const HOMESTEAD_START = 2;             // militia a freshly built homestead comes with
 const HOMESTEAD_RATE = 0.22;           // minerals/sec per militia actually stationed
-const HOMESTEAD_REFILL = 45;           // seconds to grow each missing body back
+// 30s, not 45: this timer is now the faction's ONLY infantry production line,
+// not just income recovery. At 45 a lost fight took four minutes to answer.
+const HOMESTEAD_REFILL = 30;           // seconds to grow each missing body back
 const HOMESTEAD_CAP = 6;               // hard cap — this is also the victory condition
 // The compound builds FAR. A Flat Earther plants homesteads across half a
 // county, which is why the faction can be spread out enough to be hard to
@@ -421,30 +423,65 @@ const BROADCASTS = {
   },
 };
 
-// ---------- prepper caches ----------
-// A cache is a buried kit dump, and a militia that reaches one walks away as
-// something else (see CACHE_KITS). It is the Flat Earther tech tree, and unlike
-// every other faction's it lives at the FRONT: a cache planted inside your own
-// build radius is refused outright, so the kit only ever exists where the
-// Marksman was brave enough to bury it.
-// Finite on purpose — a cache that refilled would be a permanent forward
-// barracks nothing could resolve. Four kits, then it is an empty box.
-const CACHE_COST = 45;
-const CACHE_KITS = 4;                  // militia conversions before it is spent
-const CACHE_CARRY = 2;                 // caches a Marksman carries at a time
-const CACHE_CAP = 6;                   // live caches per player
-const CACHE_RESUPPLY = 4;              // seconds at a homestead to reload a Marksman
-const CACHE_CONVERT = 3;               // seconds a militia spends drawing its kit
-// A cache must be buried ON SOMEBODY'S DOORSTEP — within this of an enemy
-// structure. Outside-your-own-radius alone was not a real constraint: you could
-// stash the whole tech tree in a safe empty corner and walk militia out to it
-// at leisure, which is all of the payoff and none of the risk. Now the ground
-// that qualifies is ground the enemy is standing on.
-const CACHE_ENEMY_R = 620;
-// What a militia can draw. Sidegrades, never a ladder — you pick the kit for
-// the job in front of you, and the choice is made at the front where you can
-// already see what you are up against.
-const CACHE_LOADOUT = ['amr', 'breacher'];
+// ---------- RETRAINING: where the infantry actually comes from ----------
+// Militia are NOT BUILDABLE. They are grown on the land, one at a time, and the
+// only way to have more of them is to own more farms. That single rule kills
+// the substitution problem the old barracks had: you never weigh "militia or
+// anti-armour" at a build menu, because militia were never on the menu.
+//
+// A specialist is a militiaman who has been RETRAINED — walk one into the
+// Recruitment Tent, pay minerals, and something else walks out. The body is
+// consumed, so every specialist you field is a farmhand who is not farming
+// until the land grows a replacement. Converting is therefore paid for twice:
+// once in minerals and once in the income that farm stops producing.
+//
+// That is also why this is a throttle rather than a printer. Six farms regrow
+// one body each per HOMESTEAD_REFILL, so the ceiling on how fast people can
+// physically appear is about 12 a minute — less than half what an ordinary
+// faction's barracks manages — and pushing that rate costs you the economy
+// paying for it.
+const RETRAIN = {
+  amr:      { cost: 90,  time: 6 },
+  breacher: { cost: 75,  time: 5 },
+  beltfed:  { cost: 80,  time: 5 },
+};
+const RETRAIN_AT = 'barracks';   // the Recruitment Tent does the retraining
+
+// ---------- VETERANCY: the ones who live, learn ----------
+// Militia only. A specialist is already the answer to a question; a militiaman
+// is the person who has to survive long enough to be asked one.
+// This exists so that a militiaman is never merely raw material. A veteran is a
+// genuinely good unit, which makes retraining him a real decision — you are
+// spending your best body to get a different body, not cashing in an
+// interchangeable one. The rank CARRIES OVER when he is retrained, so the
+// choice is "keep the tough survivor or convert him" rather than "obviously
+// convert the worst one".
+// It also states the faction's thesis mechanically: the reward for surviving is
+// being better at surviving.
+const VET_RANKS = [
+  { name: '',          xp: 0,  hp: 1,    dmg: 1    },
+  { name: 'Seasoned',  xp: 2,  hp: 1.15, dmg: 1.15 },
+  { name: 'Veteran',   xp: 5,  hp: 1.32, dmg: 1.32 },
+  { name: 'Hardened',  xp: 10, hp: 1.5,  dmg: 1.5  },
+];
+const VET_XP_KILL = 1;      // xp for a kill
+const VET_XP_ASSIST = 0.34; // ...and for being in the fight when something else died
+
+// ---------- THE MOB ----------
+// A militia is a MOB, and its power should be that there are lots of it. Alone
+// a militiaman is a joke; six together are a real unit.
+// This is the whole reason to ever field one. Without it a specialist beats a
+// militiaman per body at every stage, so the correct play was to convert
+// everyone you could afford and leave the rest farming — the line infantry
+// never saw the line and veterancy never happened.
+// Specialists neither give the bonus nor receive it, so pulling a man out of
+// the crowd to retrain him genuinely weakens the five he leaves behind.
+// Deliberately NOT overwhelming: +15% each to a ceiling of five neighbours, so
+// a full block hits about as hard as a PMC costing 120 minerals — and only
+// while it stays bunched, which every splash weapon in the game punishes.
+const MOB_R = 110;         // how close counts as "together"
+const MOB_PER = 0.15;      // damage bonus per other militiaman inside that
+const MOB_MAX = 5;         // ...to a ceiling of +75%
 
 // ---------- the Bush Plane ----------
 // The faction's one act of reach, and it is a late-game ambush rather than an
@@ -478,7 +515,7 @@ const BUGOUT_KITS = {
   breacher:    { name: 'Demo Van',      art: 'demo',    dmg: 44, atkRange: 60,  cooldown: 1.4, bldgBonus: 3.2 },
   // the Chuck Wagon reloads Marksmen IN THE FIELD — the round trip home is the
   // cache system's whole tax, and this is what buys it off
-  homesteader: { name: 'Chuck Wagon',   art: 'wagon',   dmg: 0,  atkRange: 0,   cooldown: 1,   resupplies: true },
+  homesteader: { name: 'Field Ambulance', art: 'wagon', dmg: 0, atkRange: 0, cooldown: 1, mendAura: { r: 200, rate: 14 } },
   journalist:  { name: 'News Van',      art: 'news',    dmg: 0,  atkRange: 0,   cooldown: 1,   investigator: true, proofDropoff: true },
 };
 
@@ -613,14 +650,16 @@ const UNIT_TYPES = {
   salvagerig: { name: 'Salvage Rig',  role: 'worker', builtAt: 'hq', hp: 130, speed: 72, dmg: 4, atkRange: 90, cooldown: 0.9, sight: 200, cost: 80,  r: 12, buildTime: 7,  carry: 8,  shape: 'square', limit: 5 },
   borerig:    { name: 'Bore Rig',     role: 'worker', builtAt: 'hq', hp: 240, speed: 45, dmg: 8, atkRange: 24, cooldown: 1.1, sight: 170, cost: 120, r: 13, buildTime: 10, carry: 16, shape: 'square', limit: 5 },
   // basic infantry
-  // Flat line infantry, and the faction's UNIT OF ACCOUNT — every homestead
-  // holds four, every prepper cache converts one, and the Bug Out Van hauls
-  // them. Deliberately BEEFY and deliberately not good: a lot of hit points
-  // wrapped around a mediocre rifle, because their job is to survive the walk
-  // to a cache and come back up as something that can actually fight.
-  // They are also free (homesteads grow them), so the sticker price is not the
-  // real cost — the real cost is a quarter of a farm's income going quiet.
-  militia:     { name: 'Truther Militia', role: 'combat', builtAt: 'barracks', hp: 140, speed: 74, dmg: 6,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 50, r: 9,  buildTime: 5, plantMine: true },
+  // Flat line infantry, and the faction's UNIT OF ACCOUNT.
+  // builtAt: null — MILITIA CANNOT BE BUILT. They come off the land and nowhere
+  // else, which is exactly why they are never weighed against a specialist at a
+  // build menu: they were never on the menu. Every homestead holds four, the
+  // Recruitment Tent retrains them into specialists, and the Bug Out Van hauls
+  // them.
+  // Deliberately BEEFY and deliberately not good — a lot of hit points around a
+  // mediocre rifle — because their job is to survive long enough to become
+  // something, or to get good at surviving (see VET_RANKS).
+  militia:     { name: 'Truther Militia', role: 'combat', builtAt: null, hp: 140, speed: 74, dmg: 6,  atkRange: 100, cooldown: 0.75, sight: 210, cost: 0, r: 9,  buildTime: 0, plantMine: true },
   partisan:    { name: 'Partisan',        role: 'combat', builtAt: 'barracks', hp: 60,  speed: 92, dmg: 4,  atkRange: 95,  cooldown: 0.7,  sight: 210, cost: 35, r: 8,  buildTime: 4, plantMine: true },
   // the Reptilian workforce: cheap, unarmed, worked in the crystal fields
   // until they drop (~lifespan seconds, staggered). Every death — overwork,
@@ -779,20 +818,19 @@ const UNIT_TYPES = {
   // is the RPG Partisan.
   marksman:    { name: 'Marksman',     role: 'combat', builtAt: 'barracks', hp: 50, speed: 75, dmg: 110, atkRange: 260, cooldown: 3.0, sight: 300, cost: 85, r: 9, buildTime: 7, vehBonus: 0.35, bldgBonus: 0.08 },
   // ---------- the Flat Earth field layer ----------
-  // THE HOMESTEAD MARKSMAN is the most important body the faction owns, and it
-  // does two jobs that are really one job: it is the rifle that watches the
-  // approaches, and it is the LOGISTICS. It goes out unseen (stealth — broken
-  // only by its own muzzle flash, then it fades again), buries prepper caches
-  // in enemy country, and walks home for more.
-  // The old Deer Stand version could only shoot from a treeline; this one has
-  // given up the stand for a ghillie and works anywhere.
-  // bldgBonus 0.08: a rifle round does essentially nothing to a wall, and at
-  // the old 0.3 a Marksman out-damaged a militiaman against buildings, which is
-  // backwards. Snipers kill people. The faction's answer to structures is the
-  // Breacher, the Killdozer and demolition charges.
+  // THE HOMESTEAD MARKSMAN keeps the rifle and takes over the doctoring. A
+  // compound has one person who can shoot at four hundred yards and set a
+  // broken arm, and it is the same person.
+  // mendAura patches anything of yours standing near them, which matters far
+  // more here than in any other faction: militia are grown on a 30s clock and
+  // cannot be bought, so a wounded body walked home is worth more than a fresh
+  // one you cannot have. Keeping people alive IS the economy.
+  // Still stealthed — broken only by its own muzzle flash, then it fades again.
+  // bldgBonus 0.08: a rifle round does essentially nothing to a wall.
   homesteader: { name: 'Homestead Marksman', role: 'combat', builtAt: 'barracks', hp: 65, speed: 70,
                  dmg: 130, atkRange: 300, cooldown: 3.4, sight: 320, cost: 150, r: 9, buildTime: 9,
-                 vehBonus: 0.3, bldgBonus: 0.08, stealth: true, caches: CACHE_CARRY },
+                 vehBonus: 0.3, bldgBonus: 0.08, stealth: true,
+                 mendAura: { r: 150, rate: 9 } },
   // EX-SPECIAL FORCES — what a Homestead Marksman becomes when it boards the
   // Bush Plane, and the only way to get one.
   // NOT a better sniper. The faction already has a sniper, and three more of
@@ -814,24 +852,38 @@ const UNIT_TYPES = {
   bushflight: { name: 'Bush Plane', role: 'combat', builtAt: null, hp: 300, speed: 190,
                 dmg: 0, atkRange: 0, cooldown: 1, sight: 300, cost: 0, r: 12, buildTime: 0,
                 flying: true, shape: 'tri' },
-  // ---------- cache kit: what a militia comes back up as ----------
-  // Neither of these is built anywhere. A militia walks to a prepper cache,
-  // spends CACHE_CONVERT seconds in it, and climbs out as one of them.
+  // ---------- what a militia retrains INTO ----------
+  // Neither is built. A militiaman walks into the Recruitment Tent, the fee is
+  // paid, and one of these walks out in his place (see RETRAIN).
   // ANTI-MATERIEL RIFLE: a rifle that treats a tank like a filing cabinet.
-  // Enormous against armor, long, slow, and nearly worthless against people.
+  // The damage lives in vehBonus, not in the base: 26 a shot at people, 182 a
+  // shot at armour. Same 70 dps against a tank as before and a third of what it
+  // used to do to infantry, so it can no longer moonlight as a general-purpose
+  // marksman. It answers armour and nothing else.
   amr:      { name: 'Anti-Materiel Rifle', role: 'combat', builtAt: null, hp: 90, speed: 66,
-              dmg: 70, atkRange: 265, cooldown: 2.6, sight: 280, cost: 0, r: 9, buildTime: 0,
-              vehBonus: 2.6, bldgBonus: 0.12 },
-  // BREACHER: door-to-door work. Short reach, brutal inside it, and the only
-  // infantry answer the faction has to a garrisoned building.
-  // bldgBonus 1.0 — no structure bonus at all, just a fast gun up close. It was
-  // 2.4 (120 dps), then 1.5 (75), and both still beat a 185-mineral Killdozer's
-  // 65 from a body that costs one militia and a cache charge. The KILLDOZER is
-  // the faction's demolition answer; the Breacher is what clears the doorway in
-  // front of it. 50 dps, and it has to stand at 55 range to get it.
-  breacher: { name: 'Breacher', role: 'combat', builtAt: null, hp: 175, speed: 76,
-              dmg: 30, atkRange: 55, cooldown: 0.6, sight: 190, cost: 0, r: 9, buildTime: 0,
-              armor: 0.2, bldgBonus: 1.0 },
+              dmg: 26, atkRange: 265, cooldown: 2.6, sight: 280, cost: 0, r: 9, buildTime: 0,
+              vehBonus: 7, bldgBonus: 0.35 },
+  // BREACHER: door-to-door work, and now ONLY that. Like the AMR its damage
+  // moved into the bonus — 9 a swing at a person, 38 at a wall. 63 dps against
+  // structures (still under a Killdozer's 65) and 15 against anything else, so
+  // it stops being a general-purpose brawler that happened to be good at
+  // buildings and becomes the thing you bring to open one.
+  // Also down to 150 HP: it was 236 with 50 dps, strictly better than a
+  // militiaman in a straight fight, which is no way to make the line matter.
+  breacher: { name: 'Breacher', role: 'combat', builtAt: null, hp: 150, speed: 76,
+              dmg: 9, atkRange: 55, cooldown: 0.6, sight: 190, cost: 0, r: 9, buildTime: 0,
+              armor: 0.2, vehBonus: 0.4, bldgBonus: 4.2 },
+  // BELT-FED GUNNER — the third leg of the triangle, and the answer to massed
+  // cheap infantry the faction had nothing for.
+  // `deployable` (the machinery the Quake Drill Truck already uses): it fights
+  // PLANTED. Walks into position, drops the bipod, and cannot chase — pack up
+  // and it goes quiet while it moves. That is the trade: enormous sustained
+  // fire in one place, and the faction's one unit that cannot pursue anything.
+  // 30 dps against people, 7.5 against armour or concrete. The mob answers
+  // infantry; this answers infantry BETTER; neither of them answers a tank.
+  beltfed:  { name: 'Belt-Fed Gunner', role: 'combat', builtAt: null, hp: 130, speed: 52,
+              dmg: 6, atkRange: 175, cooldown: 0.2, sight: 220, cost: 0, r: 9, buildTime: 0,
+              vehBonus: 0.25, bldgBonus: 0.25, deployable: true },
   // THE INVESTIGATIVE JOURNALIST gathers PROOF — it walks up to enemy
   // structures and battles and documents them, then carries the footage home.
   // Unarmed, fragile, sees a very long way, and spots what is hiding.
@@ -1091,10 +1143,16 @@ const BUILDING_TYPES = {
   // flat-earth fortification: unarmed concrete with firing slits — worthless
   // empty, mean when garrisoned (pooled squad fire, same rules as civilian
   // structures). The militia man their own walls.
-  // Unarmed concrete with firing slits — worthless empty, mean when manned, and
-  // the militia inside shoot a long way further than they could out of a window
-  // (garrisonRange, against the GARRISON_RANGE 200 everything else gets).
-  pillbox:    { name: 'Pillbox', hp: 460, w: 42, h: 38, cost: 80, buildTime: 9, sight: 250, power: -10, cap: 6, slots: 3, garrisonRange: 310 },
+  // Concrete with a gun already in it. It used to be an empty box you garrisoned
+  // — which was fine when militia were cheap and buildable, and became a bad
+  // deal the moment they were farm-grown, capped and able to earn rank: parking
+  // three irreplaceable bodies in a shed where they cannot gain XP is a trade
+  // nobody should take. So the compound bolts a belt-fed gun to a firing slit
+  // and leaves the people free to fight.
+  // Tougher and shorter-ranged than a Watchtower for a similar price — dug in,
+  // not far-seeing.
+  pillbox:    { name: 'Pillbox', hp: 460, w: 42, h: 38, cost: 80, buildTime: 9, sight: 250, power: -10, cap: 6,
+                dmg: 11, atkRange: 240, cooldown: 0.7, targets: 'ground', ownWeaponArt: true },
   tower5g:    { hp: 340, w: 40, h: 40, cost: 100, buildTime: 12, sight: 280, power: -30, cap: 5, dmg: 6,  atkRange: 215, cooldown: 0.9,  targets: 'ground', weapon: 'pulse' },
   stalagmite: { hp: 320, w: 40, h: 40, cost: 80,  buildTime: 10, sight: 240, power: -30, cap: 5, dmg: 11, atkRange: 180, cooldown: 0.7,  targets: 'ground' },
   // Hollow ground defense: the Seismic Imitator slams a resonant piston and a
@@ -1189,16 +1247,8 @@ const BUILDING_TYPES = {
   // a win condition nobody can find turns every lost game into a search party.
   // A proper farmstead footprint, not a shed: house, barn, silo, yard and
   // worked fields, with room for the hands to actually be seen working it.
-  homestead: { name: 'Homestead', hp: 900, w: 150, h: 129, cost: 200, buildTime: 15, sight: 290, power: 0,
+  homestead: { name: 'Homestead', hp: 900, w: 128, h: 110, cost: 200, buildTime: 15, sight: 290, power: 0,
                cap: HOMESTEAD_CAP, slots: HOMESTEAD_SLOTS, homestead: true },
-  // A buried kit dump. Never built from the menu — a Homestead Marksman plants
-  // it (see UNIT_TYPES.homesteader), and only OUTSIDE its owner's build radius.
-  // Holds CACHE_KITS conversions, then it is an empty box and folds up.
-  // Plainly visible and plainly killable — the tension is that it sits in
-  // enemy country, not that it is hidden. A cache nobody can find is a free
-  // forward barracks; a cache everyone can see is a decision for both sides.
-  preppercache: { name: 'Prepper Cache', hp: 140, w: 26, h: 22, cost: 0, buildTime: 0, sight: 150, power: 0,
-                  anywhere: true, cache: true },
   // ================= Broadcast Station =================
   // The proof bank, and a deliberately fragile one. Everything the Journalist
   // risked their neck for is stacked inside this shed, so it is the single most
