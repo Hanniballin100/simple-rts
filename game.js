@@ -836,12 +836,20 @@ function refreshMemory() {
   }
 }
 
-// is this entity currently running silent? (drawn ghosted for its owner,
-// and for enemies whose detector has it pinned)
+// Is this entity currently running silent? RENDER-ONLY — it decides the ghosted
+// alpha, nothing else.
+// CAPABLE OF HIDING IS NOT THE SAME AS HIDDEN. This used to return true for
+// anything with a stealth flag that had not just fired, which was near enough
+// under the old binary system where a detector was the only thing that mattered.
+// Under suspicion the contest decides, and the flag says nothing: a Journalist
+// with a Dread Screecher parked on it is fully targetable and was still being
+// drawn translucent, so the picture told you that you were safe while you were
+// being shot. Ask the same question the simulation asks.
 function isCloaked(e) {
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
   if (e.exposedUntil > state.time) return false;        // lit up by its own muzzle flash
-  return !!(e.burrowed || e.disguised || stats.stealth || stats.cloakStill);
+  if (!(e.burrowed || e.disguised || stats.stealth || stats.cloakStill)) return false;
+  return OWNERS.every(o => o === e.owner || hiddenFrom(e, o));
 }
 
 function makeUnit(owner, type, x, y) {
@@ -6612,7 +6620,17 @@ function refreshResearch() {
 function refreshSidebar() {
   if (!started) return;
   refreshResearch();
+  // PROOF sits beside the money, because it is the other currency and it was
+  // invisible: you could film all match and have nowhere to read the total.
+  // Footage still in a Journalist's camera is shown separately (+n) — it is not
+  // banked yet, and anything not banked can still be shot.
+  const carried = isFlat(localOwner)
+    ? Math.round(state.units.reduce((n, u) =>
+        n + (u.owner === localOwner && u.hp > 0 ? (u.proof || 0) : 0), 0)) : 0;
   elCredits.textContent = '$ ' + state.minerals[localOwner] +
+    (isFlat(localOwner) && (proofStations(localOwner).length || carried)
+      ? '   🎞 ' + Math.round(proofOf(localOwner)) +
+        (carried ? ` (+${carried})` : '') : '') +
     (isReptilian(localOwner) ? '   ☠ ' + Math.floor(state.loosh[localOwner] || 0) : '') +
     (isHollow(localOwner) ? '   🗿 ' + relicCount(localOwner) : '') +
     (facOf(localOwner) && facOf(localOwner).hqRebuild && facOf(localOwner).hqRebuild.auto !== undefined
@@ -7312,6 +7330,14 @@ function panelForSelection(addAction) {
     if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
     if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
     if (ut.plantMine) info += ' — buries free IEDs on its own while standing idle';
+    if (ut.investigator) {
+      const cap = journoCap(uu);
+      info += ` — ${Math.round(uu.proof || 0)}/${cap} footage` +
+        (uu.filming ? ` (FILMING, ${stanceOf(uu)})` : '') +
+        ((uu.proof || 0) >= cap ? ' — full, file it' : '');
+    }
+    if (ut.caches) info += ` — carrying ${uu.caches || 0} cache${(uu.caches || 0) === 1 ? '' : 's'}`;
+    if (uu.charges) info += ` — ${uu.charges} demolition charge${uu.charges === 1 ? '' : 's'}`;
     if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
   }
   elSelInfo.textContent = info;
@@ -8351,6 +8377,24 @@ function drawUnitIso(u) {
       ctx.fillRect(ix - w / 2 + w * at - 0.5, py - 1, 1.4, 5);
     }
   }
+  // ---------- footage in the camera (your own Journalists) ----------
+  // Sits directly above the suspicion pip, because the two are read together:
+  // how much you have got, and how close you are to being caught getting it.
+  // A filled bar means go home — the camera is full and every second after
+  // that is risk for nothing.
+  if (u.owner === localOwner && UNIT_TYPES[u.type].investigator && !u.garrisoned) {
+    const cap = journoCap(u), frac = clamp((u.proof || 0) / cap, 0, 1);
+    const w = rs * 2.4, py = sy - rs - (u.hp < u.maxHp ? 22 : 17);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(ix - w / 2, py, w, 3);
+    ctx.fillStyle = frac >= 1 ? '#ffe14d' : '#c9a7ff';   // gold once it is full
+    ctx.fillRect(ix - w / 2, py, w * frac, 3);
+    // actively filming: a blinking record dot off the end of the bar
+    if (u.filming && Math.sin(state.time * 6) > -0.2) {
+      ctx.fillStyle = '#ff5f5f';
+      ctx.beginPath(); ctx.arc(ix + w / 2 + 4, py + 1.5, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
   // tractor-beam capture countdown: a violet bar filling toward abduction —
   // when it fills, the unit is hauled away (that's the "instant" death)
   if (u.beamHoldT && state.time - u.beamHoldT < 0.3 && u.beamHoldFrac > 0.02) {
@@ -8750,6 +8794,70 @@ function drawOverlays() {
     ctx.fillText(fl.text, fx + 1, fy + 1);
     ctx.fillStyle = `rgba(201,167,255,${(1 - age).toFixed(2)})`;
     ctx.fillText(fl.text, fx, fy);
+  }
+
+  // ---------- live demolition charges ----------
+  // A charge was a silent six seconds and then a building fell over. Both sides
+  // need to see the clock: the attacker to know when to be somewhere else, and
+  // the defender because a countdown on your Fusion Plant is the whole drama of
+  // the play. Drawn for anyone who can see the structure it is stuck to.
+  for (const c of state.charges) {
+    const b = state.buildings.find(x => x.id === c.bld && x.hp > 0);
+    if (!b) continue;
+    if (c.owner !== localOwner && !visibleToPlayer(b)) continue;
+    const left = Math.max(0, c.at - state.time);
+    const frac = clamp(left / DEMO_FUSE, 0, 1);
+    const rx = isoX(b.x, b.y), ry = isoY(b.x, b.y) - (b.h || 40) * 0.5 - 16;
+    // a ring that empties as the fuse burns, going red at the end
+    const hot = left < 2;
+    ctx.strokeStyle = hot ? 'rgba(255,95,95,0.95)' : 'rgba(255,182,72,0.9)';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.arc(rx, ry, 11, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(rx, ry, 8.5, 0, Math.PI * 2); ctx.fill();
+    // the number, flashing once it is nearly out
+    if (!hot || Math.sin(state.time * 12) > -0.3) {
+      ctx.fillStyle = hot ? '#ff8f8f' : '#ffd75f';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.ceil(left), rx, ry + 0.5);
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // ---------- setting a charge: which structure gets it ----------
+  // Same job the cache ghost does — say what the click will hit before it hits
+  // it. Enemy structures light up, your own and neutral ground do not.
+  if (demoTargeting) {
+    const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== localOwner && b.owner !== NEUTRAL &&
+      Math.abs(mouse.x - b.x) <= b.w / 2 + 10 && Math.abs(mouse.y - b.y) <= b.h / 2 + 10 &&
+      visibleToPlayer(b));
+    ctx.save();
+    isoShear(ctx);
+    if (tgt) {
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = '#ff7a3a';
+      ctx.fillRect(tgt.x - tgt.w / 2, tgt.y - tgt.h / 2, tgt.w, tgt.h);
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = '#ff5f5f'; ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.strokeRect(tgt.x - tgt.w / 2, tgt.y - tgt.h / 2, tgt.w, tgt.h);
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+    // a crosshair on the cursor either way, and the verdict above it
+    const cx = isoX(mouse.x, mouse.y), cy = isoY(mouse.x, mouse.y);
+    ctx.strokeStyle = tgt ? 'rgba(255,95,95,0.95)' : 'rgba(160,168,178,0.8)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 12, cy);
+    ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
+    ctx.stroke();
+    ctx.fillStyle = tgt ? 'rgba(255,150,150,0.95)' : 'rgba(190,196,204,0.9)';
+    ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(tgt ? `${DEMO_DMG} DMG — ${DEMO_FUSE}s FUSE` : 'ENEMY STRUCTURES ONLY', cx, cy - 16);
   }
 
   // ---------- bush plane drop zone ----------
