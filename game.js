@@ -1082,8 +1082,10 @@ function proofStationLost(b) {
 // system, and this is the decision it was waiting for.
 const JOURNO_STANCES = ['discreet', 'doorstep'];
 function stanceOf(u) { return u.stance === 'doorstep' ? 'doorstep' : 'discreet'; }
-function filmRate(u) {
-  return stanceOf(u) === 'doorstep' ? PROOF_FILM_DOORSTEP : PROOF_FILM_DISCREET;
+// How long this stance takes to film a whole building. The payout is the same
+// either way — only the exposure differs.
+function filmTime(u) {
+  return stanceOf(u) === 'doorstep' ? FILM_TIME_DOORSTEP : FILM_TIME_DISCREET;
 }
 // what filming adds to the suspicion TARGET — pushing a lens at somebody is not
 // a quiet activity, and doorstepping is not meant to be survivable for long
@@ -1092,15 +1094,62 @@ function filmSuspicion(u) {
   return stanceOf(u) === 'doorstep' ? PROOF_SUSP_DOORSTEP : PROOF_SUSP_DISCREET;
 }
 function journoCap(u) { return PROOF_CARRY; }
+// Is anybody hostile looking at this unit right now? The renderer asks the same
+// question for the ghosted alpha; the Journalist needs it to know when to run.
+function isSpotted(u) {
+  for (const o of OWNERS) if (o !== u.owner && !hiddenFrom(u, o)) return true;
+  return false;
+}
+// The next thing worth filming: nearest enemy structure with footage left that
+// this side can actually see. Null when the beat is finished.
+function nextStory(u) {
+  let best = null, bestD = Infinity;
+  for (const b of state.buildings) {
+    if (b.hp <= 0 || !b.done || b.owner === u.owner || b.owner === NEUTRAL) continue;
+    if (filmLeft(b) <= 0 || !visibleTo(u.owner, b)) continue;
+    // no sense starting a job we have no room to be paid for
+    if (journoCap(u) - (u.proof || 0) < storyValue(b) * 0.5) continue;
+    const d = dist(u, b);
+    if (d < bestD) { bestD = d; best = b; }
+  }
+  return best;
+}
+// Send them back out, or home if the camera is full. This is what makes the
+// Journalist work a BEAT rather than needing a click per leg of every trip:
+// film, bank when full, come back for the next story, repeat.
+function resumeBeat(u) {
+  if (!u.beat) { u.order = { type: 'idle' }; return; }
+  if ((u.proof || 0) >= journoCap(u)) {
+    const drop = nearest(u, proofDropoffs(u.owner), () => true);
+    u.order = drop ? { type: 'filepiece', destId: drop.id } : { type: 'idle' };
+    return;
+  }
+  const tgt = nextStory(u);
+  if (tgt) { u.order = { type: 'film', destId: tgt.id }; return; }
+  if ((u.proof || 0) > 0) {
+    const drop = nearest(u, proofDropoffs(u.owner), () => true);
+    if (drop) { u.order = { type: 'filepiece', destId: drop.id }; return; }
+  }
+  u.beat = false;
+  u.order = { type: 'idle' };
+  if (u.owner === localOwner) eva('Nothing left to cover');
+}
 // How much footage this structure has left in it. Headline targets — the seat
 // of government, the research lab, the doomsday device — are worth more than
 // another shot of a wall segment.
-function storyIn(b) {
+// What this building pays for a finished job. Headline targets — the seat of
+// government, the research lab, the doomsday device — are worth going back for.
+function storyValue(b) {
   const bt = bstatsOf(b);
-  const total = (b.type === 'hq' || b.type === 'tech' || bt.superweapon)
+  return (b.type === 'hq' || b.type === 'tech' || bt.superweapon)
     ? STORY_HEADLINE : STORY_PER_BUILDING;
-  return Math.max(0, total - (b.filmed || 0));
 }
+// How much of the job is left to shoot, 0..1. Kept on the BUILDING, so a
+// Journalist who bolts at 60% loses the time and not the story.
+function filmLeft(b) { return Math.max(0, 1 - (b.filmProgress || 0)); }
+// What is still on the table here, in proof — for the UI and for the beat when
+// it picks its next target.
+function storyIn(b) { return storyValue(b) * filmLeft(b); }
 // where footage can be handed in: a Broadcast Station, or a News Van parked
 // forward (the same favour the Chuck Wagon does the Marksmen)
 function proofDropoffs(owner) {
@@ -4432,28 +4481,33 @@ function updateUnit(u, dt) {
         if (u.owner === localOwner) eva('Nothing new here — find another target');
         break;
       }
+      // MADE. Stop filming and run. A Journalist is faster than infantry and
+      // dies in about five seconds of being shot at, so finishing the shot is
+      // simply death — this is what turns Doorstep from a suicide button into
+      // "grab what you can and bolt".
+      if (u.filming && isSpotted(u)) {
+        u.filming = false;
+        const threat = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL &&
+          e.hp > 0 && UNIT_TYPES[e.type].dmg);
+        const away = threat ? Math.atan2(u.y - threat.y, u.x - threat.x) : (u.facing || 0);
+        u.order = { type: 'bolt', x: u.x + Math.cos(away) * 420, y: u.y + Math.sin(away) * 420 };
+        if (u.owner === localOwner) eva('Made — pulling out');
+        break;
+      }
       const reach = entityRadius(tgt) + 26;
       if (moveToward(u, tgt.x, tgt.y, dt, reach, tgt.id)) {
         u.filming = true;
-        // a building only ever gives up what it has left, and what it gives is
-        // gone for good — this is what stops a Journalist farming one shed
-        const got = Math.min(filmRate(u) * dt, storyIn(tgt),
-                             journoCap(u) - (u.proof || 0));
-        tgt.filmed = (tgt.filmed || 0) + got;
-        u.proof = (u.proof || 0) + got;
-        const full = (u.proof || 0) >= journoCap(u);
-        if (full || storyIn(tgt) <= 0) {
+        // One building is ONE JOB. Progress lives on the target and persists,
+        // so bolting at 60% costs the time and not the story; the payout lands
+        // whole when the job finishes, and a story only ever breaks once.
+        tgt.filmProgress = Math.min(1, (tgt.filmProgress || 0) + dt / filmTime(u));
+        if (tgt.filmProgress >= 1) {
+          const paid = Math.min(storyValue(tgt), journoCap(u) - (u.proof || 0));
+          u.proof = (u.proof || 0) + paid;
           u.filming = false;
-          if (u.owner === localOwner) {
-            eva(full ? 'Footage complete — get it home' : 'That is the whole story here');
-          }
-          // A full camera walks itself back rather than standing in their base.
-          // A drained target with room left in the camera just stops, so you can
-          // send them to the next building instead of trekking home half empty.
-          if (full) {
-            const drop = nearest(u, proofDropoffs(u.owner), () => true);
-            u.order = drop ? { type: 'filepiece', destId: drop.id } : { type: 'idle' };
-          } else u.order = { type: 'idle' };
+          Particles.pulse(tgt.x, tgt.y, 18, [201, 167, 255]);
+          if (u.owner === localOwner) eva(`Story in the can — ${Math.round(paid)} proof`);
+          resumeBeat(u);
         }
       } else u.filming = false;
       break;
@@ -4472,7 +4526,16 @@ function updateUnit(u, dt) {
           eva(rejected > 0 ? `Filed ${filed} proof — the vaults are full`
                            : `Filed ${filed} proof`);
         }
-        u.order = { type: 'idle' };
+        resumeBeat(u);
+      }
+      break;
+    }
+    // ---------- run for it ----------
+    // Not a retreat the player ordered — the unit taking itself out of a fight
+    // it cannot win. Once clear it picks the beat back up on its own.
+    case 'bolt': {
+      if (moveToward(u, o.x, o.y, dt, 20) || !isSpotted(u)) {
+        if (u.beat) resumeBeat(u); else u.order = { type: 'idle' };
       }
       break;
     }
@@ -6044,7 +6107,10 @@ function issueCommand(owner, unitIds, x, y) {
       if (storyIn(filmTgt) <= 0) {
         if (owner === localOwner) eva('Already covered — nothing left to film there');
       } else {
-        for (const u of crew) u.order = { type: 'film', destId: filmTgt.id };
+        // one click starts a BEAT: film this, bank it when the camera is full,
+        // come back for the next story, repeat. The interesting decision is
+        // where to send them and which stance to run, not clicking each leg.
+        for (const u of crew) { u.beat = true; u.order = { type: 'film', destId: filmTgt.id }; }
         sfx('click');
       }
       return;
@@ -7095,8 +7161,10 @@ function refreshPanel() {
       // how much story is left in it, for a side that actually films. Lets you
       // tell a fresh target from a spent one without walking a Journalist over.
       if (isFlat(localOwner) && first.done) {
-        const left = Math.round(storyIn(first));
-        parts.push(left > 0 ? `🎞 ${left} footage left` : '🎞 already covered');
+        const pct = Math.round((first.filmProgress || 0) * 100);
+        parts.push(filmLeft(first) <= 0 ? '🎞 already covered'
+          : pct > 0 ? `🎞 worth ${storyValue(first)} — ${pct}% shot`
+          : `🎞 worth ${storyValue(first)}`);
       }
       elSelInfo.textContent = parts.join('  |  ');
     }
@@ -7460,8 +7528,8 @@ Walks a militiaman into the Recruitment Tent and spends him. His farm ` +
     const btn = document.createElement('button');
     btn.textContent = cur === 'doorstep' ? 'Stance: Doorstep' : 'Stance: Discreet';
     btn.title = cur === 'doorstep'
-      ? `Filming at ${PROOF_FILM_DOORSTEP}/sec and driving suspicion to +${PROOF_SUSP_DOORSTEP}. You will get the story and they will find you.`
-      : `Filming at ${PROOF_FILM_DISCREET}/sec at only +${PROOF_SUSP_DISCREET} suspicion. Slow, and you can sit there a long while.`;
+      ? `A building takes ${FILM_TIME_DOORSTEP}s and drives suspicion to +${PROOF_SUSP_DOORSTEP}. Same payout, far faster, and they will find you.`
+      : `A building takes ${FILM_TIME_DISCREET}s at only +${PROOF_SUSP_DISCREET} suspicion. Same payout, slow, and you can sit there a long while.`;
     btn.onclick = () => {
       cmd('stance', { u: idsOf(crews), v: cur === 'doorstep' ? 'discreet' : 'doorstep' });
       sfx('click'); refreshPanel();
@@ -8836,6 +8904,48 @@ function drawOverlays() {
     }
   }
 
+  // ---------- what is worth filming ----------
+  // With a Journalist selected, every enemy structure that still has footage in
+  // it gets a film marker, and the one under the cursor lights up. Otherwise
+  // "which buildings are still worth a trip" is invisible state you can only
+  // discover by walking over and being told no.
+  if (selection.some(e => e.kind === 'unit' && e.owner === localOwner && e.hp > 0 &&
+      UNIT_TYPES[e.type].investigator)) {
+    for (const b of state.buildings) {
+      if (b.hp <= 0 || !b.done || b.owner === localOwner || b.owner === NEUTRAL) continue;
+      if (!visibleToPlayer(b) || storyIn(b) <= 0) continue;
+      const rx = isoX(b.x, b.y), ry = isoY(b.x, b.y) - (b.h || 40) * 0.5 - 14;
+      const hot = Math.abs(mouse.x - b.x) <= b.w / 2 + 10 && Math.abs(mouse.y - b.y) <= b.h / 2 + 10;
+      ctx.globalAlpha = hot ? 1 : 0.55;
+      // a little film-can badge, brighter under the cursor
+      ctx.fillStyle = hot ? 'rgba(20,24,28,0.9)' : 'rgba(20,24,28,0.65)';
+      ctx.beginPath(); ctx.arc(rx, ry, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = hot ? '#ffe14d' : '#c9a7ff';
+      ctx.lineWidth = hot ? 2 : 1.4;
+      ctx.beginPath(); ctx.arc(rx, ry, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = hot ? '#ffe14d' : '#c9a7ff';
+      ctx.beginPath(); ctx.arc(rx, ry, 3, 0, Math.PI * 2); ctx.fill();
+      // reels either side, so it reads as a camera and not a generic dot
+      ctx.beginPath(); ctx.arc(rx - 5.5, ry - 4.5, 1.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(rx + 5.5, ry - 4.5, 1.7, 0, Math.PI * 2); ctx.fill();
+      // an arc around the badge tracks a part-shot job, so a building somebody
+      // already started on is obvious before you walk over to it
+      const prog = b.filmProgress || 0;
+      if (prog > 0) {
+        ctx.strokeStyle = '#7dffa0'; ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 12, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
+        ctx.stroke();
+      }
+      if (hot) {
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(prog > 0 ? `FILM · ${storyValue(b)} · ${Math.round(prog * 100)}%`
+                              : `FILM · ${storyValue(b)}`, rx, ry - 17);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
   // ---------- setting a charge: which structure gets it ----------
   // Same job the cache ghost does — say what the click will hit before it hits
   // it. Enemy structures light up, your own and neutral ground do not.
@@ -9216,7 +9326,11 @@ const cmdBuilding = (id, owner) => cmdBuildings([id], owner)[0];
 // hint; the state at EXECUTION time is the truth, and it is the only state all
 // clients share. A command that has become illegal in the meantime is dropped.
 const COMMANDS = {
-  move:        (o, p) => issueCommand(o, p.u, p.x, p.y),
+  move:        (o, p) => {
+    // an explicit move is the player taking the wheel: stop working the beat
+    for (const u of cmdUnits(p.u, o)) if (u.beat) u.beat = false;
+    issueCommand(o, p.u, p.x, p.y);
+  },
   attackmove:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y); },
   rally:       (o, p) => { const b = cmdBuilding(p.b, o); if (producesUnits(b)) b.rally = { x: p.x, y: p.y }; },
   burrow:      (o, p) => burrowUnits(cmdUnits(p.u, o)),

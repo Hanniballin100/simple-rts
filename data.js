@@ -363,19 +363,30 @@ const FLAT_BROWNOUT = 0.25;
 // That is the whole risk profile of the faction's tech layer. Minerals are safe
 // in an abstract treasury; proof is stacked in a shed with an aerial on it.
 const PROOF_CAP = 250;          // per station — a full one stops accepting
-const PROOF_CARRY = 40;         // how much footage a Journalist holds before it must go home
-const PROOF_FILM_DISCREET = 4;  // proof/sec filming quietly (low suspicion)
-const PROOF_FILM_DOORSTEP = 11; // ...and shoving a lens in their face (high suspicion)
+// A building is ONE JOB. You film it, it pays what it is worth, and you carry
+// that home — rather than draining a pool at so-many-proof-a-second and trekking
+// back for the leftovers.
+// The stance changes how LONG it takes, not how fast it pays. Same reward either
+// way, so Doorstep is a real trade — the same story, faster, for far more
+// exposure — instead of the old "more per second AND more risk", which was
+// simply a worse deal you only took when desperate.
+const PROOF_CARRY = 120;        // camera capacity: a headline building fits in one trip
+const FILM_TIME_DISCREET = 20;  // seconds to film a building quietly
+const FILM_TIME_DOORSTEP = 7;   // ...and with a lens in their face
 // what the two stances do to the meter while filming (added to the target)
 const PROOF_SUSP_DISCREET = 10;
 const PROOF_SUSP_DOORSTEP = 70;
-const PROOF_BATTLE_BONUS = 3;   // extra proof per enemy body that dies on camera
+// A trickle for keeping a reporter with the army — NOT an income. At 3 a body
+// a twenty-body engagement paid more than an entire building, from total
+// safety at 330 range, which made the dangerous half of the unit pointless.
+const PROOF_BATTLE_BONUS = 1;   // extra proof per enemy body that dies on camera
 // A STORY ONLY BREAKS ONCE. Every enemy structure holds a finite amount of
 // footage, and once it has been covered there is nothing left to film there —
 // so a Journalist cannot park on the nearest shed and farm it forever. Getting
 // paid means going deeper into their base for a structure nobody has shot yet.
-// Sized a little above one camera load (PROOF_CARRY), so a building is roughly
-// one trip and then you move on.
+// What a building PAYS when the job is finished. Progress is kept on the
+// building itself, so bolting at 60% costs you the time, not the story — come
+// back and finish it.
 const STORY_PER_BUILDING = 55;
 // ...except the things that are genuinely a bigger story. Their HQ, their
 // research lab and their superweapon are worth going back for.
@@ -492,10 +503,10 @@ const MOB_MAX = 5;         // ...to a ceiling of +75%
 // and it stops the plane being a blind map-wide delete button.
 const BUSHPLANE_CREW = 3;              // Marksmen required before it will fly
 const BUSHPLANE_SPEED = 240;           // how fast it crosses to the drop
-const DEMO_CHARGES = 2;                // charges each Ex-Special Forces carries
+const DEMO_CHARGES = 3;                // charges each Ex-Special Forces carries
 const DEMO_FUSE = 6;                   // seconds from planting to the bang
 const DEMO_DMG = 900;                  // straight to the structure, before armor
-const DEMO_PLANT = 2.5;                // seconds spent setting it
+const DEMO_PLANT = 2;                  // seconds spent setting it
 
 // ---------- Bug Out Van kits ----------
 // One body climbs in and the van is rebuilt around it. The van keeps its own
@@ -841,9 +852,15 @@ const UNIT_TYPES = {
   // The rifle is there so they can defend the walk in, not so they can trade.
   // same reasoning as the Marksman: the carbine was doing 48 dps to structures,
   // which quietly made the charges optional. The charge IS the unit.
-  specops: { name: 'Ex-Special Forces', role: 'combat', builtAt: null, hp: 165, speed: 84,
-             dmg: 34, atkRange: 150, cooldown: 0.7, sight: 320, cost: 0, r: 9, buildTime: 0,
-             bldgBonus: 0.25, stealth: true, charges: DEMO_CHARGES },
+  // Priced against what it actually takes to field one: Balloon Dock (120),
+  // Institute of Truth (250), Bush Plane (260) and three Homestead Marksmen
+  // (450) — over a thousand minerals and a tech chain, for three bodies that
+  // arrive once and cannot be replaced without doing all of it again.
+  // So they carry THREE charges each, not two (nine per drop, 8100 structure
+  // damage if every one lands), take a real beating, and can defend the walk in.
+  specops: { name: 'Ex-Special Forces', role: 'combat', builtAt: null, hp: 215, speed: 84,
+             dmg: 42, atkRange: 150, cooldown: 0.65, sight: 320, cost: 0, r: 9, buildTime: 0,
+             armor: 0.15, bldgBonus: 0.25, stealth: true, charges: DEMO_CHARGES },
   // The Bush Plane once it is off the ground. A REAL aircraft from the moment
   // it lifts: no weapon, no stealth, and every SAM, AA nest and interceptor on
   // the map gets a shot at it on the way in. Losing it loses the whole team,
@@ -889,9 +906,12 @@ const UNIT_TYPES = {
   // Unarmed, fragile, sees a very long way, and spots what is hiding.
   // (Stealth mode / rush mode and the proof economy itself are still open —
   // this is the body; the Broadcast Station rework wires up what it earns.)
+  // req: a Broadcast Station has to be standing first. Nobody files a story
+  // with no outlet, and it stops you fielding camera crews with nowhere to bank
+  // what they risk their necks for.
   journalist: { name: 'Investigative Journalist', role: 'combat', builtAt: 'barracks', hp: 70, speed: 88,
                 dmg: 0, atkRange: 0, cooldown: 1, sight: 330, cost: 90, r: 9, buildTime: 7,
-                cloakStill: true, cloakDelay: 1.5, detector: true, investigator: true },
+                req: 'broadcast', cloakStill: true, cloakDelay: 1.5, detector: true, investigator: true },
   // vehicles
   // THE BUG OUT VAN rolls off the line as nothing at all: a panel van, quick,
   // unarmed, with the seats pulled out. What it BECOMES depends on who climbs
@@ -1258,8 +1278,11 @@ const BUILDING_TYPES = {
   // second is not more capacity, it is REDUNDANCY. Each banks its own footage,
   // a Journalist delivers to whichever is nearer, and a raid only ever takes
   // what the station it burned was holding.
+  // Off the grid like almost everything else the compound owns — a transmitter
+  // and a car battery, not a facility. Only the Truck Garage and the Institute
+  // still draw, which is what the Diesel Generator exists for.
   broadcast: { name: 'Broadcast Station', hp: 420, w: 62, h: 56, cost: 220, buildTime: 18,
-               sight: 260, power: -50, cap: 2, proofBank: true },
+               sight: 260, power: 0, cap: 2, proofBank: true },
   // Single use, and it is a building right up until the moment it is not: it
   // sits hidden on the pad, you walk three Homestead Marksmen aboard, and it
   // takes off once and never comes back (see BUSHPLANE).
