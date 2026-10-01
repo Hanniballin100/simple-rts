@@ -36,6 +36,10 @@ const state = {
   relics: {},      // owner -> [relic keys banked]
   armorBank: {},   // owner -> {guard,dread}: salvaged suits discounting ascension
   armorWrecks: [], // fallen Guard/Dreadnought shells: {id,x,y,tier,owner,until}
+  bcast: {},       // owner -> { key: true } permanent broadcasts bought
+  bcastT: {},      // owner -> { key: untilTime } timed broadcasts running
+  reveals: [],     // Leaked Footage windows: {owner,x,y,r,until}
+  charges: [],     // live demolition charges: {id,bld,owner,at,x,y}
   floats: [],      // short-lived world-space numbers ("+6" over a skim)
   leverage: {},    // owner -> total skimmed by Front Companies (the ledger)
   books: {},       // owner -> {on, until}: whose estate is currently laid open to them
@@ -71,6 +75,9 @@ const STRUCT_GAP = 8;        // min world gap between structure footprints (RA2-
                              // squeezing between — the path grid + A* handle it.
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let leverageTargeting = null; // LEVERAGE_PLAYS key awaiting a target structure
+let dropTargeting = null;    // Bush Plane building id awaiting its drop zone
+let demoTargeting = null;    // Ex-Special Forces ids awaiting an enemy structure
+let bcastTargeting = null;   // BROADCASTS key awaiting a spot on the map
 let panDrag = null;          // middle- or right-mouse camera drag
 let mmDown = false;          // dragging on minimap
 let lastClick = { t: -1e9, x: 0, y: 0 }; // for double-click select-all-of-type
@@ -235,9 +242,21 @@ const buildingName = b => (facOf(b.owner) && facOf(b.owner).buildingNames[b.type
 // neutral structures fall back to the base table
 const bstats = (owner, type) => (FBUILD[state.factions[owner]] || BUILDING_TYPES)[type];
 const bstatsOf = b => bstats(b.owner, b.type);
+// ---------- what counts as INFANTRY ----------
+// This used to be spelled `builtAt === 'barracks'` in eleven places, which was
+// fine while every foot soldier in the game came out of a barracks. It stopped
+// being true the moment the Flat Earthers started GROWING militia on farms and
+// RETRAINING them at the tent: militia, AMR gunners, Breachers and Ex-Special
+// Forces all have builtAt: null, so every one of those eleven checks quietly
+// said "not infantry" and took garrisoning, transport-boarding, crushing and
+// the cloning vats with it.
+// Ask what the unit IS instead of where it came from: a combat body, on foot,
+// person-sized. Vehicles and aircraft carry a `shape`; infantry do not.
+const isFootSoldier = t => !!t && t.role === 'combat' && !t.flying && !t.shape && (t.r || 0) <= 10;
+
 const canGarrison = u => {
   const t = UNIT_TYPES[u.type];
-  return t.builtAt === 'barracks' && t.role === 'combat' && !t.flying;
+  return isFootSoldier(t);
 };
 // Which structures actually emit units, and so have somewhere to send them.
 // Derived from the unit table rather than listed by hand, so a new production
@@ -264,8 +283,7 @@ const isLowAir = stats => stats.flying && !stats.plane && (stats.flyH || 28) <= 
 // tank tracks vs footsoldiers: who rolls over whom. Heavy ground hulls crush
 // un-armored foot troops; armored riot gear, giants and vehicles are safe.
 const isCrusher = stats => !stats.flying && stats.r >= 12;
-const isCrushable = stats => !stats.flying && stats.r <= 10 && (stats.armor || 0) < 0.25 &&
-  (!stats.builtAt || stats.builtAt === 'barracks');
+const isCrushable = stats => !stats.flying && stats.r <= 10 && (stats.armor || 0) < 0.25 && !stats.shape;
 
 // ---------- audio state (functions below) ----------
 
@@ -469,8 +487,108 @@ function detectorsOf(owner) {
   ]);
 }
 
+// ---------- SUSPICION: how noticeable this thing is being right now ----------
+// stealthSkill is what it is capable of at rest; the multiplier is what it is
+// actually doing. Speed matters continuously rather than as a sprint flag — a
+// bomber crossing the map is loud, a man walking is not — so nothing new has to
+// be tracked to know how hard something is trying not to be seen.
+function stealthSkillOf(e) {
+  const s = STEALTH_SKILL[e.type];
+  return s === undefined ? STEALTH_SKILL_DEFAULT : s;
+}
+// where this thing's meter is HEADED, 0-100, given what it is doing now
+function suspicionTargetOf(e) {
+  const skill = stealthSkillOf(e);
+  let mul;
+  if (e.kind === 'building') mul = SUSP_STILL;            // a building always holds still
+  else {
+    const stats = UNIT_TYPES[e.type];
+    // `=== undefined`, not `||`: movedT is a timestamp and 0 is a real one. A
+    // truthiness test here reads "moved on tick zero" as "has never moved", so
+    // everything on the field counted as holding still at match start.
+    const movedT = e.movedT === undefined ? -999 : e.movedT;
+    if (state.time - movedT >= SUSP_STILL_AFTER) mul = SUSP_STILL;
+    // hold-still cloakers are built around stopping and are worse than their
+    // skill suggests the moment they do not
+    else if (stats.cloakStill) mul = SUSP_CLOAKSTILL_MOVE;
+    else {
+      const fast = clamp(((stats.speed || 60) - 60) / 120, 0, 1);
+      mul = SUSP_MOVING + (SUSP_SPRINT - SUSP_MOVING) * fast;
+    }
+  }
+  // filming is added ON TOP of the behaviour multiplier, not folded into it:
+  // a doorstepping Journalist is standing perfectly still and still lighting up
+  return clamp(skill * mul * SUSPICION_MAX + filmSuspicion(e), 0, SUSPICION_MAX);
+}
+// where it actually IS. Buildings never move, so their meter sits on target and
+// needs no inertia; units carry a live one that updateSuspicion walks.
+function suspicionOf(e) {
+  if (e.kind === 'building') return suspicionTargetOf(e) / SUSPICION_MAX;
+  return (e.suspicion === undefined ? suspicionTargetOf(e) : e.suspicion) / SUSPICION_MAX;
+}
+// one step of the meter — called per unit per tick
+function updateSuspicion(u, dt) {
+  const stats = UNIT_TYPES[u.type];
+  if (!(u.disguised || u.burrowed || stats.stealth || stats.cloakStill)) return;
+  if (u.suspicion === undefined) u.suspicion = suspicionTargetOf(u);
+  // a shot pins the meter at maximum: you cannot cool down while still lit
+  if (u.exposedUntil > state.time) { u.suspicion = SUSPICION_MAX; return; }
+  const want = suspicionTargetOf(u);
+  const rate = want > u.suspicion ? SUSPICION_RISE : SUSPICION_FALL;
+  const step = rate * dt;
+  u.suspicion = Math.abs(want - u.suspicion) <= step ? want
+    : u.suspicion + Math.sign(want - u.suspicion) * step;
+}
+
+// ---------- SCRUTINY: how hard `owner` is looking at this patch of ground ----
+// Every pair of eyes that can see the spot counts, so a dense base is a hard
+// place to sneak through and open country is not. Memoised per fog tile per
+// tick: the answer is asked once per stealthed thing per tick at most, and the
+// grid is coarse enough that near-identical positions share a result.
+let scrutMemo = { t: -1, m: new Map() };
+function scrutinyAt(owner, x, y) {
+  if (scrutMemo.t !== state.time) scrutMemo = { t: state.time, m: new Map() };
+  const key = owner + ':' + tileIndex(x, y);
+  const hit = scrutMemo.m.get(key);
+  if (hit !== undefined) return hit;
+  const pt = { x, y };
+  let s = 0;
+  for (const u of state.units) {
+    if (u.owner !== owner || u.hp <= 0 || u.garrisoned) continue;
+    const ut = UNIT_TYPES[u.type];
+    if (dist(u, pt) > ut.sight) continue;
+    s += ut.detector ? SCRUTINY_DETECTOR : SCRUTINY_UNIT;
+  }
+  for (const b of state.buildings) {
+    if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
+    const bt = bstatsOf(b);
+    if (dist(b, pt) > bt.sight) continue;
+    s += bt.detector ? SCRUTINY_DETECTOR : SCRUTINY_BLDG;
+  }
+  // "Stealth Is a Psyop" no longer opts you out of the system — it just means
+  // everything you own is looking twice as hard, everywhere, forever.
+  if (disproved(owner, 'stealth')) s *= SCRUTINY_DISPROVED;
+  // Dead Air: somebody hostile to this observer is jamming them blind
+  if (bcastAgainst(owner, 'deadair')) s *= BROADCASTS.deadair.mul;
+  scrutMemo.m.set(key, s);
+  return s;
+}
+
+// the contest itself
 function isRevealed(e, owner) {
-  return detectorsOf(owner).some(d => dist(d, e) <= (d.kind === 'building' ? bstatsOf(d).sight : UNIT_TYPES[d.type].sight));
+  return suspicionOf(e) * scrutinyAt(owner, e.x, e.y) >= SUSPICION_CAUGHT;
+}
+// RENDER-ONLY: the hardest anyone hostile is looking at this spot. Used to draw
+// the suspicion pip's threshold mark, so the bar answers "am I about to be seen
+// HERE" rather than a number with no reference point.
+function worstScrutinyAt(owner, x, y) {
+  let worst = 0;
+  for (const o of OWNERS) {
+    if (o === owner) continue;
+    const s = scrutinyAt(o, x, y);
+    if (s > worst) worst = s;
+  }
+  return worst;
 }
 
 // is entity e hidden from `owner` right now? (covers the reptilian disguise,
@@ -480,15 +598,16 @@ function isRevealed(e, owner) {
 function hiddenFrom(e, owner) {
   if (e.owner === owner) return false;
   if (e.trackedBy && e.trackedBy[owner]) return false; // an implanted tracker pierces everything
+  if (e.kind === 'unit' && e.transit) return true;     // underground in a tunnel: gone entirely
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
-  const cloaked = e.disguised || e.burrowed || e.cloaked || // e.cloaked: deep-state hold-still cloak (set in updateUnit)
-    (stats.stealth && !(e.exposedUntil > state.time)) ||
-    (e.kind === 'unit' && e.transit); // underground in a tunnel: gone entirely
-  if (!cloaked) return false;
-  if (e.kind === 'unit' && e.transit) return true; // no detector reaches the tunnels
-  // "Stealth Is a Psyop": once you have proved it fake, it is fake — no
-  // detector needed, and it applies to everything they already own
-  if (disproved(owner, 'stealth')) return false;
+  // Only these ever get to be unseen. Everything else in the game is visible
+  // if it is in your vision, which is what keeps this a system about
+  // infiltrators rather than about every unit on the field.
+  if (!(e.disguised || e.burrowed || stats.stealth || stats.cloakStill)) return false;
+  // FIRING HARD-REVEALS, and it outranks everything above. A muzzle flash is a
+  // location broadcast: no skill hides it, no stillness discounts it, and it
+  // holds long enough that what you shot at can shoot back.
+  if (e.exposedUntil > state.time) return false;
   return !isRevealed(e, owner);
 }
 
@@ -501,6 +620,14 @@ function canTarget(stats, target) {
   // own altitude — rotorcraft, drones, balloons, saucers — never a fast jet or
   // the high-altitude fleet (see isLowAir)
   return t === 'air' || t === 'both' || (!!stats.lowAir && isLowAir(UNIT_TYPES[target.type]));
+}
+
+// What a browned-out owner runs at. Everyone limps along at half; the Flat
+// Earthers CRAWL at a quarter, because almost nothing of theirs is on the grid
+// in the first place — if the Diesel Generator is gone, the three buildings
+// that did need it are the three you cared about, and losing them should hurt.
+function brownoutRate(owner) {
+  return state.factions[owner] === 'flat' ? FLAT_BROWNOUT : 0.5;
 }
 
 let powerMemo = { t: -1 };
@@ -575,6 +702,19 @@ function markSight(owner, x, y, sight) {
 // Every side's fog, every tick. One pass over the world marks each sighting
 // into whichever owner's grid it belongs to, so this costs barely more than
 // the single-player version did — the per-owner part is only the decay sweep.
+// Public-by-design structures. Refineries advertise themselves the moment they
+// finish — everyone watches the money move.
+// HOMESTEADS ARE CONDITIONAL. They used to be flat beacons, which handed every
+// opponent the Flat Earth economy on the minimap from minute one for free. Now
+// they stay hidden like anything else while the Bunker stands, and only light
+// up once it falls — at which point they ARE the win condition, and finding six
+// farms scattered across a 900 build radius should not be a search party.
+function isBeacon(b) {
+  const bt = bstatsOf(b);
+  if (bt.beacon) return true;
+  return !!bt.homestead && !hasHq(b.owner);
+}
+
 function updateFog() {
   for (const o of OWNERS) {
     const v = visAll[o];
@@ -623,7 +763,7 @@ function updateFog() {
   // It lights the footprint and no more: you are told a refinery is there, not
   // what is guarding it.
   for (const b of state.buildings) {
-    if (!(b.hp > 0 && b.done && bstatsOf(b).beacon)) continue;
+    if (!(b.hp > 0 && b.done && isBeacon(b))) continue;
     const r = Math.max(b.w, b.h) / 2 + FOG_TILE;
     const tx0 = Math.max(0, Math.floor((b.x - r) / FOG_TILE));
     const tx1 = Math.min(FW - 1, Math.floor((b.x + r) / FOG_TILE));
@@ -646,12 +786,19 @@ function updateFog() {
 
 function visibleTo(owner, e) {
   if (e.owner === owner) return true;
+  // Follow the Money and Leaked Footage both PIERCE STEALTH, which is why they
+  // are tested before hiddenFrom. Following the money is the whole point: an
+  // Unmarked Rig is still a rig, and a broadcast that exposes every earner
+  // except the ones sneaking is not exposing anything. It makes this the Flat
+  // Earth answer to a black budget, which is exactly what it should be.
+  if (bcastHas(owner, 'followmoney') && isMoneyTarget(e)) return true;
+  if (state.reveals.length && inRevealZone(owner, e)) return true;
   if (hiddenFrom(e, owner)) return false; // stealthed/burrowed and undetected
   // beacons (the Refinery) are public knowledge the moment they finish: no
   // scouting required, and no forgetting them once built. Everyone watches the
   // money move. Unfinished ones still have to be found the normal way — the
   // claim is only staked once the thing is standing.
-  if (e.kind === 'building' && e.done && bstatsOf(e).beacon) return true;
+  if (e.kind === 'building' && e.done && isBeacon(e)) return true;
   const t = tileStateFor(owner, e.x, e.y);
   return e.kind === 'building' ? t >= 1 : t === 2;
 }
@@ -665,7 +812,7 @@ function visibleToPlayer(e) { return visibleTo(localOwner, e); }
 function observing(owner, e) {
   if (e.owner === owner) return true;
   if (hiddenFrom(e, owner)) return false;
-  if (e.kind === 'building' && e.done && bstatsOf(e).beacon) return true; // public by design
+  if (e.kind === 'building' && e.done && isBeacon(e)) return true; // public by design
   return tileStateFor(owner, e.x, e.y) === 2;
 }
 function observingPlayer(e) { return observing(localOwner, e); }
@@ -699,11 +846,20 @@ function refreshMemory() {
   }
 }
 
-// is this entity currently running silent? (drawn ghosted for its owner,
-// and for enemies whose detector has it pinned)
+// Is this entity currently running silent? RENDER-ONLY — it decides the ghosted
+// alpha, nothing else.
+// CAPABLE OF HIDING IS NOT THE SAME AS HIDDEN. This used to return true for
+// anything with a stealth flag that had not just fired, which was near enough
+// under the old binary system where a detector was the only thing that mattered.
+// Under suspicion the contest decides, and the flag says nothing: a Journalist
+// with a Dread Screecher parked on it is fully targetable and was still being
+// drawn translucent, so the picture told you that you were safe while you were
+// being shot. Ask the same question the simulation asks.
 function isCloaked(e) {
   const stats = e.kind === 'building' ? bstatsOf(e) : UNIT_TYPES[e.type];
-  return !!(e.burrowed || e.cloaked || (stats.stealth && !(e.exposedUntil > state.time)));
+  if (e.exposedUntil > state.time) return false;        // lit up by its own muzzle flash
+  if (!(e.burrowed || e.disguised || stats.stealth || stats.cloakStill)) return false;
+  return OWNERS.every(o => o === e.owner || hiddenFrom(e, o));
 }
 
 function makeUnit(owner, type, x, y) {
@@ -724,6 +880,10 @@ function makeUnit(owner, type, x, y) {
   // must never expire in one synchronized wave. The work regime (Drive
   // button) stretches or slashes the lifespans of NEW slaves.
   if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + simRandom() * 0.5) * driveLifeMul(owner);
+  // an Ex-Special Forces comes off the plane with its charges
+  if (t.charges) u.charges = t.charges;
+  // militia (and what they retrain into) carry a service record
+  if (type === 'militia' || RETRAIN[type]) { u.vetXp = 0; u.maxHp = t.hp; }
   state.units.push(u);
   return u;
 }
@@ -743,7 +903,502 @@ function makeBuilding(owner, type, x, y) {
   if (t.dropoff && facOf(owner) && facOf(owner).worker) {
     makeUnit(owner, facOf(owner).worker, x + (simRandom() - 0.5) * 24, y + t.h / 2 + 22);
   }
+  // a Homestead is not an empty building — it comes with the family already
+  // living in it, and they start working the moment the roof is on
+  if (t.homestead) { b.refillT = 0; stockHomestead(b, HOMESTEAD_START); }
   return b;
+}
+
+// ---------- demolition charges (Ex-Special Forces) ----------
+// A charge ignores hit points as a wall of attrition and just takes a huge bite
+// out of the structure it is stuck to. The fuse is long enough that a defender
+// who SEES it planted can still kill the man and save the building — which is
+// the whole counterplay, and why the plant takes time and breaks stealth.
+function plantCharge(u, b) {
+  if (!u.charges || !b || b.hp <= 0 || b.kind !== 'building') return false;
+  if (b.owner === u.owner || b.owner === NEUTRAL) return false;
+  u.charges--;
+  state.charges.push({ id: nextId++, bld: b.id, owner: u.owner, at: state.time + DEMO_FUSE, x: b.x, y: b.y });
+  u.exposedUntil = state.time + 4;   // setting it is not a quiet job
+  if (u.owner === localOwner) eva('Charge set');
+  else if (b.owner === localOwner) eva('Charge on your structure!');
+  return true;
+}
+function updateCharges() {
+  if (!state.charges.length) return;
+  const live = [];
+  for (const c of state.charges) {
+    const b = state.buildings.find(x => x.id === c.bld && x.hp > 0);
+    if (!b) continue;                       // building already gone; charge goes with it
+    if (state.time < c.at) { live.push(c); continue; }
+    dealDamage({ owner: c.owner, x: c.x, y: c.y, kind: 'unit' }, b, DEMO_DMG, { demo: true });
+    Particles.boom(c.x, c.y, 2.2);
+    if (b.owner === localOwner) eva('Structure demolished');
+  }
+  state.charges = live;
+}
+
+// ---------- the Bush Plane ----------
+// Three Marksmen walk aboard and Ex-Special Forces come off. Everything about
+// it is one-shot: the strip building is consumed, the plane is not a unit you
+// keep, and there is no second sortie.
+function planeCrew(b) { return (b.crew || []).length; }
+function boardPlane(b, u) {
+  if (!bstatsOf(b).bushplane || b.launched) return false;
+  if (u.type !== 'homesteader' || u.owner !== b.owner) return false;
+  b.crew = b.crew || [];
+  if (b.crew.length >= BUSHPLANE_CREW) return false;
+  b.crew.push(u.id);
+  u.hp = 0; u.abducted = true;              // consumed into the airframe
+  if (b.owner === localOwner) {
+    eva(b.crew.length >= BUSHPLANE_CREW
+      ? 'Bush Plane fuelled — pick a drop zone'
+      : `Marksman aboard (${b.crew.length}/${BUSHPLANE_CREW})`);
+  }
+  return true;
+}
+// Scouted ground only — tile state 0 is never-seen. Ground you once saw and
+// have since lost sight of still counts: you must have LOOKED at the place you
+// are about to hit, not be looking at it now.
+function canDropAt(owner, x, y) {
+  if (x < 0 || y < 0 || x > WORLD_W || y > WORLD_H) return false;
+  return tileStateFor(owner, x, y) > 0;
+}
+function launchPlane(b, x, y) {
+  if (!bstatsOf(b).bushplane || b.launched || planeCrew(b) < BUSHPLANE_CREW) return false;
+  if (!canDropAt(b.owner, x, y)) {
+    if (b.owner === localOwner) eva('Drop zone not scouted');
+    return false;
+  }
+  b.launched = true;
+  // it TAKES OFF: a real aircraft leaves the strip, crosses the map under fire
+  // like anything else with wings, and only then does anyone hit the silk.
+  const plane = makeUnit(b.owner, 'bushflight', b.x, b.y);
+  plane.crewCount = planeCrew(b);
+  plane.facing = Math.atan2(y - b.y, x - b.x);
+  plane.order = { type: 'airdrop', x, y };
+  b.hp = 0;                                  // the strip goes with it — single use
+  if (b.owner === localOwner) eva('Bush Plane away');
+  return true;
+}
+// Everyone aboard dies with the aircraft. This is the whole risk of the play:
+// the flight in is the window where an alert enemy can still stop it.
+function bushPlaneLost(u) {
+  if (u.owner === localOwner) eva('Bush Plane down — team lost');
+  Particles.boom(u.x, u.y, 1.8);
+}
+
+// ---------- the Bug Out Van ----------
+// Which body is welded into this vehicle, if any. A kitted van is a different
+// unit TYPE (see the BUGOUT_KITS generator in data.js), so this is just a
+// readback of what it became.
+function vanKitOf(v) {
+  return v && v.kind === 'unit' ? (UNIT_TYPES[v.type].vanKit || null) : null;
+}
+// Weld a body in: the van becomes its variant and the passenger is stashed so
+// unloading can give it back. Refused if the van is ferrying — the bay is a
+// bay, and it holds one thing at a time.
+function loadVanKit(van, body) {
+  if (!UNIT_TYPES[van.type].loader || vanKitOf(van)) return false;
+  if ((van.cargo || []).length) { if (van.owner === localOwner) eva('Bay is full of passengers'); return false; }
+  const kit = BUGOUT_KITS[body.type];
+  if (!kit || body.owner !== van.owner) return false;
+  van.type = 'van_' + body.type;
+  van.hp = Math.min(van.hp, UNIT_TYPES[van.type].hp);
+  van.maxHp = UNIT_TYPES[van.type].hp;
+  van.kitBody = body.id;
+  body.garrisoned = true; body.transportId = van.id;
+  body.x = van.x; body.y = van.y;
+  if (van.owner === localOwner) eva(`${kit.name} ready`);
+  return true;
+}
+// Cut them back out: the van is a van again and the body walks away. Both
+// survive; killing a kitted van kills both, which is the risk you took.
+function unloadVanKit(van) {
+  const body = vanKitOf(van) ? state.units.find(u => u.id === van.kitBody && u.hp > 0) : null;
+  if (!body) return false;
+  van.type = 'bugoutvan';
+  van.maxHp = UNIT_TYPES.bugoutvan.hp;
+  van.hp = Math.min(van.hp, van.maxHp);
+  delete van.kitBody;
+  body.garrisoned = false; body.transportId = null;
+  body.x = van.x + (simRandom() - 0.5) * 20;
+  body.y = van.y + UNIT_TYPES[van.type].r + 14;
+  body.order = { type: 'idle' };
+  return true;
+}
+
+// ---------- PROOF: banked in buildings, not in a treasury ----------
+// There is no state.proof[owner]. The total is whatever the owner's Broadcast
+// Stations are currently holding, which is what makes the bank raidable: the
+// number on the HUD is a sum of things standing on the map, and it goes down
+// when one of them stops standing.
+function proofStations(owner) {
+  return state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done &&
+    bstatsOf(b).proofBank);
+}
+function proofOf(owner) {
+  return proofStations(owner).reduce((n, b) => n + (b.proof || 0), 0);
+}
+function proofCapOf(owner) {
+  return proofStations(owner).length * proofCapPer(owner);
+}
+// Bank footage into one station, up to its own cap. Returns what would not fit
+// so the caller can tell the player their bank is full rather than silently
+// evaporating the trip they just made.
+function bankProof(b, amount) {
+  const room = proofCapPer(b.owner) - (b.proof || 0);
+  const took = Math.max(0, Math.min(room, amount));
+  b.proof = (b.proof || 0) + took;
+  return amount - took;
+}
+// Spending draws from the fullest station first, so a raid that takes one is
+// least likely to take the one you were about to spend.
+function spendProof(owner, amount) {
+  if (proofOf(owner) < amount) return false;
+  let left = amount;
+  for (const b of proofStations(owner).sort((x, y) => (y.proof || 0) - (x.proof || 0))) {
+    if (left <= 0) break;
+    const take = Math.min(b.proof || 0, left);
+    b.proof -= take; left -= take;
+  }
+  return true;
+}
+// A station that falls takes its footage with it — the whole point of banking
+// in a building. Called from the death sweep before the building is filtered out.
+function proofStationLost(b) {
+  const lost = Math.round(b.proof || 0);
+  if (!lost) return;
+  if (b.owner === localOwner) eva(`Broadcast Station destroyed — ${lost} proof lost`);
+  Particles.pulse(b.x, b.y, 30, [235, 220, 160]);
+}
+
+// ---------- THE JOURNALIST: getting the story ----------
+// Two stances, and the choice is the whole unit. DISCREET films slowly and
+// barely moves the suspicion meter, so you can sit on a building for a long
+// time. DOORSTEP films nearly three times faster and drives suspicion to the
+// ceiling, so you will get the story and they will get you. The pip above the
+// unit is the readout for that gamble — it was already there for the stealth
+// system, and this is the decision it was waiting for.
+const JOURNO_STANCES = ['discreet', 'doorstep'];
+function stanceOf(u) { return u.stance === 'doorstep' ? 'doorstep' : 'discreet'; }
+// How long this stance takes to film a whole building. The payout is the same
+// either way — only the exposure differs.
+function filmTime(u) {
+  return stanceOf(u) === 'doorstep' ? FILM_TIME_DOORSTEP : FILM_TIME_DISCREET;
+}
+// what filming adds to the suspicion TARGET — pushing a lens at somebody is not
+// a quiet activity, and doorstepping is not meant to be survivable for long
+function filmSuspicion(u) {
+  if (!u.filming) return 0;
+  return stanceOf(u) === 'doorstep' ? PROOF_SUSP_DOORSTEP : PROOF_SUSP_DISCREET;
+}
+function journoCap(u) { return PROOF_CARRY; }
+// Is anybody hostile looking at this unit right now? The renderer asks the same
+// question for the ghosted alpha; the Journalist needs it to know when to run.
+function isSpotted(u) {
+  for (const o of OWNERS) if (o !== u.owner && !hiddenFrom(u, o)) return true;
+  return false;
+}
+// The next thing worth filming: nearest enemy structure with footage left that
+// this side can actually see. Null when the beat is finished.
+function nextStory(u) {
+  let best = null, bestD = Infinity;
+  for (const b of state.buildings) {
+    if (b.hp <= 0 || !b.done || b.owner === u.owner || b.owner === NEUTRAL) continue;
+    if (filmLeft(b) <= 0 || !visibleTo(u.owner, b)) continue;
+    // no sense starting a job we have no room to be paid for
+    if (journoCap(u) - (u.proof || 0) < storyValue(b) * 0.5) continue;
+    const d = dist(u, b);
+    if (d < bestD) { bestD = d; best = b; }
+  }
+  return best;
+}
+// Send them back out, or home if the camera is full. This is what makes the
+// Journalist work a BEAT rather than needing a click per leg of every trip:
+// film, bank when full, come back for the next story, repeat.
+function resumeBeat(u) {
+  if (!u.beat) { u.order = { type: 'idle' }; return; }
+  if ((u.proof || 0) >= journoCap(u)) {
+    const drop = nearest(u, proofDropoffs(u.owner), () => true);
+    u.order = drop ? { type: 'filepiece', destId: drop.id } : { type: 'idle' };
+    return;
+  }
+  const tgt = nextStory(u);
+  if (tgt) { u.order = { type: 'film', destId: tgt.id }; return; }
+  if ((u.proof || 0) > 0) {
+    const drop = nearest(u, proofDropoffs(u.owner), () => true);
+    if (drop) { u.order = { type: 'filepiece', destId: drop.id }; return; }
+  }
+  u.beat = false;
+  u.order = { type: 'idle' };
+  if (u.owner === localOwner) eva('Nothing left to cover');
+}
+// How much footage this structure has left in it. Headline targets — the seat
+// of government, the research lab, the doomsday device — are worth more than
+// another shot of a wall segment.
+// What this building pays for a finished job. Headline targets — the seat of
+// government, the research lab, the doomsday device — are worth going back for.
+function storyValue(b) {
+  const bt = bstatsOf(b);
+  return (b.type === 'hq' || b.type === 'tech' || bt.superweapon)
+    ? STORY_HEADLINE : STORY_PER_BUILDING;
+}
+// How much of the job is left to shoot, 0..1. Kept on the BUILDING, so a
+// Journalist who bolts at 60% loses the time and not the story.
+function filmLeft(b) { return Math.max(0, 1 - (b.filmProgress || 0)); }
+// What is still on the table here, in proof — for the UI and for the beat when
+// it picks its next target.
+function storyIn(b) { return storyValue(b) * filmLeft(b); }
+// where footage can be handed in: a Broadcast Station, or a News Van parked
+// forward (the same favour the Chuck Wagon does the Marksmen)
+function proofDropoffs(owner) {
+  return [
+    ...state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).proofBank),
+    ...state.units.filter(u => u.owner === owner && u.hp > 0 &&
+      (UNIT_TYPES[u.type].vanKit ? BUGOUT_KITS[UNIT_TYPES[u.type].vanKit].proofDropoff : false)),
+  ];
+}
+// A News Van has no vault of its own — it relays what it is handed straight to
+// a station, so it is a shortcut on the walk, not extra storage.
+function handInProof(owner, amount) {
+  let left = amount;
+  for (const b of proofStations(owner).sort((x, y) => (x.proof || 0) - (y.proof || 0))) {
+    if (left <= 0) break;
+    left = bankProof(b, left);
+  }
+  return left;   // whatever the vaults could not take
+}
+// battle footage: an enemy dying on camera is worth more than another shot of
+// their motor pool. Called from the death sweep.
+function creditBattleFootage(victim) {
+  for (const u of state.units) {
+    if (u.hp <= 0 || !UNIT_TYPES[u.type].investigator) continue;
+    if (u.owner === victim.owner) continue;
+    if (dist(u, victim) > UNIT_TYPES[u.type].sight) continue;
+    u.proof = Math.min(journoCap(u), (u.proof || 0) + PROOF_BATTLE_BONUS);
+  }
+}
+
+// ---------- BROADCASTS ----------
+// Permanents are bought once; timed ones run on a clock owned by the CASTER.
+// Debuffs are therefore asked the other way round — "is anyone hostile to me
+// currently running this?" — which is what bcastAgainst answers.
+function bcastHas(owner, key) { return !!(state.bcast[owner] && state.bcast[owner][key]); }
+function bcastActive(owner, key) {
+  const t = state.bcastT[owner];
+  return !!(t && t[key] > state.time);
+}
+function bcastAgainst(victim, key) {
+  return OWNERS.some(o => o !== victim && bcastActive(o, key));
+}
+// Household Name discounts everything that comes after it
+function bcastCost(owner, key) {
+  const B = BROADCASTS[key];
+  if (!B) return Infinity;
+  return Math.round(B.cost * (bcastHas(owner, 'household') ? BROADCASTS.household.mul : 1));
+}
+// The Archive deepens every vault you own
+function proofCapPer(owner) {
+  return PROOF_CAP + (bcastHas(owner, 'archive') ? BROADCASTS.archive.bonus : 0);
+}
+// Syndication puts one more pair of hands on every farm, including future ones
+function homesteadSlotsOf(owner) {
+  return HOMESTEAD_SLOTS + (bcastHas(owner, 'syndication') ? 1 : 0);
+}
+function canBroadcast(owner, key) {
+  const B = BROADCASTS[key];
+  if (!B) return 'unknown';
+  if (B.kind === 'permanent' && bcastHas(owner, key)) return 'owned';
+  if (B.req && !hasStruct(owner, B.req)) return 'req';
+  if (!proofStations(owner).length) return 'nostation';
+  if (proofOf(owner) < bcastCost(owner, key)) return 'proof';
+  return null;
+}
+function fireBroadcast(owner, key, x, y) {
+  if (canBroadcast(owner, key)) return false;
+  const B = BROADCASTS[key];
+  if (!spendProof(owner, bcastCost(owner, key))) return false;
+  if (B.kind === 'permanent') (state.bcast[owner] = state.bcast[owner] || {})[key] = true;
+  else if (B.kind === 'zone') state.reveals.push({ owner, x, y, r: B.r, until: state.time + B.dur });
+  else (state.bcastT[owner] = state.bcastT[owner] || {})[key] = state.time + B.dur;
+  // Syndication takes effect on farms that already exist, not just new ones
+  if (key === 'syndication') {
+    for (const b of state.buildings) {
+      if (b.owner === owner && b.hp > 0 && b.done && bstatsOf(b).homestead) stockHomestead(b, 1);
+    }
+  }
+  if (owner === localOwner) { sfx('boom'); eva(`${B.name} — on air`); }
+  return true;
+}
+function updateReveals() {
+  if (state.reveals.length) state.reveals = state.reveals.filter(r => r.until > state.time);
+}
+// is this entity inside a live Leaked Footage window belonging to `owner`?
+// what Follow the Money plots permanently: anything that earns or hauls
+function isMoneyTarget(e) {
+  if (e.kind === 'building') return !!(bstatsOf(e).dropoff || bstatsOf(e).income);
+  return UNIT_TYPES[e.type].role === 'worker';
+}
+function inRevealZone(owner, e) {
+  for (const r of state.reveals) {
+    if (r.owner !== owner) continue;
+    if (dist(r, e) <= r.r) return true;
+  }
+  return false;
+}
+
+// Slot count for a structure, accounting for Syndication on homesteads.
+// Every place that asks "how many fit in here" has to agree, or a Syndicated
+// farm grows a fifth body that the refill loop then treats as overfull.
+function slotsOf(b) {
+  const bt = bstatsOf(b);
+  return bt.homestead ? homesteadSlotsOf(b.owner) : (bt.slots || 0);
+}
+
+// ---------- RETRAINING ----------
+// A militiaman walks into the Recruitment Tent and something else walks out.
+// The body is consumed and its farm slot is freed, so the land starts growing a
+// replacement immediately — you pay in minerals now and in that farm's income
+// until the replacement arrives, which is what keeps this a throttle rather
+// than a printer.
+function canRetrain(owner, kit) {
+  const R = RETRAIN[kit];
+  if (!R) return 'unknown';
+  if (!hasStruct(owner, RETRAIN_AT)) return 'notent';
+  if (state.minerals[owner] < R.cost) return 'funds';
+  return null;
+}
+const RETRAIN_REFUSAL = {
+  notent: 'No Recruitment Tent',
+  funds: 'Insufficient funds',
+};
+// Do the swap. Rank carries over: spending your best body should GIVE you a
+// good specialist, or nobody would ever retrain anyone but the greenest man
+// they had and the decision would collapse.
+function retrainInto(u, kit) {
+  if (u.type !== 'militia' || canRetrain(u.owner, kit)) return false;
+  state.minerals[u.owner] -= RETRAIN[kit].cost;
+  const n = makeUnit(u.owner, kit, u.x, u.y);
+  n.facing = u.facing;
+  n.vetXp = u.vetXp || 0;
+  // THE SPECIALIST INHERITS THE FARM SLOT. One rule for everything the land
+  // raised: it holds its slot while it lives, wherever it is and whatever it
+  // became. Mustering a militiaman is a RENTAL — the farm goes quiet while he
+  // is out and starts paying again when he walks home. Retraining him is
+  // PERMANENT — that slot never farms again until the specialist dies.
+  // Without this the farm grew a replacement for every man you converted, so
+  // conversion was free army growth and nobody would ever field a militiaman.
+  // With it, your headcount is fixed by your farms and conversion is a quality
+  // upgrade you pay for in income, for as long as the upgrade is alive.
+  n.homeFarm = u.homeFarm;
+  u.hp = 0; u.abducted = true;        // consumed, no wreck and no death cry
+  Particles.pulse(u.x, u.y, 16, [235, 200, 120]);
+  return true;
+}
+
+// ---------- VETERANCY ----------
+// Militia only, because a specialist is already an answer and a militiaman is
+// the person who had to live long enough to be asked. Ranks multiply hit points
+// and damage, so a survivor is genuinely worth keeping rather than being raw
+// material you have not spent yet.
+function vetRankOf(u) {
+  const xp = u.vetXp || 0;
+  let r = 0;
+  for (let i = 0; i < VET_RANKS.length; i++) if (xp >= VET_RANKS[i].xp) r = i;
+  return r;
+}
+// ---------- THE MOB ----------
+// How much harder this militiaman hits for the company he keeps. Only militia
+// count, in both directions: a specialist standing in the crowd contributes
+// nothing and gains nothing, which is what makes pulling a man out to retrain
+// him a real loss to the five he leaves behind.
+function mobMul(u) {
+  if (u.type !== 'militia') return 1;
+  let near = 0;
+  for (const o of state.units) {
+    if (o === u || o.hp <= 0 || o.owner !== u.owner || o.type !== 'militia' || o.garrisoned) continue;
+    if (dist(o, u) > MOB_R) continue;
+    if (++near >= MOB_MAX) break;
+  }
+  return 1 + near * MOB_PER;
+}
+
+function vetMul(u, field) {
+  if (!UNIT_TYPES[u.type] || u.vetXp === undefined) return 1;
+  return VET_RANKS[vetRankOf(u)][field];
+}
+// Award for a kill, and a smaller share to everyone else who was in the fight —
+// the militiaman who tanked the hits earned something too.
+function creditVeterancy(killer, victim) {
+  if (killer && killer.kind === 'unit' && killer.hp > 0 && vetEligible(killer)) {
+    grantVetXp(killer, VET_XP_KILL);
+  }
+  for (const u of state.units) {
+    if (u === killer || u.hp <= 0 || !vetEligible(u)) continue;
+    if (u.owner === victim.owner) continue;
+    if (dist(u, victim) > UNIT_TYPES[u.type].sight) continue;
+    grantVetXp(u, VET_XP_ASSIST);
+  }
+}
+function vetEligible(u) { return u.vetXp !== undefined; }
+function grantVetXp(u, amount) {
+  const before = vetRankOf(u);
+  u.vetXp = (u.vetXp || 0) + amount;
+  const after = vetRankOf(u);
+  if (after > before) {
+    // promotion tops the body up as well as raising the ceiling — surviving is
+    // supposed to feel like a reward, not like a bigger health bar you cannot fill
+    u.maxHp = Math.round(UNIT_TYPES[u.type].hp * VET_RANKS[after].hp);
+    u.hp = Math.min(u.maxHp, u.hp + (u.maxHp - Math.round(UNIT_TYPES[u.type].hp * VET_RANKS[before].hp)));
+    if (u.owner === localOwner) Particles.pulse(u.x, u.y, 14, [255, 225, 120]);
+  }
+}
+
+// ---------- the homestead: who is home, and what that is worth ----------
+// Fill every empty slot with a militia, already garrisoned. Used once when the
+// farm finishes and once per HOMESTEAD_REFILL as bodies grow back.
+function stockHomestead(b, howMany = Infinity) {
+  const slots = slotsOf(b);
+  let made = 0;
+  while (farmPopulation(b) < slots && b.garrison.length < slots && made < howMany) {
+    const u = makeUnit(b.owner, 'militia', b.x, b.y);
+    u.homeFarm = b.id;              // this farm raised them, and is short one until they die
+    u.garrisoned = b.id;
+    b.garrison.push(u.id);
+    made++;
+  }
+  return made;
+}
+// EVERYONE this farm has raised who is still breathing — in the yard or out in
+// the field. A homestead grows a replacement only when one of ITS people is
+// actually dead, never merely absent.
+// Without this the farm was an infinite militia printer: muster four, walk them
+// away, and the yard quietly grew four more while the first four were still
+// alive. Free army, on a timer, forever. Mustering has to cost you the farm's
+// output, not duplicate its population.
+function farmPopulation(b) {
+  let n = 0;
+  for (const u of state.units) if (u.hp > 0 && u.homeFarm === b.id) n++;
+  return n;
+}
+// Only militia farm. A Marksman parked in a homestead is a wasted rifle, not a
+// farmhand, and the AMR gunner you stuffed in there is not going to pick corn.
+function farmhandsIn(b) {
+  return (b.garrison || []).reduce((n, id) => {
+    const u = state.units.find(x => x.id === id && x.hp > 0);
+    return n + (u && u.type === 'militia' ? 1 : 0);
+  }, 0);
+}
+// What every farm this owner holds pays, per second. This is the whole Flat
+// Earth economy and it is a live readout of how many people are NOT fighting.
+function homesteadIncome(owner) {
+  let rate = 0;
+  for (const b of state.buildings) {
+    if (b.owner !== owner || b.hp <= 0 || !b.done || !bstatsOf(b).homestead) continue;
+    rate += farmhandsIn(b) * HOMESTEAD_RATE;
+  }
+  return rate;
 }
 
 function makePatch(x, y, amount = 900, opts = {}) {
@@ -768,6 +1423,9 @@ function setupWorld(map) {
         s.x + Math.cos(home) * 100 + (i - 1) * 26,
         s.y + Math.sin(home) * 100 + (i % 2) * 22);
     }
+    // Workers and nothing else. Every faction opens on the same terms: its
+    // HQ and its three miners. No free scout, no free farm, no free anything —
+    // whatever you want on the field, you buy.
   }
 
   // 3-patch cluster at every generated mineral spot; urban ore fields (found in
@@ -849,9 +1507,24 @@ function atStructCap(owner, type) {
   return cap !== undefined && countStruct(owner, type) >= cap;
 }
 
+// ---------- you cannot open a new farm while one stands empty ----------
+// A homestead with nobody in it is not a farm, it is a building with a fence.
+// Without this you could muster every yard, spend the militia, and keep laying
+// down fresh farms as pure hit points and extra win-condition targets — the
+// land would grow while the people who work it did not. Fill what you have.
+// Returns the empty ones so callers can say how many.
+function emptyHomesteads(owner) {
+  return state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done &&
+    bstatsOf(b).homestead && farmhandsIn(b) === 0);
+}
+function homesteadBlocked(owner, type) {
+  return !!bstats(owner, type).homestead && emptyHomesteads(owner).length > 0;
+}
+
 function startConstruction(owner, type) {
   if (state.construction[owner]) return false;
   if (atStructCap(owner, type)) return false;
+  if (homesteadBlocked(owner, type)) return false;
   const rq = bstats(owner, type).req;
   if (rq && !hasStruct(owner, rq)) return false;
   const cost = bstats(owner, type).cost;
@@ -886,9 +1559,16 @@ function placementBlocked(owner, type, x, y) {
     || TERRAIN.some(o => dist(o, { x, y }) < o.r + Math.max(t.w, t.h) / 2 + 6);
 }
 
+// How far from an anchor this owner may build. Everyone gets BUILD_RADIUS; the
+// Flat Earthers homestead across half a county (FLAT_BUILD_RADIUS), which is
+// what lets their win condition be spread out enough to be worth spreading out.
+function buildRadiusOf(owner) {
+  return state.factions[owner] === 'flat' ? FLAT_BUILD_RADIUS : BUILD_RADIUS;
+}
 function withinBuildRadius(owner, x, y) {
+  const R = buildRadiusOf(owner);
   return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done &&
-    (b.type === 'hq' || b.type === 'powerplant' || bstatsOf(b).anchor) && dist(b, { x, y }) <= BUILD_RADIUS);
+    (b.type === 'hq' || b.type === 'powerplant' || bstatsOf(b).anchor) && dist(b, { x, y }) <= R);
 }
 
 // `instantType` is passed by the place command (it carries what the player had
@@ -971,7 +1651,7 @@ function convertWallToGate(owner, x, y) {
 function tickConstruction(owner, dt) {
   const c = state.construction[owner];
   if (!c || c.ready) return;
-  c.t += dt * (powerOf(owner).low ? 0.5 : 1);
+  c.t += dt * (powerOf(owner).low ? brownoutRate(owner) : 1);
   if (c.t >= c.duration) {
     c.ready = true;
     // keyed on the job object, so a second building of the same type announces
@@ -1065,10 +1745,10 @@ function fireSuperweapon(b, x, y) {
     for (const u of state.units) {
       if (u.owner === owner || u.hp <= 0 || u.garrisoned || u.type === 'phantom') continue;
       if (UNIT_TYPES[u.type].role === 'worker') continue; // only fighters turn
-      if (disproved(u.owner, 'actors')) continue;        // Crisis Actors: nobody real turns
       if (dist(u, { x, y }) <= r) {
         u.coupOrig = u.coupOrig !== undefined ? u.coupOrig : u.owner;
-        u.coupRevert = state.time + 45;
+        // Crisis Actors: they still turn, they just do not stay turned
+        u.coupRevert = state.time + (disproved(u.owner, 'actors') ? ACTORS_RETURN : COUP_HOLD);
         u.owner = owner;
         u.disguised = false;
         u.order = { type: 'idle' };
@@ -1099,9 +1779,23 @@ const hqRebuildDef = owner => (facOf(owner) || {}).hqRebuild;
 function hasHq(owner) {
   return state.buildings.some(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
 }
-// still in the game? Either an HQ stands, or the grace window is open.
+// ---------- the last stand (Flat Earth) ----------
+// Nobody lives at the Bunker. They live on the LAND, and you cannot kill a
+// people by burning their courthouse. A Flat Earther is in the game while the
+// Bunker stands OR any homestead does, so finishing them means clearing the
+// compound and then every farm — up to HOMESTEAD_CAP of them, scattered across
+// a build radius twice anyone else's.
+// Homesteads light up on the minimap only once the Bunker is down (isBeacon):
+// hidden while the compound stands, public once they ARE the win condition, so
+// the hunt is long but never blind. They have no hqRebuild — these are it.
+function hasHomestead(owner) {
+  return state.buildings.some(b => b.owner === owner && b.hp > 0 && b.done &&
+    bstatsOf(b).homestead);
+}
+// still in the game? An HQ stands, the grace window is open, or the land holds.
 function hasHqOrCanRebuild(owner) {
   if (hasHq(owner)) return true;
+  if (hasHomestead(owner)) return true;
   const g = state.hqGrace[owner];
   return !!g && state.time < g.until;
 }
@@ -1245,7 +1939,7 @@ function castWeather(owner, x, y) {
 
 function castClone(owner, unit) {
   // the vats only fit people-shaped things — no vehicles, no aircraft
-  if (UNIT_TYPES[unit.type].builtAt !== 'barracks') return false;
+  if (!isFootSoldier(UNIT_TYPES[unit.type])) return false;
   const home = state.buildings.find(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'barracks')
     || state.buildings.find(b => b.owner === owner && b.hp > 0 && b.type === 'hq');
   if (!home) return false;
@@ -1386,11 +2080,13 @@ function recruitSleeper(owner) {
   // anybody's line trooper will do, so long as they're not elite kit, not a
   // one-of-a-kind, and not already somebody else's asset
   const pool = state.units.filter(u => u.hp > 0 && u.owner !== owner && u.owner !== NEUTRAL &&
-    !u.sleeperFor && !u.garrisoned && !u.transit && moleEligible(u.type) &&
-    !disproved(u.owner, 'actors'));   // Crisis Actors: none of theirs is recruitable
+    !u.sleeperFor && !u.garrisoned && !u.transit && moleEligible(u.type));
   if (!pool.length) return;
   const u = pool[Math.floor(simRandom() * pool.length)];
   u.sleeperFor = owner;
+  // Crisis Actors: the handler can still turn them, but the arrangement has a
+  // shelf life — they come to their senses and stop reporting
+  if (disproved(u.owner, 'actors')) u.sleeperUntil = state.time + ACTORS_RETURN;
   if (owner === localOwner) eva('An asset is in place');
 }
 // wake one: it turns on the spot, right where it stands
@@ -1463,6 +2159,8 @@ function updateAbilities(dt) {
     }
   }
   state.armorWrecks = state.armorWrecks.filter(w => w.until > state.time);
+  updateCharges();
+  updateReveals();
   state.floats = state.floats.filter(f => state.time - f.t < 1.6);
   for (const owner of OWNERS) {
     // structure income: zero-point cores etc. pay out every 10 seconds
@@ -1470,9 +2168,27 @@ function updateAbilities(dt) {
     if (state.eco[owner] >= 10) {
       state.eco[owner] -= 10;
       let income = 0;
+      const nth = {};   // how many of each diminishing type have paid out already
       for (const b of state.buildings) {
-        if (b.owner === owner && b.hp > 0 && b.done) income += bstatsOf(b).income || 0;
+        if (b.owner !== owner || b.hp <= 0 || !b.done) continue;
+        const bt = bstatsOf(b);
+        if (!bt.income) continue;
+        // `needsReq`: wired into its prerequisite rather than merely unlocked by
+        // it. A Data Center with no Black Site Lab standing is a dark room.
+        if (bt.needsReq && bt.req && !hasStruct(owner, bt.req)) continue;
+        // `diminish`: each one after the first pays that fraction of the last.
+        // state.buildings order is itself simulation state and identical on
+        // every client, so "which one is the third" needs no sorting.
+        if (bt.diminish) {
+          const i = nth[b.type] = (nth[b.type] || 0) + 1;
+          income += bt.income * Math.pow(bt.diminish, i - 1);
+        } else income += bt.income;
       }
+      if (bcastAgainst(owner, 'sponsors')) income *= BROADCASTS.sponsors.mul;
+      income = Math.round(income);
+      // the homestead payroll rides the same 10s beat as every other structure
+      // income, so there is one rhythm to the economy and one place to read it
+      income += Math.round(homesteadIncome(owner) * 10);
       if (income) state.minerals[owner] += income;
     }
     const sig = state.sig[owner];
@@ -1530,7 +2246,7 @@ function updateAbilities(dt) {
           let best = null, bestCost = 0;
           for (const u of state.units) {
             if (u.owner !== owner || u.hp <= 0 || UNIT_TYPES[u.type].role !== 'combat' || u.garrisoned ||
-                UNIT_TYPES[u.type].builtAt !== 'barracks') continue;
+                !isFootSoldier(UNIT_TYPES[u.type])) continue;
             const c = UNIT_TYPES[u.type].cost || 0;
             if (c > bestCost) { bestCost = c; best = u; }
           }
@@ -2246,6 +2962,8 @@ function dealDamage(attacker, target, dmg, stats) {
   if (target.kind === 'unit' && target.hardenedUntil > state.time) dmg *= 0.72;
   // "Nukes Are Fake": the mushroom cloud was a film set, so it only half hurts
   if (stats.sup && target.owner !== undefined && disproved(target.owner, 'nukes')) dmg *= 0.5;
+  // who last hit it, so the death sweep can credit the kill to somebody
+  if (attacker && attacker.kind === 'unit' && attacker.id !== undefined) target.lastHitBy = attacker.id;
   target.hp -= dmg;
   // loosh harvest: book it once, on the lethal blow. A Reptilian killer reaps
   // loosh from any kill (more from enemy infantry); a Reptilian owner reaps it
@@ -2254,7 +2972,7 @@ function dealDamage(attacker, target, dmg, stats) {
     target.looshBooked = true;
     if (attacker && attacker.owner !== target.owner && isReptilian(attacker.owner)) {
       const tt = UNIT_TYPES[target.type];
-      const infantry = tt.role === 'combat' && !tt.flying && tt.builtAt === 'barracks';
+      const infantry = isFootSoldier(tt);
       grantLoosh(attacker.owner, infantry ? 6 : 3);
     }
     grantLoosh(target.owner, 2); // grantLoosh no-ops for non-Reptilian owners
@@ -2610,10 +3328,19 @@ function fireAt(u, target, t) {
     // way home and only wash the paint on the apron (cleared when they land to
     // rearm); free-flying stealth has no base to return to, so it fades after a
     // long exposure instead.
-    if (t.stealth) u.exposedUntil = t.pad ? Infinity : state.time + 8;
-    if (t.forestOnly) u.exposedUntil = state.time + 2.5; // the treeline lights up
-    if (t.cloakStill) { if (u.cloaked) u.ambush = true; u.exposedUntil = state.time + 1.6; }
+    // One rule for everything that hides: you shot, you are lit, for
+    // EXPOSE_FIRING seconds. Pad aircraft are the exception and stay lit all
+    // the way home (cleared when they land to rearm), because a jet cannot
+    // simply hold still until people forget about it.
+    if (t.stealth || t.cloakStill || t.forestOnly) {
+      if (t.cloakStill && u.cloaked) u.ambush = true;   // decloak first-strike
+      u.exposedUntil = (t.stealth && t.pad) ? Infinity : state.time + EXPOSE_FIRING;
+    }
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing / decloak first-strike bonus
+    // Mass Awakening: the people have seen it, and the militia hit like it
+    if (u.type === 'militia' && bcastActive(u.owner, 'awakening')) dmg *= BROADCASTS.awakening.mul;
+    dmg *= vetMul(u, 'dmg');   // the ones who lived hit harder
+    dmg *= mobMul(u);          // ...and a crowd hits harder than a man
     if (u.buffedUntil > state.time) dmg *= 1.25; // broodmother's blessing
     if (u.weakenedUntil > state.time) dmg *= 0.55; // shouted down by a Megaphone Prophet
     // recovered UFO tech (a held Crash Site): reverse-engineered weapons
@@ -2699,10 +3426,13 @@ function fireAt(u, target, t) {
         target.slowUntil = state.time + 0.55;
         u.abductHold = (u.abductId === target.id) ? (u.abductHold || 0) + t.cooldown : 0;
         u.abductId = target.id;
-        target.beamHoldFrac = u.abductHold / (t.abductTime || 3); // capture countdown bar
+        target.beamHoldFrac = u.abductHold /
+          ((t.abductTime || 3) * (disproved(target.owner, 'actors') ? ACTORS_SLOW : 1)); // capture countdown bar
         target.beamHoldT = state.time;
-        if (target.hp > 0 && !disproved(target.owner, 'actors') &&
-            UNIT_TYPES[target.type].hp <= (t.abductMax || 320) && u.abductHold >= (t.abductTime || 3)) {
+        // Crisis Actors: a paid actor does not go quietly — the beam needs
+        // ACTORS_SLOW times as long to get them off the ground
+        const holdNeeded = (t.abductTime || 3) * (disproved(target.owner, 'actors') ? ACTORS_SLOW : 1);
+        if (target.hp > 0 && UNIT_TYPES[target.type].hp <= (t.abductMax || 320) && u.abductHold >= holdNeeded) {
           target.hp = 0; target.abducted = true;
           state.minerals[u.owner] = (state.minerals[u.owner] || 0) + (t.abductBounty || 20);
           Particles.pulse(target.x, target.y, 45, [190, 140, 255]);
@@ -3141,7 +3871,7 @@ function updateAuras(u, stats, dt) {
       for (const a of state.units) {
         if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned) continue;
         const at = UNIT_TYPES[a.type];
-        if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
+        if (!isFootSoldier(at)) continue;
         if (dist(a, u) <= stats.buffAura.r) a.buffedUntil = state.time + 0.7;
       }
     }
@@ -3155,7 +3885,7 @@ function updateAuras(u, stats, dt) {
       for (const a of state.units) {
         if (a.owner !== u.owner || a === u || a.hp <= 0 || a.garrisoned) continue;
         const at = UNIT_TYPES[a.type];
-        if (at.builtAt !== 'barracks' || at.role !== 'combat') continue;
+        if (!isFootSoldier(at)) continue;
         if (dist(a, u) <= stats.hardenAura.r) a.hardenedUntil = state.time + 0.6;
       }
     }
@@ -3177,10 +3907,14 @@ function updateAuras(u, stats, dt) {
     if (u.cvT >= stats.convert.every) {
       u.cvT = 0;
       const victim = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL && e.hp > 0 &&
-        !e.garrisoned && UNIT_TYPES[e.type].builtAt === 'barracks' && UNIT_TYPES[e.type].role === 'combat' &&
-        !disproved(e.owner, 'actors') &&      // Crisis Actors: none of theirs will listen
+        !e.garrisoned && isFootSoldier(UNIT_TYPES[e.type]) &&
         dist(e, u) <= stats.convert.r);
       if (victim) {
+        // Crisis Actors: they listen, they just stop listening later
+        if (disproved(victim.owner, 'actors')) {
+          victim.coupOrig = victim.coupOrig !== undefined ? victim.coupOrig : victim.owner;
+          victim.coupRevert = state.time + ACTORS_RETURN;
+        }
         victim.owner = u.owner; victim.disguised = false; victim.carrying = 0; victim.order = { type: 'idle' };
         if (tileState(victim.x, victim.y) === 2) Particles.pulse(victim.x, victim.y, 30, [255, 230, 140]);
       }
@@ -3295,12 +4029,16 @@ function workerSelfDefense(u, stats, dt) {
 function updateCargoRiders(u, dt) {
   u.cargo = u.cargo.filter(id => { const p = findEntity(id); return p && p.hp > 0; });
   const reach = UNIT_TYPES[u.type].portRange || 0;
+  // A Bug Out Van ferrying troops is a FERRY. Nobody shoots out of it — not the
+  // van (it has no weapon) and not the militia in the back. If you want that
+  // van fighting, weld a kit into it and give up carrying anyone.
+  const ferrying = !!UNIT_TYPES[u.type].loader;
   for (const id of u.cargo) {
     const p = findEntity(id);
     p.x = u.x; p.y = u.y;
     p.cooldown = Math.max(0, p.cooldown - dt);
     const pt = UNIT_TYPES[p.type];
-    if (!pt.dmg || p.cooldown > 0) continue;
+    if (ferrying || !pt.dmg || p.cooldown > 0) continue;
     const foe = nearestTarget(u, enemiesOf(u.owner), e =>
       !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + reach + entityRadius(e));
     if (foe) { p.facing = Math.atan2(foe.y - u.y, foe.x - u.x); fireAt(p, foe, pt); }
@@ -3408,6 +4146,7 @@ function updateUnit(u, dt) {
 
   if (stats.role === 'worker' && stats.dmg && o.type !== 'attack' && o.type !== 'tunnel')
     workerSelfDefense(u, stats, dt);
+  updateSuspicion(u, dt);
   if (u.cargo && u.cargo.length) updateCargoRiders(u, dt);
 
   switch (o.type) {
@@ -3673,10 +4412,161 @@ function updateUnit(u, dt) {
       break;
     }
 
-    case 'probe': {
+
+    // ---------- militia: walk into the tent and come out as something ----------
+    case 'retrain': {
+      const tent = findEntity(o.destId);
+      if (!tent || tent.hp <= 0 || tent.owner !== u.owner || !tent.done || u.type !== 'militia') {
+        u.order = { type: 'idle' }; break;
+      }
+      if (moveToward(u, tent.x, tent.y, dt, entityRadius(tent) + 14, tent.id)) {
+        u.retrainT = (u.retrainT || 0) + dt;
+        if (u.retrainT >= (RETRAIN[o.kit] || { time: 5 }).time) {
+          u.retrainT = 0;
+          const why = canRetrain(u.owner, o.kit);
+          if (why) {
+            if (u.owner === localOwner) eva(RETRAIN_REFUSAL[why]);
+            u.order = { type: 'idle' };
+          } else retrainInto(u, o.kit);
+        }
+      } else u.retrainT = 0;
+      break;
+    }
+    // ---------- Ex-Special Forces: stick a charge on it ----------
+    case 'demo': {
+      const b = findEntity(o.destId);
+      if (!u.charges || !b || b.hp <= 0 || b.kind !== 'building' || b.owner === u.owner) {
+        u.order = { type: 'idle' }; break;
+      }
+      if (moveToward(u, b.x, b.y, dt, entityRadius(b) * 0.8 + 10, b.id)) {
+        u.demoT = (u.demoT || 0) + dt;
+        if (u.demoT >= DEMO_PLANT) { u.demoT = 0; plantCharge(u, b); u.order = { type: 'idle' }; }
+      } else u.demoT = 0;
+      break;
+    }
+    // ---------- the run in, and the jump ----------
+    case 'airdrop': {
+      if (moveToward(u, o.x, o.y, dt, 14)) {
+        const n = u.crewCount || BUSHPLANE_CREW;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2;
+          makeUnit(u.owner, 'specops', u.x + Math.cos(a) * 26, u.y + Math.sin(a) * 26);
+        }
+        Particles.pulse(u.x, u.y, 34, [235, 220, 160]);
+        if (u.owner === localOwner) eva('Team on the ground');
+        u.crewCount = 0;                      // empty now: shooting it down costs nothing
+        // turn for the nearest map edge and go home the long way
+        const ex = (u.x < WORLD_W / 2) ? -80 : WORLD_W + 80;
+        u.order = { type: 'depart', x: ex, y: u.y };
+      }
+      break;
+    }
+    case 'depart': {
+      if (moveToward(u, o.x, o.y, dt, 20) ||
+          u.x < -60 || u.y < -60 || u.x > WORLD_W + 60 || u.y > WORLD_H + 60) {
+        u.hp = 0; u.abducted = true;          // off the map, no wreck
+      }
+      break;
+    }
+    // ---------- Journalist: get the story ----------
+    case 'film': {
+      const tgt = findEntity(o.destId);
+      if (!tgt || tgt.hp <= 0 || tgt.owner === u.owner || tgt.owner === NEUTRAL ||
+          (u.proof || 0) >= journoCap(u)) {
+        u.filming = false; u.order = { type: 'idle' }; break;
+      }
+      // that story has been told — go and find another one
+      if (storyIn(tgt) <= 0) {
+        u.filming = false; u.order = { type: 'idle' };
+        if (u.owner === localOwner) eva('Nothing new here — find another target');
+        break;
+      }
+      // MADE. Stop filming and run. A Journalist is faster than infantry and
+      // dies in about five seconds of being shot at, so finishing the shot is
+      // simply death — this is what turns Doorstep from a suicide button into
+      // "grab what you can and bolt".
+      if (u.filming && isSpotted(u)) {
+        u.filming = false;
+        const threat = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL &&
+          e.hp > 0 && UNIT_TYPES[e.type].dmg);
+        const away = threat ? Math.atan2(u.y - threat.y, u.x - threat.x) : (u.facing || 0);
+        u.order = { type: 'bolt', x: u.x + Math.cos(away) * 420, y: u.y + Math.sin(away) * 420 };
+        if (u.owner === localOwner) eva('Made — pulling out');
+        break;
+      }
+      const reach = entityRadius(tgt) + 26;
+      if (moveToward(u, tgt.x, tgt.y, dt, reach, tgt.id)) {
+        u.filming = true;
+        // One building is ONE JOB. Progress lives on the target and persists,
+        // so bolting at 60% costs the time and not the story; the payout lands
+        // whole when the job finishes, and a story only ever breaks once.
+        tgt.filmProgress = Math.min(1, (tgt.filmProgress || 0) + dt / filmTime(u));
+        if (tgt.filmProgress >= 1) {
+          const paid = Math.min(storyValue(tgt), journoCap(u) - (u.proof || 0));
+          u.proof = (u.proof || 0) + paid;
+          u.filming = false;
+          Particles.pulse(tgt.x, tgt.y, 18, [201, 167, 255]);
+          if (u.owner === localOwner) eva(`Story in the can — ${Math.round(paid)} proof`);
+          resumeBeat(u);
+        }
+      } else u.filming = false;
+      break;
+    }
+    // ---------- ...and file it ----------
+    case 'filepiece': {
+      const drop = findEntity(o.destId);
+      if (!drop || drop.hp <= 0 || drop.owner !== u.owner || !(u.proof > 0)) {
+        u.order = { type: 'idle' }; break;
+      }
+      if (moveToward(u, drop.x, drop.y, dt, entityRadius(drop) + 14, drop.id)) {
+        const rejected = handInProof(u.owner, u.proof);
+        const filed = Math.round(u.proof - rejected);
+        u.proof = rejected;
+        if (u.owner === localOwner) {
+          eva(rejected > 0 ? `Filed ${filed} proof — the vaults are full`
+                           : `Filed ${filed} proof`);
+        }
+        resumeBeat(u);
+      }
+      break;
+    }
+    // ---------- run for it ----------
+    // Not a retreat the player ordered — the unit taking itself out of a fight
+    // it cannot win. Once clear it picks the beat back up on its own.
+    case 'bolt': {
+      if (moveToward(u, o.x, o.y, dt, 20) || !isSpotted(u)) {
+        if (u.beat) resumeBeat(u); else u.order = { type: 'idle' };
+      }
+      break;
+    }
+    // ---------- walk to the van and get welded in ----------
+    case 'fitvan': {
+      const van = findEntity(o.destId);
+      if (!van || van.hp <= 0 || van.owner !== u.owner || !UNIT_TYPES[van.type].loader || vanKitOf(van)) {
+        u.order = { type: 'idle' }; break;
+      }
+      if (moveToward(u, van.x, van.y, dt, UNIT_TYPES[van.type].r + stats.r + 6)) {
+        loadVanKit(van, u);
+        u.order = { type: 'idle' };
+      }
+      break;
+    }
+    // ---------- Marksman: climb aboard the Bush Plane ----------
+    case 'boardplane': {
+      const b = findEntity(o.destId);
+      if (!b || b.hp <= 0 || b.owner !== u.owner || !bstatsOf(b).bushplane || b.launched ||
+          planeCrew(b) >= BUSHPLANE_CREW) { u.order = { type: 'idle' }; break; }
+      if (moveToward(u, b.x, b.y, dt, entityRadius(b) * 0.8 + 10, b.id)) {
+        boardPlane(b, u);
+        u.order = { type: 'idle' };
+      }
+      break;
+    }
+
       // probe drone: fly onto the mark and PAINT it — lasting vision plus a
       // designation that makes the owner's whole army hit it 30% harder. The
       // drone survives and can be re-tasked to paint the next target.
+    case 'probe': {
       const tgt = findEntity(o.targetId);
       if (!tgt || tgt.kind !== 'unit' || tgt.hp <= 0 || tgt.garrisoned || tgt.transit) {
         u.order = { type: 'idle' };
@@ -3750,7 +4640,7 @@ function updateUnit(u, dt) {
     case 'garrison': {
       // walk to a civilian structure and climb in
       const b = findEntity(o.destId);
-      const slots = (b && b.kind === 'building' && b.hp > 0) ? bstatsOf(b).slots : 0;
+      const slots = (b && b.kind === 'building' && b.hp > 0) ? slotsOf(b) : 0;
       if (!slots || (b.owner !== NEUTRAL && b.owner !== u.owner) || b.garrison.length >= slots) {
         u.order = { type: 'idle' };
         break;
@@ -3859,7 +4749,9 @@ function updateUnit(u, dt) {
             eva('First cut banked — spend LEVERAGE from your HQ or any front company');
           }
         }
-        state.minerals[u.owner] += load;
+        // Sponsors Pulled Out: their backers are gone and the load is worth half
+        state.minerals[u.owner] += bcastAgainst(u.owner, 'sponsors')
+          ? Math.round(load * BROADCASTS.sponsors.mul) : load;
         u.carrying = 0;
         const patch = state.patches.find(p => p.id === o.patchId && p.amount > 0);
         if (patch) orderHarvest(u, patch);
@@ -4069,8 +4961,12 @@ function updateBuilding(b, dt) {
     if (b.cooldown <= 0) {
       const squad = b.garrison.map(id => state.units.find(u => u.id === id && u.hp > 0)).filter(Boolean);
       const anyAA = squad.some(u => hitsAir(UNIT_TYPES[u.type]));
+      // Most garrisons are people leaning out of a window. A Patriot Pillbox is
+      // poured concrete with proper firing slits and a rest to brace on, so the
+      // same rifles reach considerably further out of it (garrisonRange).
+      const gr = bt.garrisonRange || GARRISON_RANGE;
       const foe = nearest(b, enemiesOf(b.owner), e => !hiddenFrom(e, b.owner) &&
-        dist(b, e) <= GARRISON_RANGE + entityRadius(e) &&
+        dist(b, e) <= gr + entityRadius(e) &&
         (anyAA || !(e.kind === 'unit' && UNIT_TYPES[e.type].flying)));
       if (foe) {
         b.cooldown = GARRISON_COOLDOWN;
@@ -4092,6 +4988,20 @@ function updateBuilding(b, dt) {
 
   // towers shoot (unless the grid is down)
   if (bt.dmg && !power.low) fireTower(b, bt, dt);
+
+  // A homestead grows its people back — slowly, one body per HOMESTEAD_REFILL,
+  // and ONLY for people it has actually lost. Mustering the yard out costs you
+  // that farm's income until they walk back; it does not conjure replacements
+  // while the originals are still alive somewhere on the map.
+  // The farm also runs at whatever fraction of its yard is standing in it, so a
+  // raid that kills three militia is an economic wound as well as a military
+  // one — three quarters of that farm's output, gone for over two minutes.
+  if (bt.homestead) {
+    if (farmPopulation(b) < slotsOf(b) && b.garrison.length < slotsOf(b)) {
+      b.refillT = (b.refillT || 0) + dt;
+      if (b.refillT >= HOMESTEAD_REFILL) { b.refillT = 0; stockHomestead(b, 1); }
+    } else b.refillT = 0;
+  }
 
   advanceProduction(b, power, dt);
 }
@@ -4161,9 +5071,13 @@ function updateCapturedAuras(b, bt, dt) {
       b.convT = 0;
       const pool = state.units.filter(u => u.owner !== b.owner && u.owner !== NEUTRAL && u.hp > 0 && !u.garrisoned &&
         u.type !== 'phantom' && UNIT_TYPES[u.type].role === 'combat' &&
-        !disproved(u.owner, 'actors') && dist(u, b) <= bt.convert.r);
+        dist(u, b) <= bt.convert.r);
       if (pool.length) {
         const v = pool[Math.floor(simRandom() * pool.length)];
+        if (disproved(v.owner, 'actors')) {
+          v.coupOrig = v.coupOrig !== undefined ? v.coupOrig : v.owner;
+          v.coupRevert = state.time + ACTORS_RETURN;
+        }
         v.owner = b.owner; v.disguised = false; v.order = { type: 'idle' };
         Particles.pulse(v.x, v.y, 30, [150, 200, 255]);
       }
@@ -4405,13 +5319,6 @@ function aiDesiredStructure(owner, counts, power) {
     order.splice(order.indexOf('airpad'), 1);
     order.splice(order.indexOf('factory') + 1, 0, 'airpad');
   }
-  // the flat compound stands up its faith economy early: a Revival Tent
-  // before the factory, a Ham Radio right after it, the rest woven in later
-  if (state.factions[owner] === 'flat') {
-    order.splice(order.indexOf('factory'), 0, 'revivaltent');
-    order.splice(order.indexOf('factory') + 1, 0, 'hamradio');
-    order.push('revivaltent', 'hamradio');
-  }
   // hollow stands the Mechanicum up EARLY — with no Tech Priests there are no
   // relics, and with no relics the faction never leaves the servitor tier
   if (state.factions[owner] === 'hollow') {
@@ -4436,6 +5343,18 @@ function aiDesiredStructure(owner, counts, power) {
     if (at >= 0) order.splice(at + 1, 0, incomeStruct);   // one early (don't stall the tech rush)
     for (let i = 1; i < cap; i++) order.push(incomeStruct); // the rest fill in during expansion
   }
+  // HOMESTEADS ARE THE ECONOMY, and they are also the life bar — an AI that
+  // treats them as optional expansion starves and then dies to one raid. They
+  // go EARLY and they go to the cap: the first before the factory (it pays for
+  // the factory), the rest as fast as the money allows.
+  const homeStruct = (f.structs || []).find(s => bstats(owner, s).homestead);
+  if (homeStruct) {
+    const cap = bstats(owner, homeStruct).cap || HOMESTEAD_CAP;
+    const at = order.indexOf('barracks');
+    if (at >= 0) order.splice(at + 1, 0, homeStruct, homeStruct);
+    else order.unshift(homeStruct, homeStruct);
+    for (let i = 2; i < cap; i++) order.push(homeStruct);
+  }
   // late-game expansion tail: keep thickening power, defense and production so a
   // finished base never goes fully static while it still has minerals to spend
   order.push('powerplant', f.tower, f.aaTower, 'factory', 'powerplant', f.tower, f.aaTower, 'barracks');
@@ -4443,7 +5362,9 @@ function aiDesiredStructure(owner, counts, power) {
   let pick = null;
   for (const t of order) {
     want[t] = (want[t] || 0) + 1;
-    if ((counts[t] || 0) < want[t] && !atStructCap(owner, t)) {
+    // skip past a homestead it is not allowed to lay yet, rather than fixating
+    // on it and reserving 200 it cannot spend while a yard refills
+    if ((counts[t] || 0) < want[t] && !atStructCap(owner, t) && !homesteadBlocked(owner, t)) {
       // a gated structure (flat-family airpads) sends the AI for its prereq first
       const rq = bstats(owner, t).req;
       pick = (rq && !(counts[rq] > 0)) ? (atStructCap(owner, rq) ? null : rq) : t;
@@ -4804,6 +5725,13 @@ function aiFlatCompound(owner, f, counts, reserve) {
       free--;
     }
   }
+  // HAND THE RESERVE BACK. The caller does `reserve = aiFlatCompound(...)`, so
+  // falling off the end here returned undefined and every later affordability
+  // test became `minerals < cost + undefined` — NaN, which is false, so nothing
+  // was ever unaffordable. The Flat Earth AI spent its entire income on militia
+  // and could never save the 200 for its first homestead: no farms, no economy,
+  // dead faction. Every path out of this function must return a number.
+  return reserve;
 }
 
 // fortify: lay a square wall perimeter around the base once established, with
@@ -4869,7 +5797,7 @@ function aiCapture(owner, f, army, workers, hq, power) {
     if (score > bestScore) { bestScore = score; best = b; }
   }
   if (best && bestScore >= 12) { // only if the payoff clears the bar
-    const claimer = army.find(s => s.order.type === 'idle' && !UNIT_TYPES[s.type].flying && UNIT_TYPES[s.type].builtAt === 'barracks');
+    const claimer = army.find(s => s.order.type === 'idle' && isFootSoldier(UNIT_TYPES[s.type]));
     if (claimer) claimer.order = { type: 'garrison', destId: best.id };
   }
 }
@@ -5084,6 +6012,35 @@ function selectAt(x, y) {
 // View side of the right-click: it reads the selection (client-only), turns it
 // into ids, and posts a command. It does not touch the sim.
 function rightCommand(x, y) {
+  // An armed targeting mode owns the right button too. RTS muscle memory puts
+  // orders on right-click, so after pressing Bury Cache or Set Charge the
+  // right-click has to DO the thing rather than order a move over the top of
+  // it. Left-click still works; both routes go through the same commands.
+  if (demoTargeting) {
+    const ids = demoTargeting;
+    demoTargeting = null;
+    const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== localOwner && b.owner !== NEUTRAL &&
+      Math.abs(x - b.x) <= b.w / 2 + 10 && Math.abs(y - b.y) <= b.h / 2 + 10);
+    if (tgt) { cmd('demo', { u: ids, b: tgt.id }); sfx('click'); }
+    else eva('Charges go on enemy structures');
+    refreshPanel();
+    return;
+  }
+  if (bcastTargeting) {
+    const key = bcastTargeting;
+    bcastTargeting = null;
+    cmd('broadcast', { k: key, x, y });
+    sfx('click'); refreshPanel();
+    return;
+  }
+  if (dropTargeting) {
+    const id = dropTargeting;
+    dropTargeting = null;
+    if (!canDropAt(localOwner, x, y)) eva('Drop zone not scouted');
+    else { cmd('launchplane', { b: id, x, y }); sfx('click'); }
+    refreshPanel();
+    return;
+  }
   // rally point when a single production building is selected — a wall or a
   // power plant has nothing to send anywhere, so it falls through to a move
   if (selection.length === 1 && selection[0].owner === localOwner && producesUnits(selection[0])) {
@@ -5139,6 +6096,50 @@ function issueCommand(owner, unitIds, x, y) {
     }
   }
 
+  // right-click an enemy structure with a Journalist selected: go film it. This
+  // beats the normal attack order because the Journalist has no weapon — an
+  // attack order on a camera crew is just a walk toward the guns.
+  const filmTgt = state.buildings.find(b2 => b2.hp > 0 && b2.owner !== owner && b2.owner !== NEUTRAL &&
+    Math.abs(x - b2.x) <= b2.w / 2 + 12 && Math.abs(y - b2.y) <= b2.h / 2 + 12);
+  if (filmTgt) {
+    const crew = units.filter(u => UNIT_TYPES[u.type].investigator && (u.proof || 0) < journoCap(u));
+    if (crew.length) {
+      if (storyIn(filmTgt) <= 0) {
+        if (owner === localOwner) eva('Already covered — nothing left to film there');
+      } else {
+        // one click starts a BEAT: film this, bank it when the camera is full,
+        // come back for the next story, repeat. The interesting decision is
+        // where to send them and which stance to run, not clicking each leg.
+        for (const u of crew) { u.beat = true; u.order = { type: 'film', destId: filmTgt.id }; }
+        sfx('click');
+      }
+      return;
+    }
+  }
+  // right-click a Broadcast Station (or News Van) carrying footage: file it
+  const dropTgt = proofDropoffs(owner).find(d => d.kind === 'building'
+    ? (Math.abs(x - d.x) <= d.w / 2 + 12 && Math.abs(y - d.y) <= d.h / 2 + 12)
+    : clickHitsUnit(d, x, y, 8));
+  if (dropTgt) {
+    const loaded = units.filter(u => u.proof > 0);
+    if (loaded.length) {
+      for (const u of loaded) u.order = { type: 'filepiece', destId: dropTgt.id };
+      sfx('click'); return;
+    }
+  }
+
+  // right-click an empty Bug Out Van with a body that has a kit: WELD IT IN.
+  // This deliberately beats the generic transport check below — "put a unit in
+  // the van and the van becomes that thing" is the whole unit, and having a
+  // right-click quietly load the militiaman as a passenger instead read as the
+  // van being broken. Ferrying is still there, on its own button.
+  const van = state.units.find(v => v.owner === owner && v.hp > 0 && UNIT_TYPES[v.type].loader &&
+    !vanKitOf(v) && !(v.cargo || []).length && clickHitsUnit(v, x, y, 6));
+  if (van) {
+    const body = units.find(u => BUGOUT_KITS[u.type] && !u.garrisoned && u.id !== van.id);
+    if (body) { body.order = { type: 'fitvan', destId: van.id }; sfx('click'); return; }
+  }
+
   // right-click a friendly transport: selected light infantry climb aboard
   // (works with the transport itself in the selection — a boxed squad of
   // Bradley + PMCs right-clicking the Bradley is the normal case)
@@ -5151,7 +6152,7 @@ function issueCommand(owner, unitIds, x, y) {
     for (const u of units) {
       if (boarding >= cap) break;
       const ut = UNIT_TYPES[u.type];
-      if (ut.flying || ut.builtAt !== 'barracks' || ut.r > 10 || u.garrisoned) continue;
+      if (!isFootSoldier(ut) || u.garrisoned) continue;
       u.order = { type: 'board', destId: trn.id };
       boarding++; any = true;
     }
@@ -5198,7 +6199,8 @@ function issueCommand(owner, unitIds, x, y) {
 // selection? Read-only mirror of issueCommand, used to draw a contextual
 // cursor reticle so the player sees "attack / repair / capture / ..." on hover.
 function hoverContext(x, y) {
-  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || wallDrag) return null;
+  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || wallDrag ||
+      dropTargeting || demoTargeting || bcastTargeting) return null;
   const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner);
   if (!units.length) return null;
   // hollow tunnel node
@@ -5364,7 +6366,14 @@ function evacuate(b) {
     u.order = { type: 'idle' };
   }
   b.garrison = [];
-  b.owner = NEUTRAL; // reverts to a civilian structure
+  // Only CAPTURED CIVILIAN property reverts when you empty it — an abandoned
+  // house is a house again. Anything you paid to build stays yours: a Patriot
+  // Pillbox you stop manning is still your pillbox, and a homestead you muster
+  // is still your farm. This used to fire unconditionally, so mustering a
+  // homestead handed it to NEUTRAL: it stopped paying income, stopped counting
+  // for the last-stand rule, and the enemy could walk a rifleman in and take
+  // the farm you built. (Same bug for pillboxes, quietly, all along.)
+  if (!bstatsOf(b).cost) b.owner = NEUTRAL;
   sfx('click');
   refreshPanel();
 }
@@ -5390,6 +6399,11 @@ function sidebarStructureClick(type) {
   if (c && c.ready && c.type === type) { placing = type; refreshPanel(); return; }
   if (c) { eva('Unable to comply, building in progress'); return; }
   if (atStructCap(localOwner, type)) { eva('Build limit reached'); return; }
+  if (homesteadBlocked(localOwner, type)) {
+    const n = emptyHomesteads(localOwner).length;
+    eva(`${n} homestead${n === 1 ? ' stands' : 's stand'} empty — work the land you have`);
+    return;
+  }
   const rq = st.req;
   if (rq && !hasStruct(localOwner, rq)) { eva(`Requires ${facOf(localOwner).buildingNames[rq] || rq}`); return; }
   if (state.minerals[localOwner] < st.cost) { eva('Insufficient funds'); return; }
@@ -5564,7 +6578,6 @@ function buildingBlurb(type) {
   if (bt.dropoff) b.push('mineral drop-off — each one also raises your mining-rig cap by one');
   if (bt.beacon) b.push('BEACON: every player sees it the moment it finishes, scouted or not — and it does NOT extend your build radius');
   if (bt.repairRate) b.push('repairs vehicles and aircraft parked on it');
-  if (bt.cost) b.push(`damaged, it can be mended: select it and hit Repair (about $${Math.round(bt.cost * REPAIR_COST)} for a full rebuild)`);
   if (bt.healAura) b.push('heals nearby friendlies');
   if (bt.research) b.push(`research annexe: every one of these standing speeds Institute disproofs by ${Math.round(bt.research * 100)}%`);
   if (bt.slots && bt.cost) b.push(`unarmed concrete until garrisoned — right-click with infantry (${bt.slots} slots) to man the firing slits`);
@@ -5698,7 +6711,17 @@ function refreshResearch() {
 function refreshSidebar() {
   if (!started) return;
   refreshResearch();
+  // PROOF sits beside the money, because it is the other currency and it was
+  // invisible: you could film all match and have nowhere to read the total.
+  // Footage still in a Journalist's camera is shown separately (+n) — it is not
+  // banked yet, and anything not banked can still be shot.
+  const carried = isFlat(localOwner)
+    ? Math.round(state.units.reduce((n, u) =>
+        n + (u.owner === localOwner && u.hp > 0 ? (u.proof || 0) : 0), 0)) : 0;
   elCredits.textContent = '$ ' + state.minerals[localOwner] +
+    (isFlat(localOwner) && (proofStations(localOwner).length || carried)
+      ? '   🎞 ' + Math.round(proofOf(localOwner)) +
+        (carried ? ` (+${carried})` : '') : '') +
     (isReptilian(localOwner) ? '   ☠ ' + Math.floor(state.loosh[localOwner] || 0) : '') +
     (isHollow(localOwner) ? '   🗿 ' + relicCount(localOwner) : '') +
     (facOf(localOwner) && facOf(localOwner).hqRebuild && facOf(localOwner).hqRebuild.auto !== undefined
@@ -5816,6 +6839,9 @@ function startGame(faction, seed, opts) {
   state.zones = [];
   state.digSites = [];
   state.armorWrecks = [];
+  state.charges = [];
+  state.reveals = [];
+  state.bcast = {}; state.bcastT = {};
   state.floats = [];
   state.airTechOwners = new Set();
   state.over = false;
@@ -5853,13 +6879,20 @@ function startGame(faction, seed, opts) {
   const others = Object.keys(FACTIONS).filter(k => FACTIONS[k].family !== FACTIONS[faction].family);
   for (const h of seats) state.factions[h.owner] = h.faction || faction;
   state.slaveDrive = {}; // per-owner slave work regime (defaults to Normal)
+  let aiSlot = 0;        // which AI seat we are filling, for opts.aiFactions
   for (const owner of OWNERS) {
     state.construction[owner] = null;
     state.sig[owner] = { cd: 0, timer: 0, used: false };
     state.infiltrator[owner] = null;
     state.eco[owner] = 0;
     if (!isHuman(owner)) {
-      state.factions[owner] = others[Math.floor(simRandom() * others.length)];
+      // an explicit pick wins; otherwise the seed chooses, avoiding the first
+      // human's own family. The simRandom() draw happens either way so that
+      // choosing a faction cannot shift the RNG cursor and desync a lobby.
+      const roll = others[Math.floor(simRandom() * others.length)];
+      const picked = (opts && opts.aiFactions) ? opts.aiFactions[aiSlot] : null;
+      aiSlot++;
+      state.factions[owner] = (picked && FACTIONS[picked]) ? picked : roll;
       ais[owner] = { attackWaveSize: 5, thinkTimer: simRandom(), time: 0 };
     }
     // worker-less factions get a head start while their income ramps up
@@ -5875,6 +6908,8 @@ function startGame(faction, seed, opts) {
     state.hqRebuilt[owner] = false;
   }
   state.digSites = []; state.armorWrecks = [];
+  state.charges = [];
+  state.reveals = []; state.bcast = {}; state.bcastT = {};
   state.floats = [];
   skimHintSeen = false;
   announcedBuild = {};
@@ -5910,6 +6945,7 @@ function startGame(faction, seed, opts) {
 function panelSignature() {
   let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
     (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (wallDrag ? 'w' : '') +
+    (dropTargeting || '') + (demoTargeting ? 'd' : '') + (bcastTargeting || '') +
     // leverage crosses a play's price threshold -> its button enables
     (state.leverage[localOwner] ? 'L' + Object.values(LEVERAGE_PLAYS).filter(pl => state.leverage[localOwner] >= pl.cost).length : '') +
     (isReptilian(localOwner) ? 'd' + slaveDriveOf(localOwner) : '') +
@@ -5928,6 +6964,10 @@ function panelSignature() {
       const bt = bstatsOf(e);
       if (e.garrison) s += 'g' + e.garrison.length;
       if (bt.superweapon) s += 'S' + (((e.charge || 0) >= superChargeOf(e) && !isOffline(e)) ? '1' : '0');
+      // the Bush Plane's Launch button appears the moment the third Marksman
+      // walks aboard, so the crew count has to be part of the signature
+      if (bt.bushplane) s += 'F' + planeCrew(e) + (e.launched ? '!' : '');
+      // the ✓ moves between the Stock buttons, and the count ticks down
       if (e.rites) s += 'M' + e.rites.join('.'); // the Mechanicum queue owns a cancel button each
       // Repair/Stop swap as damage is taken and mended — the button has to follow
       s += 'R' + (e.repairing ? '1' : canRepair(e) ? '2' : '0');
@@ -5937,6 +6977,12 @@ function panelSignature() {
       if (ut.burrow) s += e.burrowed ? 'B1' : 'B0';
       if (ut.plantMine) s += e.planted ? 'P1' : 'P0';
       if (e.sleeperFor === localOwner) s += 'A1'; // asset: owns a Wake button
+      // Bury Cache <-> Resupply swap as the last cache goes in the ground, and
+      // Set Charge disappears with the last charge
+      if (ut.charges) s += 'X' + (e.charges || 0);
+      if (ut.investigator) s += 'J' + stanceOf(e) + (e.proof > 0 ? 'f' : '-');
+      if (e.vetXp !== undefined) s += 'V' + vetRankOf(e);
+      if (ut.vanKit || ut.loader) s += 'V' + (ut.vanKit || '-') + (e.cargo || []).length;
     }
   }
   return s;
@@ -6112,6 +7158,14 @@ function refreshPanel() {
       if (bt.dmg) parts.push(`DMG ${bt.dmg} every ${bt.cooldown}s`, `Range ${bt.atkRange}`, bt.targets === 'air' ? 'Anti-air only' : 'Ground only');
       if (bt.power > 0) parts.push(`+${bt.power} power`);
       if (bt.income) parts.push(`+${bt.income} minerals / 10s`);
+      // how much story is left in it, for a side that actually films. Lets you
+      // tell a fresh target from a spent one without walking a Journalist over.
+      if (isFlat(localOwner) && first.done) {
+        const pct = Math.round((first.filmProgress || 0) * 100);
+        parts.push(filmLeft(first) <= 0 ? '🎞 already covered'
+          : pct > 0 ? `🎞 worth ${storyValue(first)} — ${pct}% shot`
+          : `🎞 worth ${storyValue(first)}`);
+      }
       elSelInfo.textContent = parts.join('  |  ');
     }
     return;
@@ -6119,19 +7173,94 @@ function refreshPanel() {
   panelRepairControls(addAction);
   if (selection.length === 1 && first.kind === 'building') panelForBuilding(first, addAction);
   else panelForSelection(addAction);
+
+  // The Flat Earth field actions are placement modes, so they say so in the
+  // same words structure placement does — including how to back out. This runs
+  // LAST because the selection panels rewrite the info line; unlike `placing`
+  // they do not take the panel over, so the Cancel toggle stays reachable.
+  const aimHint = demoTargeting ? 'Setting a charge — click an enemy structure, Esc to cancel'
+    : dropTargeting ? 'Choosing a drop zone — click scouted ground, Esc to cancel'
+    : bcastTargeting ? `${BROADCASTS[bcastTargeting].name} — click the area to expose, Esc to cancel` : null;
+  if (aimHint) elSelInfo.textContent = aimHint;
 }
 
 // the single-structure panel: garrison, rally, production, rites, faction plays
 function panelForBuilding(first, addAction) {
   const bt = bstatsOf(first);
-  if (bt.slots) {
+  // ---------- the Bush Plane on its strip ----------
+  // Not a garrison and not a factory: it is a loaded gun that fires once.
+  if (bt.bushplane && first.owner === localOwner && first.done) {
+    const crew = planeCrew(first);
     elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
-      ` — garrison ${first.garrison.length}/${bt.slots}` +
+      (first.launched ? ' — away'
+        : crew >= BUSHPLANE_CREW ? ' — fuelled and loaded, pick a drop zone'
+        : ` — crew ${crew}/${BUSHPLANE_CREW} (walk Homestead Marksmen aboard)`);
+    if (!first.launched && crew >= BUSHPLANE_CREW) {
+      const btn = document.createElement('button');
+      const aiming = dropTargeting === first.id;
+      btn.textContent = aiming ? 'Cancel (Esc)' : 'Launch';
+      btn.title = aiming ? 'Stop targeting — the plane stays on the strip.'
+        : 'Scouted ground only. One sortie — the plane and the strip are both consumed. ' +
+          'The three Marksmen come off as Ex-Special Forces with demolition charges.';
+      btn.onclick = () => { dropTargeting = aiming ? null : first.id; sfx('click'); refreshPanel(); };
+      addAction(btn);
+    }
+    return;
+  }
+  // ---------- the Broadcast Station: the vault, and what it can say ----------
+  if (bt.proofBank && first.owner === localOwner) {
+    const held = Math.round(first.proof || 0), total = Math.round(proofOf(localOwner));
+    const n = proofStations(localOwner).length;
+    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+      ` — holding ${held}/${proofCapPer(localOwner)} proof` +
+      (n > 1 ? ` (${total} across ${n} stations)` : '') +
+      (held ? ' — all of it burns if this falls' : '');
+    for (const [key, B] of Object.entries(BROADCASTS)) {
+      const why = canBroadcast(localOwner, key);
+      const cost = bcastCost(localOwner, key);
+      const btn = document.createElement('button');
+      const owned = B.kind === 'permanent' && bcastHas(localOwner, key);
+      const running = B.kind === 'instant' && bcastActive(localOwner, key);
+      btn.textContent = owned ? `✓ ${B.name}`
+        : running ? `${B.name} — ${Math.ceil((state.bcastT[localOwner][key] - state.time))}s`
+        : `${B.name} — ${cost}`;
+      btn.disabled = !!why;
+      btn.title = B.desc +
+        (B.kind === 'permanent' ? '\nPERMANENT — bought once.' : `\nLasts ${B.dur}s.`) +
+        (B.req ? `\nRequires ${facOf(localOwner).buildingNames[B.req] || B.req}` : '') +
+        (why === 'req' ? '\n(not unlocked)' : why === 'proof' ? `\n(need ${cost} proof, have ${total})` : '');
+      btn.onclick = () => {
+        if (canBroadcast(localOwner, key)) return;
+        // a zone broadcast picks its spot; everything else fires where it stands
+        if (B.kind === 'zone') { bcastTargeting = key; sfx('click'); refreshPanel(); }
+        else { cmd('broadcast', { k: key }); sfx('click'); refreshPanel(); }
+      };
+      addAction(btn);
+    }
+    return;
+  }
+  if (bt.slots) {
+    // A homestead is not a bunker with people in it — the people ARE the
+    // income, so the panel reads out what the yard is currently worth and what
+    // turning it out would cost.
+    const farm = bt.homestead;
+    const hands = farm ? farmhandsIn(first) : 0;
+    elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
+      ` — garrison ${first.garrison.length}/${slotsOf(first)}` +
+      (farm ? ` — ${hands} farming, +${(hands * HOMESTEAD_RATE).toFixed(2)} minerals/sec` +
+              (first.garrison.length < slotsOf(first)
+                ? ` — next body in ${Math.max(0, Math.ceil(HOMESTEAD_REFILL - (first.refillT || 0)))}s` : '')
+            : '') +
       (bt.income ? ` — +${bt.income} minerals / 10s` : '') +
       (bt.airTech ? ' — aircraft +15% dmg, self-repairing' : '');
     if (first.garrison.length) {
       const btn = document.createElement('button');
-      btn.textContent = `Evacuate (${first.garrison.length})`;
+      btn.textContent = `${farm ? 'Muster' : 'Evacuate'} (${first.garrison.length})`;
+      if (farm) {
+        btn.title = `Turns the yard out to fight. This farm stops paying its ` +
+          `${(hands * HOMESTEAD_RATE).toFixed(2)}/sec until they are back in, and empty slots ` +
+          `regrow one body every ${HOMESTEAD_REFILL}s.`;
+      }
       btn.onclick = () => cmd('evacuate', { b: [first.id] });
       addAction(btn);
     }
@@ -6280,6 +7409,21 @@ function panelForSelection(addAction) {
     if (ut.spawns && ut.spawns.type === 'phantom') info += ' — throws off phantom signatures';
     if (ut.brood) info += ut.brood.type === 'phantom' ? ' — shrouded by a bound phantom escort' : ' — leads a bound brood swarm';
     if (ut.plantMine) info += ' — buries free IEDs on its own while standing idle';
+    if (uu.type === 'militia') {
+      const m = mobMul(uu);
+      if (m > 1) info += ` — mob +${Math.round((m - 1) * 100)}%`;
+    }
+    if (uu.vetXp !== undefined) {
+      const r = vetRankOf(uu);
+      if (r > 0) info += ` — ${VET_RANKS[r].name} (+${Math.round((VET_RANKS[r].dmg - 1) * 100)}% dmg/hp)`;
+    }
+    if (ut.investigator) {
+      const cap = journoCap(uu);
+      info += ` — ${Math.round(uu.proof || 0)}/${cap} footage` +
+        (uu.filming ? ` (FILMING, ${stanceOf(uu)})` : '') +
+        ((uu.proof || 0) >= cap ? ' — full, file it' : '');
+    }
+    if (uu.charges) info += ` — ${uu.charges} demolition charge${uu.charges === 1 ? '' : 's'}`;
     if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
   }
   elSelInfo.textContent = info;
@@ -6306,11 +7450,137 @@ function panelForSelection(addAction) {
   const gbs = selection.filter(s => s.kind === 'building' && s.garrison && s.garrison.length);
   if (gbs.length) {
     const total = gbs.reduce((n, b) => n + b.garrison.length, 0);
+    // turning a farm out is MUSTERING, and it deserves its own word and its own
+    // warning: those four are the income, and the yard is empty until they walk
+    // back or grow back
+    const farms = gbs.filter(b => bstatsOf(b).homestead);
     const btn = document.createElement('button');
-    btn.textContent = `Evacuate (${total})`;
+    btn.textContent = `${farms.length === gbs.length ? 'Muster' : 'Evacuate'} (${total})`;
+    if (farms.length) {
+      const lost = farms.reduce((n, b) => n + farmhandsIn(b), 0) * HOMESTEAD_RATE;
+      btn.title = `Turns the yard out to fight. Costs ${lost.toFixed(2)} minerals/sec until they are back ` +
+        `in — a homestead pays only for the militia actually standing in it, and empty slots regrow ` +
+        `one every ${HOMESTEAD_REFILL}s.`;
+    }
     btn.onclick = () => { cmd('evacuate', { b: idsOf(gbs) }); selection = selection.filter(s => s.kind === 'unit'); refreshPanel(); };
     addAction(btn);
   }
+  // ---------- Flat Earth field logistics ----------
+  const mine = selection.filter(s => s.kind === 'unit' && s.owner === localOwner && s.hp > 0);
+  // Bug Out Van: weld a body in, or cut it back out
+  const emptyVans = mine.filter(u => UNIT_TYPES[u.type].loader && !(u.cargo || []).length);
+  const bodies = mine.filter(u => BUGOUT_KITS[u.type]);
+  if (emptyVans.length && bodies.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Fit ${BUGOUT_KITS[bodies[0].type].name}`;
+    btn.title = 'Welds the selected body into the van. The van becomes that vehicle; ' +
+      'unload to get both back. A kitted van cannot carry passengers.';
+    btn.onclick = () => { cmd('fitkit', { v: emptyVans[0].id, u: bodies[0].id }); sfx('click'); refreshPanel(); };
+    addAction(btn);
+  }
+  const kitted = mine.filter(u => UNIT_TYPES[u.type].vanKit);
+  if (kitted.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Strip Kit (${kitted.length})`;
+    btn.onclick = () => { cmd('unfitkit', { u: idsOf(kitted) }); sfx('click'); refreshPanel(); };
+    addAction(btn);
+  }
+  // Ferrying now needs asking for, because right-clicking a van FITS a kit.
+  // This is the way to haul militia forward to a cache without welding one of
+  // them into the bodywork.
+  const riders = mine.filter(u => u.type === 'militia' && !u.garrisoned);
+  if (emptyVans.length && riders.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Load as Passengers (${Math.min(riders.length, UNIT_TYPES.bugoutvan.cargoCap)})`;
+    btn.title = 'Rides in the back instead of being welded in. A van carrying passengers has no weapon.';
+    btn.onclick = () => { cmd('board', { u: idsOf(riders), v: emptyVans[0].id }); sfx('click'); refreshPanel(); };
+    addAction(btn);
+  }
+  // militia: walk them into the tent and pick what comes out
+  const grunts = mine.filter(u => u.type === 'militia' && !u.garrisoned);
+  if (grunts.length) {
+    const tent = nearest(grunts[0], state.buildings, b =>
+      b.owner === localOwner && b.hp > 0 && b.done && b.type === RETRAIN_AT);
+    for (const kit of Object.keys(RETRAIN)) {
+      const why = tent ? canRetrain(localOwner, kit) : 'notent';
+      const btn = document.createElement('button');
+      btn.textContent = `Retrain ${UNIT_TYPES[kit].name} — ${RETRAIN[kit].cost}`;
+      btn.disabled = !!why;
+      btn.title = unitBlurb(kit) +
+        `
+Walks a militiaman into the Recruitment Tent and spends him. His farm ` +
+        `starts growing a replacement, and his rank goes with him.` +
+        (why ? `
+(${RETRAIN_REFUSAL[why] || why})` : '');
+      btn.onclick = () => {
+        if (!tent) return;
+        cmd('retrain', { u: idsOf(grunts), b: tent.id, k: kit });
+        sfx('click'); refreshPanel();
+      };
+      addAction(btn);
+    }
+  }
+  // Journalists: which way they are working, and what they are holding
+  const crews = mine.filter(u => UNIT_TYPES[u.type].investigator);
+  if (crews.length) {
+    const held = Math.round(crews.reduce((n, u) => n + (u.proof || 0), 0));
+    const cur = stanceOf(crews[0]);
+    const btn = document.createElement('button');
+    btn.textContent = cur === 'doorstep' ? 'Stance: Doorstep' : 'Stance: Discreet';
+    btn.title = cur === 'doorstep'
+      ? `A building takes ${FILM_TIME_DOORSTEP}s and drives suspicion to +${PROOF_SUSP_DOORSTEP}. Same payout, far faster, and they will find you.`
+      : `A building takes ${FILM_TIME_DISCREET}s at only +${PROOF_SUSP_DISCREET} suspicion. Same payout, slow, and you can sit there a long while.`;
+    btn.onclick = () => {
+      cmd('stance', { u: idsOf(crews), v: cur === 'doorstep' ? 'discreet' : 'doorstep' });
+      sfx('click'); refreshPanel();
+    };
+    addAction(btn);
+    if (held > 0) {
+      const drop = nearest(crews[0], proofDropoffs(localOwner), () => true);
+      const f = document.createElement('button');
+      f.textContent = `File Footage (${held})`;
+      f.title = drop ? 'Carry it to the nearest Broadcast Station or News Van and bank it.'
+                     : 'Nowhere to file it — build a Broadcast Station.';
+      f.disabled = !drop;
+      f.onclick = () => { cmd('filepiece', { u: idsOf(crews.filter(u => u.proof > 0)), b: drop.id }); sfx('click'); refreshPanel(); };
+      addAction(f);
+    }
+  }
+  // Ex-Special Forces: stick a charge on something
+  const sappers = mine.filter(u => u.charges > 0);
+  if (sappers.length) {
+    const btn = document.createElement('button');
+    const held = sappers.reduce((n, u) => n + u.charges, 0);
+    btn.textContent = demoTargeting ? 'Cancel (Esc)' : `Set Charge (${held})`;
+    btn.title = demoTargeting ? 'Stop targeting — no charge is spent.'
+      : `${DEMO_DMG} damage to one enemy structure on a ${DEMO_FUSE}s fuse. ` +
+        `Setting it takes ${DEMO_PLANT}s and breaks stealth — they can still kill the man and save the building.`;
+    btn.onclick = () => { demoTargeting = demoTargeting ? null : idsOf(sappers); sfx('click'); refreshPanel(); };
+    addAction(btn);
+  }
+  // Marksmen + a plane on the strip: walk them aboard
+  const plane = state.buildings.find(b => b.owner === localOwner && b.hp > 0 && b.done &&
+    bstatsOf(b).bushplane && !b.launched && planeCrew(b) < BUSHPLANE_CREW);
+  const crewable = mine.filter(u => u.type === 'homesteader');
+  if (plane && crewable.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Board Bush Plane (${planeCrew(plane)}/${BUSHPLANE_CREW})`;
+    btn.title = 'Marksmen who board come off the other end as Ex-Special Forces. Consumed on boarding.';
+    btn.onclick = () => { cmd('boardplane', { u: idsOf(crewable), b: plane.id }); sfx('click'); refreshPanel(); };
+    addAction(btn);
+  }
+  // a fuelled plane in the selection: pick the drop zone
+  const ready = selection.filter(s => s.kind === 'building' && s.owner === localOwner && s.hp > 0 &&
+    bstatsOf(s).bushplane && !s.launched && planeCrew(s) >= BUSHPLANE_CREW);
+  if (ready.length) {
+    const btn = document.createElement('button');
+    btn.textContent = dropTargeting ? 'Cancel (Esc)' : 'Launch';
+    btn.title = dropTargeting ? 'Stop targeting — the plane stays on the strip.'
+      : 'Scouted ground only. One sortie — the plane and the strip are both consumed.';
+    btn.onclick = () => { dropTargeting = dropTargeting ? null : ready[0].id; sfx('click'); refreshPanel(); };
+    addAction(btn);
+  }
+
   // reptilian slaves: cull the selected ones on demand for burst loosh
   const slaves = selection.filter(s => s.kind === 'unit' && s.owner === localOwner && s.hp > 0 && UNIT_TYPES[s.type].looshOnDeath);
   if (slaves.length) {
@@ -6759,7 +8029,14 @@ function drawBuildingIso(b) {
     superKind = superKindOf(b);
     if (b.fireT !== undefined) { const e = state.time - b.fireT; if (e >= 0 && e < 1.8) fireP = e / 1.8; }
   }
+  // the Flat Earth structures redraw as their CONTENTS change: a homestead
+  // shutters up when the yard is mustered out, a cache thins as kits are drawn,
+  // and the Bush Plane counts its crew on the apron. All three are baked into
+  // the cached sprite, so each has to be part of its signature.
   const sig = b.owner + '|' + (on ? 1 : 0) + '|' + qt + '|' + conn +
+    (b.garrison ? '|g' + b.garrison.length : '') +
+    (b.proof ? '|p' + Math.floor(b.proof / 25) : '') +
+    (b.crew || b.launched ? '|f' + (b.crew || []).length + (b.launched ? '!' : '') : '') +
     (superKind ? '|' + superKind + '|' + (fireP >= 0 ? Math.round(fireP * 14) : 'x') : '');
   const spr = cachedSprite(b.id, cw, chh, ax, ay, sig, 12, g => {
     isoShear(g); // building art draws in its local ground-plane frame
@@ -6767,6 +8044,8 @@ function drawBuildingIso(b) {
       w: b.w, h: b.h, color: COLORS[b.owner], on,
       fam: FAMILY_STYLE[state.factions[b.owner]], faction: state.factions[b.owner], wx: b.x, wy: b.y,
       turret: b.turret, // towers with their own weapon art track their target
+      garrison: (b.garrison || []).length, proof: b.proof,
+      crew: (b.crew || []).length, launched: !!b.launched,
       conn: { e: !!(conn & 1), w: !!(conn & 2), n: !!(conn & 4), s: !!(conn & 8) },
       superKind, fireP,
       skim: state.time - (b.skimT || -9) < 1.2, // front company: a cut just landed
@@ -7136,6 +8415,63 @@ function drawUnitIso(u) {
     ctx.fillText('\u25C6', ix, sy - rs - 14);
   }
   if (u.hp < u.maxHp) drawBar(ix, sy - rs - 12, rs * 2.4, u.hp / u.maxHp);
+  // ---------- suspicion pip (your own infiltrators only) ----------
+  // The meter is the whole stealth system and it was invisible: you could not
+  // tell a Marksman who had gone quiet from one about to be spotted. Shown only
+  // for your own units — reading an enemy's meter would hand you their plan.
+  // The dot on the right marks where the meter has to reach before the ground
+  // this unit is standing on gives it away, so the bar is answerable: filling
+  // past the dot means caught HERE, not caught in the abstract.
+  if (u.owner === localOwner && u.suspicion !== undefined && !u.garrisoned) {
+    const frac = clamp(u.suspicion / SUSPICION_MAX, 0, 1);
+    const w = rs * 2.4, py = sy - rs - (u.hp < u.maxHp ? 17 : 12);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(ix - w / 2, py, w, 3);
+    // green while unnoticed, amber as it climbs, red once it is giving you away
+    const lit = u.exposedUntil > state.time;
+    ctx.fillStyle = lit ? '#ff5f5f' : frac > 0.66 ? '#ffb648' : '#7dffa0';
+    ctx.fillRect(ix - w / 2, py, w * frac, 3);
+    // the local threshold: how much meter this spot actually tolerates, judged
+    // by whichever enemy is watching it hardest
+    const scrut = worstScrutinyAt(localOwner, u.x, u.y);
+    if (scrut > 0) {
+      const at = clamp(SUSPICION_CAUGHT / scrut, 0, 1);
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(ix - w / 2 + w * at - 0.5, py - 1, 1.4, 5);
+    }
+  }
+  // ---------- rank chevrons ----------
+  // A promoted militiaman looks different from a fresh one, because otherwise
+  // "keep him alive" is advice about a number you cannot see. Own units only.
+  if (u.owner === localOwner && u.vetXp !== undefined && !u.garrisoned) {
+    const r = vetRankOf(u);
+    for (let i = 0; i < r; i++) {
+      const cy = sy + rs * 0.55 + i * 2.6;
+      ctx.strokeStyle = 'rgba(255,225,120,0.95)';
+      ctx.lineWidth = 1.3;
+      ctx.beginPath();
+      ctx.moveTo(ix - 3.5, cy); ctx.lineTo(ix, cy - 2.2); ctx.lineTo(ix + 3.5, cy);
+      ctx.stroke();
+    }
+  }
+  // ---------- footage in the camera (your own Journalists) ----------
+  // Sits directly above the suspicion pip, because the two are read together:
+  // how much you have got, and how close you are to being caught getting it.
+  // A filled bar means go home — the camera is full and every second after
+  // that is risk for nothing.
+  if (u.owner === localOwner && UNIT_TYPES[u.type].investigator && !u.garrisoned) {
+    const cap = journoCap(u), frac = clamp((u.proof || 0) / cap, 0, 1);
+    const w = rs * 2.4, py = sy - rs - (u.hp < u.maxHp ? 22 : 17);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.fillRect(ix - w / 2, py, w, 3);
+    ctx.fillStyle = frac >= 1 ? '#ffe14d' : '#c9a7ff';   // gold once it is full
+    ctx.fillRect(ix - w / 2, py, w * frac, 3);
+    // actively filming: a blinking record dot off the end of the bar
+    if (u.filming && Math.sin(state.time * 6) > -0.2) {
+      ctx.fillStyle = '#ff5f5f';
+      ctx.beginPath(); ctx.arc(ix + w / 2 + 4, py + 1.5, 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+  }
   // tractor-beam capture countdown: a violet bar filling toward abduction —
   // when it fills, the unit is hauled away (that's the "instant" death)
   if (u.beamHoldT && state.time - u.beamHoldT < 0.3 && u.beamHoldFrac > 0.02) {
@@ -7537,6 +8873,150 @@ function drawOverlays() {
     ctx.fillText(fl.text, fx, fy);
   }
 
+  // ---------- live demolition charges ----------
+  // A charge was a silent six seconds and then a building fell over. Both sides
+  // need to see the clock: the attacker to know when to be somewhere else, and
+  // the defender because a countdown on your Fusion Plant is the whole drama of
+  // the play. Drawn for anyone who can see the structure it is stuck to.
+  for (const c of state.charges) {
+    const b = state.buildings.find(x => x.id === c.bld && x.hp > 0);
+    if (!b) continue;
+    if (c.owner !== localOwner && !visibleToPlayer(b)) continue;
+    const left = Math.max(0, c.at - state.time);
+    const frac = clamp(left / DEMO_FUSE, 0, 1);
+    const rx = isoX(b.x, b.y), ry = isoY(b.x, b.y) - (b.h || 40) * 0.5 - 16;
+    // a ring that empties as the fuse burns, going red at the end
+    const hot = left < 2;
+    ctx.strokeStyle = hot ? 'rgba(255,95,95,0.95)' : 'rgba(255,182,72,0.9)';
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.arc(rx, ry, 11, -Math.PI / 2, -Math.PI / 2 + frac * Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(0,0,0,0.55)';
+    ctx.beginPath(); ctx.arc(rx, ry, 8.5, 0, Math.PI * 2); ctx.fill();
+    // the number, flashing once it is nearly out
+    if (!hot || Math.sin(state.time * 12) > -0.3) {
+      ctx.fillStyle = hot ? '#ff8f8f' : '#ffd75f';
+      ctx.font = 'bold 11px monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(Math.ceil(left), rx, ry + 0.5);
+      ctx.textBaseline = 'alphabetic';
+    }
+  }
+
+  // ---------- what is worth filming ----------
+  // With a Journalist selected, every enemy structure that still has footage in
+  // it gets a film marker, and the one under the cursor lights up. Otherwise
+  // "which buildings are still worth a trip" is invisible state you can only
+  // discover by walking over and being told no.
+  if (selection.some(e => e.kind === 'unit' && e.owner === localOwner && e.hp > 0 &&
+      UNIT_TYPES[e.type].investigator)) {
+    for (const b of state.buildings) {
+      if (b.hp <= 0 || !b.done || b.owner === localOwner || b.owner === NEUTRAL) continue;
+      if (!visibleToPlayer(b) || storyIn(b) <= 0) continue;
+      const rx = isoX(b.x, b.y), ry = isoY(b.x, b.y) - (b.h || 40) * 0.5 - 14;
+      const hot = Math.abs(mouse.x - b.x) <= b.w / 2 + 10 && Math.abs(mouse.y - b.y) <= b.h / 2 + 10;
+      ctx.globalAlpha = hot ? 1 : 0.55;
+      // a little film-can badge, brighter under the cursor
+      ctx.fillStyle = hot ? 'rgba(20,24,28,0.9)' : 'rgba(20,24,28,0.65)';
+      ctx.beginPath(); ctx.arc(rx, ry, 9, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = hot ? '#ffe14d' : '#c9a7ff';
+      ctx.lineWidth = hot ? 2 : 1.4;
+      ctx.beginPath(); ctx.arc(rx, ry, 9, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = hot ? '#ffe14d' : '#c9a7ff';
+      ctx.beginPath(); ctx.arc(rx, ry, 3, 0, Math.PI * 2); ctx.fill();
+      // reels either side, so it reads as a camera and not a generic dot
+      ctx.beginPath(); ctx.arc(rx - 5.5, ry - 4.5, 1.7, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(rx + 5.5, ry - 4.5, 1.7, 0, Math.PI * 2); ctx.fill();
+      // an arc around the badge tracks a part-shot job, so a building somebody
+      // already started on is obvious before you walk over to it
+      const prog = b.filmProgress || 0;
+      if (prog > 0) {
+        ctx.strokeStyle = '#7dffa0'; ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(rx, ry, 12, -Math.PI / 2, -Math.PI / 2 + prog * Math.PI * 2);
+        ctx.stroke();
+      }
+      if (hot) {
+        ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+        ctx.fillText(prog > 0 ? `FILM · ${storyValue(b)} · ${Math.round(prog * 100)}%`
+                              : `FILM · ${storyValue(b)}`, rx, ry - 17);
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ---------- setting a charge: which structure gets it ----------
+  // Same job the cache ghost does — say what the click will hit before it hits
+  // it. Enemy structures light up, your own and neutral ground do not.
+  if (demoTargeting) {
+    const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== localOwner && b.owner !== NEUTRAL &&
+      Math.abs(mouse.x - b.x) <= b.w / 2 + 10 && Math.abs(mouse.y - b.y) <= b.h / 2 + 10 &&
+      visibleToPlayer(b));
+    ctx.save();
+    isoShear(ctx);
+    if (tgt) {
+      ctx.globalAlpha = 0.45;
+      ctx.fillStyle = '#ff7a3a';
+      ctx.fillRect(tgt.x - tgt.w / 2, tgt.y - tgt.h / 2, tgt.w, tgt.h);
+      ctx.globalAlpha = 0.95;
+      ctx.strokeStyle = '#ff5f5f'; ctx.lineWidth = 2;
+      ctx.setLineDash([6, 5]);
+      ctx.strokeRect(tgt.x - tgt.w / 2, tgt.y - tgt.h / 2, tgt.w, tgt.h);
+      ctx.setLineDash([]);
+    }
+    ctx.restore();
+    // a crosshair on the cursor either way, and the verdict above it
+    const cx = isoX(mouse.x, mouse.y), cy = isoY(mouse.x, mouse.y);
+    ctx.strokeStyle = tgt ? 'rgba(255,95,95,0.95)' : 'rgba(160,168,178,0.8)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(cx - 12, cy); ctx.lineTo(cx + 12, cy);
+    ctx.moveTo(cx, cy - 8); ctx.lineTo(cx, cy + 8);
+    ctx.stroke();
+    ctx.fillStyle = tgt ? 'rgba(255,150,150,0.95)' : 'rgba(190,196,204,0.9)';
+    ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(tgt ? `${DEMO_DMG} DMG — ${DEMO_FUSE}s FUSE` : 'ENEMY STRUCTURES ONLY', cx, cy - 16);
+  }
+
+  // ---------- bush plane drop zone ----------
+  // Aiming a drop had NO cursor feedback at all — the only way to learn a spot
+  // was unscouted was to click it and be told no. Now the reticle itself
+  // answers: green ring where the team can go in, red and struck through where
+  // you have never looked, with the landing spread drawn to scale.
+  if (dropTargeting) {
+    const rx = isoX(mouse.x, mouse.y), ry = isoY(mouse.x, mouse.y);
+    const ok = canDropAt(localOwner, mouse.x, mouse.y);
+    const col = ok ? 'rgba(127,255,159,0.9)' : 'rgba(255,95,95,0.9)';
+    const R = 42;                                   // the spread the team lands in
+    ctx.strokeStyle = col;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(rx, ry, R * Math.SQRT2, R * Math.SQRT2 / 2, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([5, 6]);
+    ctx.beginPath(); ctx.ellipse(rx, ry, R * Math.SQRT2 * 1.7, R * Math.SQRT2 * 0.85, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    // crosshair, and the three bodies that would come out of it
+    ctx.beginPath();
+    ctx.moveTo(rx - 18, ry); ctx.lineTo(rx + 18, ry);
+    ctx.moveTo(rx, ry - 11); ctx.lineTo(rx, ry + 11);
+    ctx.stroke();
+    if (ok) {
+      ctx.fillStyle = col;
+      for (let i = 0; i < BUSHPLANE_CREW; i++) {
+        const a = (i / BUSHPLANE_CREW) * Math.PI * 2 + state.time * 0.5;
+        ctx.beginPath();
+        ctx.ellipse(rx + Math.cos(a) * 34, ry + Math.sin(a) * 17, 2.6, 2.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    } else {
+      ctx.beginPath();                               // struck through: no vision here
+      ctx.moveTo(rx - 40, ry - 20); ctx.lineTo(rx + 40, ry + 20); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,150,150,0.95)';
+      ctx.font = 'bold 11px monospace'; ctx.textAlign = 'center';
+      ctx.fillText('NOT SCOUTED', rx, ry - 30);
+    }
+  }
+
   // superweapon targeting reticle at the cursor (world-space ground ellipse)
   if (superTargeting) {
     const sw = state.buildings.find(b => b.id === superTargeting);
@@ -7626,13 +9106,15 @@ function drawOverlays() {
       ctx.arc(mouse.x, mouse.y, t.atkRange, 0, Math.PI * 2);
       ctx.stroke();
     }
-    // show the buildable radius around grid anchors (HQ + power plants)
+    // show the buildable radius around grid anchors (HQ + power plants).
+    // buildRadiusOf, not BUILD_RADIUS — the Flat Earthers build to 900 and were
+    // being shown everyone else's 420, so the ring lied to them by half.
     ctx.strokeStyle = 'rgba(127,255,159,0.2)';
     for (const b of state.buildings) {
       if (b.owner !== localOwner || b.hp <= 0 || !b.done) continue;
       if (b.type !== 'hq' && b.type !== 'powerplant') continue;
       ctx.beginPath();
-      ctx.arc(b.x, b.y, BUILD_RADIUS, 0, Math.PI * 2);
+      ctx.arc(b.x, b.y, buildRadiusOf(localOwner), 0, Math.PI * 2);
       ctx.stroke();
     }
     ctx.globalAlpha = 1;
@@ -7844,7 +9326,11 @@ const cmdBuilding = (id, owner) => cmdBuildings([id], owner)[0];
 // hint; the state at EXECUTION time is the truth, and it is the only state all
 // clients share. A command that has become illegal in the meantime is dropped.
 const COMMANDS = {
-  move:        (o, p) => issueCommand(o, p.u, p.x, p.y),
+  move:        (o, p) => {
+    // an explicit move is the player taking the wheel: stop working the beat
+    for (const u of cmdUnits(p.u, o)) if (u.beat) u.beat = false;
+    issueCommand(o, p.u, p.x, p.y);
+  },
   attackmove:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].role === 'combat') orderAttackMove(u, p.x, p.y); },
   rally:       (o, p) => { const b = cmdBuilding(p.b, o); if (producesUnits(b)) b.rally = { x: p.x, y: p.y }; },
   burrow:      (o, p) => burrowUnits(cmdUnits(p.u, o)),
@@ -7860,6 +9346,33 @@ const COMMANDS = {
   },
   evacuate:    (o, p) => { for (const b of cmdBuildings(p.b, o)) evacuate(b); },
   unload:      (o, p) => { for (const u of cmdUnits(p.u, o)) unloadTransport(u); },
+  // ---------- Flat Earth field logistics ----------
+  broadcast:   (o, p) => fireBroadcast(o, p.k, p.x, p.y),
+  film:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].investigator) u.order = { type: 'film', destId: p.b }; },
+  filepiece:   (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.proof > 0) u.order = { type: 'filepiece', destId: p.b }; },
+  stance:      (o, p) => {
+    if (!JOURNO_STANCES.includes(p.v)) return;
+    for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].investigator) u.stance = p.v;
+  },
+  fitkit:      (o, p) => {
+    const van = cmdUnit(p.v, o), body = cmdUnit(p.u, o);
+    if (van && body && dist(van, body) <= 90) loadVanKit(van, body);
+  },
+  unfitkit:    (o, p) => { for (const u of cmdUnits(p.u, o)) unloadVanKit(u); },
+  board:       (o, p) => {
+    const v = cmdUnit(p.v, o);
+    if (!v || !UNIT_TYPES[v.type].cargoCap) return;
+    for (const u of cmdUnits(p.u, o)) if (!u.garrisoned) u.order = { type: 'board', destId: v.id };
+  },
+  demo:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.charges) u.order = { type: 'demo', destId: p.b }; },
+  retrain:     (o, p) => {
+    if (!RETRAIN[p.k]) return;
+    const tent = cmdBuilding(p.b, o);
+    if (!tent) return;
+    for (const u of cmdUnits(p.u, o)) if (u.type === 'militia') u.order = { type: 'retrain', destId: tent.id, kit: p.k };
+  },
+  boardplane:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.type === 'homesteader') u.order = { type: 'boardplane', destId: p.b }; },
+  launchplane: (o, p) => { const b = cmdBuilding(p.b, o); if (b) launchPlane(b, p.x, p.y); },
   establish:   (o, p) => { for (const u of cmdUnits(p.u, o)) u.order = { type: 'establish' }; },
   cull:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].looshOnDeath) u.hp = 0; },
   drive:       (o, p) => { if (SLAVE_DRIVES.includes(p.v)) state.slaveDrive[o] = p.v; },
@@ -7913,7 +9426,7 @@ const COMMANDS = {
   ability:     (o, p) => {
     if (p.m === 'zone') (isFlat(o) ? castFirmament : castWeather)(o, p.x, p.y);
     else if (p.m === 'recall') castRecall(o, p.x, p.y);
-    else if (p.m === 'unit') { const u = cmdUnit(p.u, o); if (u && UNIT_TYPES[u.type].builtAt === 'barracks') castClone(o, u); }
+    else if (p.m === 'unit') { const u = cmdUnit(p.u, o); if (u && isFootSoldier(UNIT_TYPES[u.type])) castClone(o, u); }
   },
 };
 
@@ -7929,6 +9442,9 @@ function commandIsWellFormed(c) {
     case 'build': case 'cancelbuild': case 'place': return !!BUILDING_TYPES[p.t];
     case 'train': case 'canceltrain': return !!UNIT_TYPES[p.t];
     case 'research': return !!DISPROOFS[p.k];
+    case 'broadcast': return !!BROADCASTS[p.k];
+    case 'retrain': return !!RETRAIN[p.k];
+    case 'stance': return JOURNO_STANCES.includes(p.v);
     case 'leverage': return !!LEVERAGE_PLAYS[p.k];
     case 'rite': return !!ASCEND[p.k];
     case 'drive': return SLAVE_DRIVES.includes(p.v);
@@ -8023,6 +9539,15 @@ function stepSim() {
       }
       delete u.coupRevert; delete u.coupOrig;
     }
+    // Crisis Actors: a recruited sleeper comes to their senses and stops
+    // reporting. They were never taken off their owner — they simply stop
+    // being anybody else's asset.
+    if (u.sleeperUntil && u.hp > 0 && state.time > u.sleeperUntil) {
+      const handler = u.sleeperFor;
+      u.sleeperFor = null;
+      delete u.sleeperUntil;
+      if (handler === localOwner) eva('An asset has gone dark');
+    }
   }
   updateFog();
 
@@ -8092,6 +9617,15 @@ function stepSim() {
       if (UNIT_TYPES[u.type].armorTier && !u.abducted && isHollow(u.owner)) {
         state.armorWrecks.push({ id: nextId++, x: u.x, y: u.y, tier: UNIT_TYPES[u.type].armorTier, owner: u.owner, until: state.time + 45 });
       }
+      creditBattleFootage(u);   // anything dying on camera is worth filming
+      creditVeterancy(u.lastHitBy ? findEntity(u.lastHitBy) : null, u);
+      // a Bush Plane shot down on the run in takes its whole team with it
+      if (u.type === 'bushflight' && u.crewCount && !u.abducted) bushPlaneLost(u);
+      // a kitted Bug Out Van takes the body welded into it down with the wreck
+      if (u.kitBody) {
+        const body = state.units.find(x => x.id === u.kitBody && x.hp > 0);
+        if (body) { body.hp = 0; body.abducted = true; }
+      }
       if (u.abducted) { Particles.pulse(u.x, u.y, 40, [190, 140, 255]); continue; } // beamed up — no wreck, no boom
       Particles.boom(u.x, u.y, UNIT_TYPES[u.type].r > 11 ? 1 : 0.55);
       // a cattle mutilator near the wreck renders it down for minerals
@@ -8104,6 +9638,9 @@ function stepSim() {
     }
   }
   state.units = state.units.filter(u => u.hp > 0);
+  // a fallen Broadcast Station burns the footage it was holding — announce it
+  // before the building is swept out of the list
+  for (const b of state.buildings) if (b.hp <= 0 && b.proof) proofStationLost(b);
   const nBld = state.buildings.length;
   state.buildings = state.buildings.filter(b => b.hp > 0);
   if (state.buildings.length !== nBld) markPathDirty(); // rubble opens lanes
@@ -8488,6 +10025,32 @@ canvas.addEventListener('mousedown', e => {
       refreshPanel();
       return;
     }
+    // ---------- Flat Earth field logistics, all ground- or structure-targeted ----------
+    if (bcastTargeting) {
+      const key = bcastTargeting;
+      bcastTargeting = null;
+      cmd('broadcast', { k: key, x: p.x, y: p.y });
+      sfx('click'); refreshPanel();
+      return;
+    }
+    if (dropTargeting) {
+      const id = dropTargeting;
+      dropTargeting = null;
+      if (!canDropAt(localOwner, p.x, p.y)) eva('Drop zone not scouted');
+      else { cmd('launchplane', { b: id, x: p.x, y: p.y }); sfx('click'); }
+      refreshPanel();
+      return;
+    }
+    if (demoTargeting) {
+      const ids = demoTargeting;
+      demoTargeting = null;
+      const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== localOwner && b.owner !== NEUTRAL &&
+        Math.abs(p.x - b.x) <= b.w / 2 + 10 && Math.abs(p.y - b.y) <= b.h / 2 + 10);
+      if (tgt) { cmd('demo', { u: ids, b: tgt.id }); sfx('click'); }
+      else eva('Charges go on enemy structures');
+      refreshPanel();
+      return;
+    }
     if (abilityTargeting) {
       const mode = abilityTargeting;
       abilityTargeting = null;
@@ -8495,7 +10058,7 @@ canvas.addEventListener('mousedown', e => {
       if (mode === 'zone' || mode === 'recall') cmd('ability', { m: mode, x: p.x, y: p.y });
       if (mode === 'unit') {
         const target = state.units.find(u => u.owner === localOwner && u.hp > 0 && !u.garrisoned && clickHitsUnit(u, p.x, p.y, 8));
-        if (target && UNIT_TYPES[target.type].builtAt !== 'barracks') eva('Cloning Vats accept infantry only');
+        if (target && !isFootSoldier(UNIT_TYPES[target.type])) eva('Cloning Vats accept infantry only');
         else if (target) cmd('ability', { m: 'unit', u: target.id });
       }
       refreshPanel();
@@ -8550,7 +10113,8 @@ canvas.addEventListener('mousedown', e => {
     const pi = screenToIso(e);
     mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
-    if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || plantArmed || wallDrag) {
+    if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || plantArmed || wallDrag ||
+        dropTargeting || demoTargeting || bcastTargeting) {
       placing = null;
       attackMoveArmed = false;
       abilityTargeting = null;
@@ -8681,7 +10245,7 @@ window.addEventListener('keydown', e => {
   if (!started) return;
   const k = e.key.toLowerCase();
 
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; plantArmed = false; wallDrag = null; refreshPanel(); }
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; plantArmed = false; wallDrag = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
 
@@ -8743,6 +10307,9 @@ const elClock = document.getElementById('clock');
 
 let selectedSize = 'medium';
 let selectedOpponents = 1;
+// Which faction each AI seat plays. null = let the seed decide, which is
+// what it always did. Index is the AI slot, not the owner id.
+let selectedAiFactions = [];
 let selectedSetting = 'random';
 let superweaponsOn = true; // faction-select toggle: superweapon structures enabled?
 
@@ -8800,6 +10367,29 @@ let superweaponsOn = true; // faction-select toggle: superweapon structures enab
       b.addEventListener('click', () => { selectedOpponents = n; refresh(); });
       oppWrap.appendChild(b);
     }
+    // one faction picker per AI seat. Cycles Random -> each faction -> Random,
+    // so it stays a single button per slot however many factions there are.
+    const aiWrap = document.getElementById('ai-faction-buttons');
+    const aiRow = document.getElementById('ai-faction-row');
+    if (aiWrap && aiRow) {
+      aiRow.style.display = selectedOpponents > 0 ? '' : 'none';
+      selectedAiFactions.length = selectedOpponents;
+      aiWrap.innerHTML = '';
+      const keys = Object.keys(FACTIONS);
+      for (let i = 0; i < selectedOpponents; i++) {
+        const cur = selectedAiFactions[i] || null;
+        const btn = document.createElement('button');
+        btn.className = 'opt-btn' + (cur ? ' sel' : '');
+        btn.textContent = cur ? `${FACTIONS[cur].emoji} ${FACTIONS[cur].name}` : '🎲 Random';
+        btn.title = cur ? FACTIONS[cur].desc : 'Picked from the match seed, avoiding your own family';
+        btn.addEventListener('click', () => {
+          const at = cur ? keys.indexOf(cur) : -1;
+          selectedAiFactions[i] = at + 1 >= keys.length ? null : keys[at + 1];
+          refresh();
+        });
+        aiWrap.appendChild(btn);
+      }
+    }
   }
   // the lobby calls this when the player list changes, so the "0" option
   // appears the moment a second person joins
@@ -8835,7 +10425,7 @@ let superweaponsOn = true; // faction-select toggle: superweapon structures enab
       // the match — the host starts it, once, for everyone at the same seed.
       btn.addEventListener('click', () => {
         if (typeof Net !== 'undefined' && Net.connected) Net.pickFaction(key);
-        else startGame(key);
+        else startGame(key, undefined, { aiFactions: selectedAiFactions.slice() });
       });
       col.appendChild(btn);
     }
