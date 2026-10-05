@@ -5480,8 +5480,10 @@ function aiHollowRites(owner, counts, reserve) {
     if (pending(key)) { reserve += fee; break; }
     const body = spare(ASCEND[key].from);
     if (!body) continue;
+    // held from the moment he is sent, not from the next think — otherwise the
+    // same tick's construction spends the fee and he is refused on arrival
     if (state.minerals[owner] >= fee + reserve) body.order = { type: 'ascend', destId: mech.id, key };
-    else reserve += fee; // save for it: the army mix has to wait its turn
+    reserve += fee; // save for it: the army mix has to wait its turn
     break; // one rite in flight at a time keeps the economy honest
   }
   const rigs = state.units.filter(x => x.owner === owner && x.hp > 0 && UNIT_TYPES[x.type].digger);
@@ -5497,8 +5499,22 @@ function aiHollowRites(owner, counts, reserve) {
       state.minerals[owner] >= UNIT_TYPES.excavationrig.cost) {
     trainUnit(owner, 'excavationrig');
   }
-  for (const s of state.digSites) {
-    if (s.taken) continue;
+  // nearest and safest first. Walking the list in seeding order sent the
+  // first rig to whichever hole happened to be generated first — often one
+  // on the enemy's doorstep while a quiet site sat halfway home. A site past
+  // the midpoint toward the nearest enemy HQ is penalised, not banned: once
+  // the safe ones are dug out, the far side is still worth the walk.
+  const home = state.buildings.find(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
+  const foeHqs = state.buildings.filter(b => b.type === 'hq' && b.hp > 0 && b.owner !== owner && b.owner !== NEUTRAL);
+  const siteCost = s => {
+    if (!home) return 0;
+    const dHome = dist(home, s);
+    const dFoe = foeHqs.length ? Math.min(...foeHqs.map(h => dist(h, s))) : Infinity;
+    const risk = dHome / (dHome + dFoe); // 0 = on our doorstep, 1 = on theirs
+    return dHome * (1 + 3 * Math.max(0, risk - 0.45));
+  };
+  const sites = state.digSites.filter(s => !s.taken).sort((a, b) => siteCost(a) - siteCost(b) || a.id - b.id);
+  for (const s of sites) {
     if (s.progress < DIG_TIME) {
       if (state.units.some(x => x.owner === owner && x.hp > 0 && x.order.type === 'dig' && x.order.siteId === s.id)) continue;
       // any rig not already on a hole — digging outranks whatever the wave
@@ -5859,6 +5875,11 @@ function updateAI(owner, dt) {
   const myUnits = state.units.filter(u => u.owner === owner && u.hp > 0);
   const workers = myUnits.filter(u => UNIT_TYPES[u.type].role === 'worker');
   const army = myUnits.filter(u => UNIT_TYPES[u.type].role === 'combat');
+  // what actually marches. Tech Priests and Excavation Rigs are combat-role
+  // bodies with jobs at home: swept into waves, the priests (no gun) died
+  // carrying nothing and the rigs died a long way from their next dig — the
+  // Hollow AI lost ~90% of both and never reached the Lantern Guard tier.
+  const fighters = army.filter(u => !UNIT_TYPES[u.type].priest && !UNIT_TYPES[u.type].digger);
   const hq = state.buildings.find(b => b.owner === owner && b.type === 'hq' && b.hp > 0);
   if (!hq) return;
 
@@ -5901,12 +5922,19 @@ function updateAI(owner, dt) {
   const starved = f.worker && workers.length < f.economy.workers;
   if (starved && state.minerals[owner] >= UNIT_TYPES[f.worker].cost) trainUnit(owner, f.worker);
 
+  // the Mechanicum ladder IS the Hollow army, so the rite fee is held back
+  // BEFORE the build order and the workforce see the bank. Reserved after
+  // them, a servitor would be sent to the slab with the fee in hand, the
+  // next structure would spend it while he walked, and he was turned away at
+  // the door — every time, so the Lantern Guard tier never arrived.
+  const riteHold = isHollow(owner) ? aiHollowRites(owner, counts, 0) : 0;
+
   // start next structure; reserve its cost so unit spam can't starve it
   const desired = !state.construction[owner] ? aiDesiredStructure(owner, counts, power) : null;
-  if (desired && (!f.worker || workers.length >= 3) && state.minerals[owner] >= bstats(owner, desired).cost) {
+  if (desired && (!f.worker || workers.length >= 3) && state.minerals[owner] >= bstats(owner, desired).cost + riteHold) {
     startConstruction(owner, desired);
   }
-  let reserve = (!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0;
+  let reserve = riteHold + ((!state.construction[owner] && desired) ? bstats(owner, desired).cost : 0);
 
   // grow the workforce all the way to the rig CAP (not just the start count) —
   // mining throughput, not patch size, is what chokes the worker economies.
@@ -5917,9 +5945,6 @@ function updateAI(owner, dt) {
   }
 
 
-  // the Mechanicum ladder IS the Hollow army, so the rites run BEFORE the army
-  // mix and reserve their fees out from under it
-  if (isHollow(owner)) reserve = aiHollowRites(owner, counts, reserve);
   // the compound's Prophet is dearer than any unit, so his fee is reserved
   // before the army mix gets a look at the bank
   if (state.factions[owner] === 'flat') reserve = aiFlatCompound(owner, f, counts, reserve);
@@ -5929,15 +5954,15 @@ function updateAI(owner, dt) {
   if (state.factions[owner] === 'deep') aiDeepStateFronts(owner, counts, reserve);
 
   // wall in the base once it's established and flush
-  if (ai.time > 100 && state.minerals[owner] > 300) aiFortify(owner, ai, hq);
+  if (ai.time > 100 && state.minerals[owner] > 300 + riteHold) aiFortify(owner, ai, hq);
 
   // at most ONE capture in flight, and only when the army can spare a body
   const outCapturing = state.units.filter(s => s.owner === owner && s.order.type === 'garrison').length;
-  if (ai.time > 40 && army.length >= 5 && outCapturing === 0) aiCapture(owner, f, army, workers, hq, power);
+  if (ai.time > 40 && fighters.length >= 5 && outCapturing === 0) aiCapture(owner, f, fighters, workers, hq, power);
 
   // the army answers a raid before it goes looking for one
-  if (aiDefend(owner, army, hq)) return;
-  aiAttackWave(owner, ai, army, hq);
+  if (aiDefend(owner, fighters, hq)) return;
+  aiAttackWave(owner, ai, fighters, hq);
 }
 
 // mouse event -> iso screen space (the space cam.x/cam.y pan in)

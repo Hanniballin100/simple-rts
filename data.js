@@ -138,7 +138,7 @@ const FACTIONS = {
     extras: ['riot', 'bradley', 'blackvan', 'himars', 'engineer', 'mechanic'], advanced: ['b52'],
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'datacenter', 'satellite', 'superweapon'],
     powers: {
-      passive: { name: 'Quantitative Easing', desc: 'The printer follows the economy: every 10s you gain minerals equal to 12% of the power your base actually DRAWS, up to 40. And when a building falls, 25% of its cost is refunded — too big to fail.' },
+      passive: { name: 'Quantitative Easing', desc: 'The printer follows the economy: every 10s you gain minerals equal to 6% of the power your base actually DRAWS, up to 20. And when a building falls, 25% of its cost is refunded — too big to fail.' },
       sig: { name: 'Weather Modification', desc: 'Target a zone: enemy ground units in it are slowed 40% for 15s.', kind: 'zone', cd: 90 },
     },
     buildingNames: {
@@ -577,8 +577,12 @@ const DISPROOF_SKY_R = 340;   // how far the closed sky reaches from your struct
 // paying ~118/10s (11.8/sec), more than any other faction's ENTIRE economy
 // from all sources combined. The cap turns it back into a solid floor instead
 // of an engine: good early when the grid is small, no longer a snowball.
-const QE_RATE = 0.12;   // fraction of power drawn, paid every 10s
-const QE_CAP = 40;      // ...but never more than this per payout (4/sec)
+// Halved again after AI-vs-AI testing: at 0.12/40 the cap was reached early
+// and held all game — ~240 free minerals a minute, worth two or three extra
+// rigs — and the Globalists won 24 of 24. Switching it off entirely dropped
+// them to 63%, so half keeps the identity without the runaway.
+const QE_RATE = 0.06;   // fraction of power drawn, paid every 10s
+const QE_CAP = 20;      // ...but never more than this per payout (2/sec)
 
 // ---------- LEVERAGE (Deep State) ----------
 // Every mineral a Front Company skims is banked twice: once as money, and once
@@ -676,7 +680,11 @@ const UNIT_TYPES = {
   // until they drop (~lifespan seconds, staggered). Every death — overwork,
   // enemy fire, or the Harvest button — pays looshOnDeath, and the Hatchery
   // automatically buys a replacement. The pit restocks itself.
-  slave:       { name: 'Slave',           role: 'worker', builtAt: 'barracks', hp: 35,  speed: 82, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 160, cost: 25, r: 7,  buildTime: 3, limit: 8, lifespan: 110, looshOnDeath: 3, pitBonus: true },
+  // carry 8 (was the 6-a-trip default): a slave that hauls a third of a rig's
+  // load AND has to be re-bought every couple of minutes left ~40% of the
+  // nest's income going to replacements, and the faction won 1 game in 24 in
+  // AI testing. 8 put it at 50%; 9, or a longer lifespan on top, overshot.
+  slave:       { name: 'Slave',           role: 'worker', builtAt: 'barracks', hp: 35,  speed: 82, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 160, cost: 25, r: 7,  buildTime: 3, limit: 8, carry: 8, lifespan: 110, looshOnDeath: 3, pitBonus: true },
   // Broodslave: the Gene Vault's own crop, grown for the work rather than
   // caught for it. Nearly three times the price of a Slave and it hauls twice
   // the crystal, burns out sooner, and its death pays THREE TIMES the loosh —
@@ -1212,7 +1220,7 @@ const BUILDING_TYPES = {
   // `needsReq`: they are wired into the Black Site Lab, not merely unlocked by
   // it. Lose the Lab and every Data Center goes dark until you rebuild it —
   // which makes the Lab a target worth defending rather than a tick-box.
-  datacenter:     { name: 'Data Center', hp: 380, w: 54, h: 54, cost: 170, buildTime: 15, sight: 180, power: -30, income: 16, cap: 4, req: 'tech', diminish: 0.75, needsReq: true },
+  datacenter:     { name: 'Data Center', hp: 380, w: 54, h: 54, cost: 170, buildTime: 15, sight: 180, power: -30, income: 12, cap: 4, req: 'tech', diminish: 0.75, needsReq: true }, // was 16: stacked on QE it made the Globalist economy ~60% richer than anyone's
   // Refinery: a forward mineral drop-off. Workers deposit here instead of
   // hauling all the way home, so a base can push out to distant fields, and it
   // can be planted off-grid (anywhere).
