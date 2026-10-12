@@ -81,6 +81,7 @@ let leverageTargeting = null; // LEVERAGE_PLAYS key awaiting a target structure
 let contactTargeting = false; // selected Agents waiting for a unit to make contact with
 let loyaltyTargeting = false; // a Loyalty Check waiting for a spot
 let bribeTargeting = false;   // a Payroll bribe waiting for a unit
+let tractorTargeting = false; // a TR-3B waiting for a vehicle to lift
 let dropTargeting = null;    // Bush Plane building id awaiting its drop zone
 let demoTargeting = null;    // Ex-Special Forces ids awaiting an enemy structure
 let bcastTargeting = null;   // BROADCASTS key awaiting a spot on the map
@@ -608,7 +609,7 @@ function hiddenFrom(e, owner) {
   // Only these ever get to be unseen. Everything else in the game is visible
   // if it is in your vision, which is what keeps this a system about
   // infiltrators rather than about every unit on the field.
-  if (!(e.disguised || e.burrowed || stats.stealth || stats.cloakStill)) return false;
+  if (!(e.disguised || e.burrowed || stats.stealth || stats.cloakStill || e.tmode === 'transit')) return false;
   // FIRING HARD-REVEALS, and it outranks everything above. A muzzle flash is a
   // location broadcast: no skill hides it, no stillness discounts it, and it
   // holds long enough that what you shot at can shoot back.
@@ -887,6 +888,8 @@ function makeUnit(owner, type, x, y) {
   if (t.lifespan) u.expires = state.time + t.lifespan * (0.75 + simRandom() * 0.5) * driveLifeMul(owner);
   // an Ex-Special Forces comes off the plane with its charges
   if (t.charges) u.charges = t.charges;
+  // the black project rolls out in transit: fast, unseen, unarmed
+  if (t.blackProject) u.tmode = 'transit';
   // militia (and what they retrain into) carry a service record
   if (type === 'militia' || RETRAIN[type]) { u.vetXp = 0; u.maxHp = t.hp; }
   state.units.push(u);
@@ -1923,6 +1926,77 @@ function playLeverage(owner, key, target) {
   }
   return true;
 }
+// ---------- TR-3B: the black project ----------
+function setTr3bMode(u, mode) {
+  if (!u.tmode || u.tmode === mode) return;
+  if (mode === 'transit' && u.holding) return;   // nothing goes unseen with a tank hanging under it
+  u.tmode = mode;
+  if (mode === 'transit') u.exposedUntil = 0;
+}
+// is this a ground vehicle the beam can take hold of?
+function liftable(e) {
+  const et = UNIT_TYPES[e.type];
+  // a beam whose owner was shot down lets go, so a stale liftedBy does not count
+  const held = e.liftedBy && (findEntity(e.liftedBy) || {}).hp > 0;
+  return e.kind === 'unit' && e.hp > 0 && !et.flying && !isFootSoldier(et) && !e.garrisoned && !held;
+}
+function tractorLift(u, target) {
+  const T = TR3B.tractor;
+  if (u.tmode !== 'hover' || u.holding || (u.tractorCd || 0) > state.time) return false;
+  if (!target || target.owner === u.owner || target.owner === NEUTRAL || !liftable(target)) return false;
+  if (dist(u, target) > T.range) return false;
+  u.holding = target.id;
+  u.holdUntil = state.time + T.hold;
+  u.tractorCd = state.time + T.cd;
+  target.liftedBy = u.id;
+  if (target.owner === localOwner) eva(UNIT_TYPES[target.type].name + ' is being lifted');
+  return true;
+}
+function tractorDrop(u) {
+  const v = u.holding ? findEntity(u.holding) : null;
+  u.holding = null;
+  if (!v || v.hp <= 0) return;
+  delete v.liftedBy;
+  v.x = u.x; v.y = u.y;
+  v.order = { type: 'idle' };
+  if (!groundOpenAt(v.x, v.y, UNIT_TYPES[v.type].r)) {
+    v.hp = 0;                                    // into the lake, onto the rocks
+    Particles.boom(v.x, v.y, 1.6);
+  } else {
+    v.hp -= v.maxHp * TR3B.tractor.dropDmg;
+    Particles.pulse(v.x, v.y, 24, [190, 140, 255]);
+  }
+}
+// every tick, for a TR-3B: blackout under it, the beam, and the AI's choices
+function updateTr3b(u, dt) {
+  if (u.tmode === 'hover') {
+    for (const b of state.buildings) {
+      if (b.owner === u.owner || b.owner === NEUTRAL || b.hp <= 0) continue;
+      if (rectDist(u, b) <= TR3B.blackoutR) b.empUntil = Math.max(b.empUntil || 0, state.time + 0.3);
+    }
+  }
+  if (u.holding) {
+    const v = findEntity(u.holding);
+    if (!v || v.hp <= 0) u.holding = null;
+    else {
+      v.x = u.x; v.y = u.y;
+      v.stunUntil = Math.max(v.stunUntil || 0, state.time + 0.2);   // helpless in the beam
+      if (state.time >= u.holdUntil) tractorDrop(u);
+    }
+  }
+  if (!isHuman(u.owner)) {
+    // the AI shows itself only to fight, and grabs whatever vehicle is in reach
+    const near = nearestTarget(u, enemiesOf(u.owner), e => !hiddenFrom(e, u.owner) &&
+      dist(u, e) <= UNIT_TYPES[u.type].atkRange + 80);
+    setTr3bMode(u, near || u.holding ? 'hover' : 'transit');
+    if (u.tmode === 'hover' && !u.holding && (u.tractorCd || 0) <= state.time) {
+      const v = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL && liftable(e) &&
+        !hiddenFrom(e, u.owner) && dist(u, e) <= TR3B.tractor.range);
+      if (v) tractorLift(u, v);
+    }
+  }
+}
+
 // ---------- PAYROLL: buy a man outright ----------
 function bribePrice(u) {
   const res = resilienceOf(u);
@@ -2589,8 +2663,17 @@ function burrowUnits(units) {
 }
 
 // tip every rider out of a transport in a ring around it
+// is there open ground for a body to stand on here? (water, cliffs and rock
+// are not open — a helicopter cannot set troops down on them)
+function groundOpenAt(x, y, r = 12) {
+  return !terrainNear(x, y).some(o => !TERRAIN_TYPES[o.type].passes && Math.hypot(x - o.x, y - o.y) < o.r + r);
+}
 function unloadTransport(v) {
   if (!v.cargo || !v.cargo.length) return;
+  if (UNIT_TYPES[v.type].flying && !groundOpenAt(v.x, v.y, UNIT_TYPES[v.type].r + 14)) {
+    if (v.owner === localOwner) eva('No landing zone here');
+    return;
+  }
   v.cargo.forEach((id, i) => {
     const p = findEntity(id);
     if (!p || p.hp <= 0) return;
@@ -2978,6 +3061,7 @@ function moveToward(u, tx, ty, dt, stopDist = 2, ignoreId = null) {
   }
   if (u.slowUntil && u.slowUntil > state.time) speed *= 0.55;
   if (u.burrowed) speed *= 0.5; // clawing through bedrock
+  if (u.tmode) speed *= u.tmode === 'transit' ? TR3B.transitSpeed : TR3B.hoverSpeed;
   const sd = Math.hypot(sx2 - u.x, sy2 - u.y) || 1;
   const step = Math.min(speed * dt, d);
   let nx = u.x + (sx2 - u.x) / sd * step;
@@ -3484,6 +3568,7 @@ function updateZones(dt) {
 
 function tryAttack(u, target, dt) {
   const t = UNIT_TYPES[u.type];
+  if (u.tmode === 'transit') setTr3bMode(u, 'hover');   // to fight, it has to show itself
   if (t.maxAmmo && u.ammo <= 0) { u.order = { type: 'rearm' }; return; } // winchester — RTB
   if (t.plane) { planeAttack(u, target, t, dt); return; }
   const range = t.atkRange + entityRadius(target);
@@ -3586,10 +3671,14 @@ function fireAt(u, target, t) {
     // EXPOSE_FIRING seconds. Pad aircraft are the exception and stay lit all
     // the way home (cleared when they land to rearm), because a jet cannot
     // simply hold still until people forget about it.
+    // a TAKEDOWN: the Deniable Asset striking from cloak (checked before the
+    // strike lights it up)
+    const takedown = t.takedown && !(u.exposedUntil > state.time) && target.kind === 'unit';
     if (t.stealth || t.cloakStill || t.forestOnly || t.plainClothes) {
       if (t.cloakStill && u.cloaked) u.ambush = true;   // decloak first-strike
-      u.exposedUntil = (t.stealth && t.pad) ? Infinity : state.time + EXPOSE_FIRING;
+      u.exposedUntil = (t.stealth && t.pad) ? Infinity : state.time + (t.exposeFor || EXPOSE_FIRING);
     }
+    if (takedown) dmg = isFootSoldier(UNIT_TYPES[target.type]) ? 99999 : t.takedown.vsOther;
     if (u.ambush) { dmg *= 2; delete u.ambush; } // surfacing / decloak first-strike bonus
     // Mass Awakening: the people have seen it, and the militia hit like it
     if (u.type === 'militia' && bcastActive(u.owner, 'awakening')) dmg *= BROADCASTS.awakening.mul;
@@ -3896,6 +3985,7 @@ function updateVolley(u, t, dt) {
 function autoAcquire(u, dt) {
   const t = UNIT_TYPES[u.type];
   if (t.maxAmmo && u.ammo <= 0) return; // nothing left to shoot with
+  if (u.tmode === 'transit') return;    // the black project does not reveal itself on a whim
   // a man in plain clothes does not start fights: the first shot is the end
   // of the cover. He fires when ordered to, or once he has been made.
   if (inPlainClothes(u)) return;
@@ -4331,7 +4421,7 @@ function updateCargoRiders(u, dt) {
   // A Bug Out Van ferrying troops is a FERRY. Nobody shoots out of it — not the
   // van (it has no weapon) and not the militia in the back. If you want that
   // van fighting, weld a kit into it and give up carrying anyone.
-  const ferrying = !!UNIT_TYPES[u.type].loader;
+  const ferrying = !!UNIT_TYPES[u.type].loader || !!UNIT_TYPES[u.type].noPorts;
   for (const id of u.cargo) {
     const p = findEntity(id);
     p.x = u.x; p.y = u.y;
@@ -4436,6 +4526,7 @@ function updateUnit(u, dt) {
 
   updateBrood(u, stats, dt);
   updateAuras(u, stats, dt);
+  if (stats.blackProject) updateTr3b(u, dt);
   updateStuckWatchdog(u, stats, o, dt);
 
   // out of ammo: break off and return to the airfield (unless already parked —
@@ -5833,6 +5924,13 @@ function aiHollowRites(owner, counts, reserve) {
 // Candidates come straight from the faction roster, filtered by whether the
 // right production building (and any tech prereq) actually stands.
 function aiTrainArmy(owner, f, counts, army, reserve) {
+  // the black project: bought the moment it is affordable (it is never part
+  // of the ordinary mix — at 650 it would starve everything else waiting)
+  const bp = (f.air || []).find(a => UNIT_TYPES[a].blackProject);
+  if (bp && counts[UNIT_TYPES[bp].builtAt] && (!UNIT_TYPES[bp].req || counts[UNIT_TYPES[bp].req]) &&
+      unitCount(owner, bp) < minerCap(owner, bp) && state.minerals[owner] >= UNIT_TYPES[bp].cost + reserve) {
+    trainUnit(owner, bp); return;
+  }
   const mix = [];
   const addMix = (type, w) => {
     if (!type || !w) return;
@@ -5857,7 +5955,7 @@ function aiTrainArmy(owner, f, counts, army, reserve) {
   // airFocus factions (Deep State's black budget, the Globalist USAF) weight
   // their whole air wing up — the sky IS their doctrine
   const af = f.airFocus || 1;
-  for (const a of f.air) addMix(a, (UNIT_TYPES[a].targets === 'air' ? Math.min(3, foeAir * 0.5) : 1.2) * af);
+  for (const a of f.air) if (!UNIT_TYPES[a].blackProject) addMix(a, (UNIT_TYPES[a].targets === 'air' ? Math.min(3, foeAir * 0.5) : 1.2) * af);
   for (const a of f.extras.slice(2)) addMix(a, 0.6);
   for (const a of (f.advanced || [])) addMix(a, 0.5 * (UNIT_TYPES[a].flying ? af : 1));
   if (mix.length) {
@@ -6532,7 +6630,7 @@ function issueCommand(owner, unitIds, x, y) {
 // selection? Read-only mirror of issueCommand, used to draw a contextual
 // cursor reticle so the player sees "attack / repair / capture / ..." on hover.
 function hoverContext(x, y) {
-  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || contactTargeting || loyaltyTargeting || bribeTargeting || wallDrag ||
+  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || contactTargeting || loyaltyTargeting || bribeTargeting || tractorTargeting || wallDrag ||
       dropTargeting || demoTargeting || bcastTargeting) return null;
   const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner);
   if (!units.length) return null;
@@ -7278,7 +7376,10 @@ function startGame(faction, seed, opts) {
 // click, which is why Launch/orders sometimes needed several presses)
 function panelSignature() {
   let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
-    (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (contactTargeting ? 'c' : '') + (loyaltyTargeting ? 'y' : '') + (bribeTargeting ? 'b' : '') + (wallDrag ? 'w' : '') +
+    (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (contactTargeting ? 'c' : '') + (loyaltyTargeting ? 'y' : '') + (bribeTargeting ? 'b' : '') + (tractorTargeting ? 't' : '') + (wallDrag ? 'w' : '') +
+    // the selected TR-3B changes mode, grabs, drops, or its beam recharges
+    selection.filter(e => e.kind === 'unit' && e.tmode).map(e => e.tmode[0] + (e.holding ? 'H' : '') +
+      ((e.tractorCd || 0) > state.time ? 'c' : 'r')).join('') +
     'B' + (bribeReady(localOwner) ? 1 : 0) +
     'L' + (loyaltyReady(localOwner) ? 1 : 0) +
     (dropTargeting || '') + (demoTargeting ? 'd' : '') + (bcastTargeting || '') +
@@ -7371,6 +7472,12 @@ function panelTargetingMode(addAction) {
       : abilityTargeting === 'recall'
         ? `Vril Recall — click a patch of ground (${recallTargets(localOwner, mouse.x, mouse.y).length}/${recallDef(localOwner).max} in the circle), Esc to cancel`
         : 'Cloning Vats — click one of your infantry, Esc to cancel';
+    return true;
+  }
+  if (tractorTargeting) {
+    elSelInfo.style.color = '#c9a7ff';
+    elSelInfo.textContent = `Tractor Beam — click an ENEMY ground vehicle within ${TR3B.tractor.range} of the TR-3B. ` +
+      `Drop it over water or rock and it is gone. Esc to cancel`;
     return true;
   }
   if (bribeTargeting) {
@@ -7903,6 +8010,32 @@ Walks a militiaman into the Recruitment Tent and spends him. His farm ` +
       };
       addAction(btn);
     }
+  }
+  // the TR-3B: its mode, and the beam
+  const tr = mine.find(u => UNIT_TYPES[u.type].blackProject);
+  if (tr) {
+    const mb = document.createElement('button');
+    mb.textContent = tr.tmode === 'transit' ? 'Mode: Transit (go to Hover)' : 'Mode: Hover (go to Transit)';
+    mb.title = `TRANSIT: ${TR3B.transitSpeed}x speed, unseen except by detectors, cannot fire.\n` +
+      `HOVER: ${TR3B.hoverSpeed}x speed, visible and armed; every enemy structure within ${TR3B.blackoutR} ` +
+      `loses power. Ordering an attack switches to Hover on its own.`;
+    mb.disabled = tr.tmode === 'hover' && !!tr.holding;
+    mb.onclick = () => { cmd('tr3bmode', { u: [tr.id], m: tr.tmode === 'transit' ? 'hover' : 'transit' }); sfx('click'); refreshPanel(); };
+    addAction(mb);
+    const tb = document.createElement('button');
+    if (tr.holding) {
+      tb.textContent = `Drop (${Math.max(0, Math.ceil(tr.holdUntil - state.time))}s)`;
+      tb.title = 'Let go. Over open ground it takes a hard landing; over water or rock it is destroyed.';
+      tb.onclick = () => { cmd('tractordrop', { u: [tr.id] }); sfx('click'); refreshPanel(); };
+    } else {
+      const cd = Math.ceil((tr.tractorCd || 0) - state.time);
+      tb.textContent = cd > 0 ? `Tractor Beam (${cd}s)` : 'Tractor Beam';
+      tb.title = `Hover only. Lift an enemy ground vehicle within ${TR3B.tractor.range} and carry it for up to ` +
+        `${TR3B.tractor.hold}s. Cooldown ${TR3B.tractor.cd}s.`;
+      tb.disabled = cd > 0 || tr.tmode !== 'hover';
+      tb.onclick = () => { tractorTargeting = true; refreshPanel(); };
+    }
+    addAction(tb);
   }
   // Agents: work on one of theirs
   const agents = mine.filter(u => UNIT_TYPES[u.type].contacts);
@@ -9311,6 +9444,23 @@ function drawOverlays() {
     }
   }
 
+  // the TR-3B in hover: its blackout reach, and the beam when it holds something
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.tmode !== 'hover') continue;
+    if (u.owner !== localOwner && !visibleToPlayer(u)) continue;
+    auraRing(u.x, u.y, TR3B.blackoutR, '150,110,230', 0.35, true);
+    const v = u.holding ? findEntity(u.holding) : null;
+    if (v && v.hp > 0) {
+      const ax = isoX(u.x, u.y), ay = isoY(u.x, u.y) - unitAlt(u);
+      ctx.save();
+      ctx.fillStyle = `rgba(190,150,255,${(0.22 + 0.08 * Math.sin(state.time * 8)).toFixed(2)})`;
+      ctx.beginPath();
+      ctx.moveTo(ax - 6, ay); ctx.lineTo(ax + 6, ay);
+      ctx.lineTo(isoX(v.x, v.y) + 14, isoY(v.x, v.y)); ctx.lineTo(isoX(v.x, v.y) - 14, isoY(v.x, v.y));
+      ctx.closePath(); ctx.fill();
+      ctx.restore();
+    }
+  }
   // Loyalty Check aim: the circle it will vet
   if (loyaltyTargeting) auraRing(mouse.x, mouse.y, LOYALTY.r, '255,210,122', 0.9, false);
   // Leverage aim: how far each asset of ours can reach
@@ -9850,6 +10000,12 @@ const COMMANDS = {
   cancelrite:  (o, p) => { const u = cmdUnit(p.u, o); if (u) cancelRite(u); },
   super:       (o, p) => { const b = cmdBuilding(p.b, o); if (b && superReady(b) && !isOffline(b)) fireSuperweapon(b, p.x, p.y); },
   ratehike:    (o) => startRateHike(o),
+  tr3bmode:    (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].blackProject) setTr3bMode(u, p.m === 'transit' ? 'transit' : 'hover'); },
+  tractor:     (o, p) => {
+    const v = state.units.find(x => x.id === p.t && x.hp > 0);
+    for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].blackProject) tractorLift(u, v);
+  },
+  tractordrop: (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].blackProject && u.holding) tractorDrop(u); },
   bribe:       (o, p) => { const m = state.units.find(x => x.id === p.t && x.hp > 0); if (m) bribe(o, m); },
   loyalty:     (o, p) => { if (Number.isFinite(p.x) && Number.isFinite(p.y)) loyaltyCheck(o, p.x, p.y); },
   contact:     (o, p) => {
@@ -10093,7 +10249,15 @@ function stepSim() {
         state.armorWrecks.push({ id: nextId++, x: u.x, y: u.y, tier: UNIT_TYPES[u.type].armorTier, owner: u.owner, until: state.time + 45 });
       }
       creditBattleFootage(u);   // anything dying on camera is worth filming
-      creditVeterancy(u.lastHitBy ? findEntity(u.lastHitBy) : null, u);
+      // nobody gets a medal for something that was never there
+      if (!UNIT_TYPES[u.type].noXp) creditVeterancy(u.lastHitBy ? findEntity(u.lastHitBy) : null, u);
+      // ...and it does not get taken alive
+      if (UNIT_TYPES[u.type].deathBlast && !u.abducted) {
+        const B = UNIT_TYPES[u.type].deathBlast;
+        splashDamage(u.x, u.y, B.r, B.dmg, u.owner, {}, false);
+        Particles.boom(u.x, u.y, 1.6);
+        if (tileState(u.x, u.y) === 2) sfx('boom');
+      }
       // a Bush Plane shot down on the run in takes its whole team with it
       if (u.type === 'bushflight' && u.crewCount && !u.abducted) bushPlaneLost(u);
       // a kitted Bug Out Van takes the body welded into it down with the wreck
@@ -10484,6 +10648,16 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   if (e.button === 0) {
+    if (tractorTargeting) {
+      const tgt = state.units.find(u => u.hp > 0 && u.owner !== localOwner && u.owner !== NEUTRAL &&
+        visibleToPlayer(u) && clickHitsUnit(u, p.x, p.y, 8));
+      if (tgt && liftable(tgt)) {
+        cmd('tractor', { u: selectedUnitIds(u => !!UNIT_TYPES[u.type].blackProject), t: tgt.id });
+        tractorTargeting = false; sfx('click');
+      } else eva('Click one of THEIR ground vehicles');
+      refreshPanel();
+      return;
+    }
     if (bribeTargeting) {
       const tgt = state.units.find(u => u.hp > 0 && u.owner !== localOwner && u.owner !== NEUTRAL &&
         !u.garrisoned && visibleToPlayer(u) && clickHitsUnit(u, p.x, p.y, 8));
@@ -10613,7 +10787,7 @@ canvas.addEventListener('mousedown', e => {
     const pi = screenToIso(e);
     mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
-    if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || contactTargeting || loyaltyTargeting || bribeTargeting || plantArmed || wallDrag ||
+    if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || contactTargeting || loyaltyTargeting || bribeTargeting || tractorTargeting || plantArmed || wallDrag ||
         dropTargeting || demoTargeting || bcastTargeting) {
       placing = null;
       attackMoveArmed = false;
@@ -10623,6 +10797,7 @@ canvas.addEventListener('mousedown', e => {
       contactTargeting = false;
       loyaltyTargeting = false;
       bribeTargeting = false;
+      tractorTargeting = false;
       plantArmed = false;
       wallDrag = null;
       refreshPanel();
@@ -10749,7 +10924,7 @@ window.addEventListener('keydown', e => {
   if (!started) return;
   const k = e.key.toLowerCase();
 
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; contactTargeting = false; loyaltyTargeting = false; bribeTargeting = false; plantArmed = false; wallDrag = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; contactTargeting = false; loyaltyTargeting = false; bribeTargeting = false; tractorTargeting = false; plantArmed = false; wallDrag = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
 

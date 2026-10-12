@@ -162,7 +162,7 @@ const FACTIONS = {
     // black project, rolled out of the Motor Pool, and never builds an airfield.
     noAirpad: true,
     air: ['tr3b'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['swat', 'disinfovan', 'agent', 'lrad', 'suburban', 'engineer', 'mechanic'], advanced: [],
+    extras: ['swat', 'disinfovan', 'agent', 'lrad', 'blackhawk', 'deniable', 'engineer', 'mechanic'], advanced: [],
     leverage: true, // runs a ledger of leverage, earned by its sleepers
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'fedreserve', 'superweapon'],
     powers: {
@@ -313,6 +313,7 @@ const STEALTH_SKILL = {
   mine: 0.25,
   specops: 0.5, bushplane: 0.6,
   agent: 0.7, mib: 0.7, homesteader: 0.7,
+  deniable: 0.4,
   // 0.55, not 0.85. At 0.85 a Journalist filming DISCREETLY sat at 61
   // suspicion, and a busy base catches anything over ~59 — so the quiet stance
   // was caught in the exact place it exists to work, and the two stances
@@ -321,7 +322,7 @@ const STEALTH_SKILL = {
   // decision the unit is built around.
   journalist: 0.55,
   blackrig: 1.0, disinfovan: 1.1,
-  tr3b: 1.15, b2: 1.2, b1: 1.25,
+  tr3b: 0.8, b2: 1.2, b1: 1.25,
 };
 const STEALTH_SKILL_DEFAULT = 0.9;
 
@@ -641,6 +642,16 @@ const RESILIENCE = {
 const MINDLESS = new Set(['moleservitor', 'greydrone', 'orb', 'probedrone', 'fpv', 'shahed',
   'slave', 'broodslave', 'gargoyle', 'phantom', 'tictac']);
 
+// ---------- TR-3B (the black project) ----------
+// transit / hover: speed multipliers. blackoutR: enemy structures this close
+// to a HOVERING TR-3B lose power. tractor: lift an enemy ground vehicle within
+// `range`, carry it for up to `hold` seconds, then drop it — `dropDmg` of its
+// health on open ground, destroyed outright over water or rock. `cd` between lifts.
+const TR3B = {
+  transitSpeed: 1.6, hoverSpeed: 0.45, blackoutR: 120,
+  tractor: { range: 170, hold: 10, cd: 60, dropDmg: 0.15 },
+};
+
 // ---------- PAYROLL (Federal Reserve) ----------
 // Every Federal Reserve standing keeps `capPer` more people on the books, and
 // lets you skip the Agent and simply BUY a man: price = his sticker (never
@@ -801,6 +812,15 @@ const UNIT_TYPES = {
              buffAura: { r: 118 },                  // ...and they hit 25% harder for it
              debuffAura: { r: 130, weaken: 0.28 },  // the racket puts the enemy off their aim
              convert: { every: 30, r: 105 } },      // and now and then one of them walks over
+  // DENIABLE ASSET: the government's knife. Always cloaked (the best stealth
+  // rating in the game — only detectors and the suspicion meter find it). Its
+  // only weapon is a hand: from cloak, a TAKEDOWN kills any foot soldier
+  // outright and does `takedown.vsOther` to anything else; once seen (for
+  // `exposeFor` seconds after each strike) it is a man with a knife. Carries
+  // demolition charges. When it dies it detonates (`deathBlast`) and the
+  // killer gets nothing for it — there was never anybody there.
+  deniable: { name: 'Deniable Asset',     role: 'combat', builtAt: 'barracks', hp: 140, speed: 84, dmg: 12, atkRange: 24,  cooldown: 1.0, sight: 270, cost: 320, r: 9, buildTime: 14, limit: 2, req: 'tech',
+              stealth: true, charges: 2, takedown: { vsOther: 90 }, exposeFor: 3, deathBlast: { r: 80, dmg: 160 }, noXp: true },
   // Deep State close-quarters: armour, a shotgun, and a FLASHBANG every
   // `flashbang.every` seconds that stuns enemy foot soldiers within `r` for
   // `stun` seconds — crowd control, not a damage race.
@@ -1052,9 +1072,6 @@ const UNIT_TYPES = {
   // control on wheels; nothing to say to a tank.
   lrad:      { name: 'LRAD Truck', role: 'combat', builtAt: 'factory', hp: 230, speed: 74, dmg: 3, atkRange: 170, cooldown: 2.2, sight: 240, cost: 130, r: 12, buildTime: 9, shape: 'square', armor: 0.15,
                lrad: { cone: 0.5, slow: 2.5, suppress: 0.8 } },
-  // Armored Suburban: a black SUV with run-flats and plate in the doors. Fast,
-  // carries four, and the riders shoot out of the windows (see cargo riders).
-  suburban:  { name: 'Armored Suburban', role: 'combat', builtAt: 'factory', hp: 260, speed: 104, dmg: 5, atkRange: 110, cooldown: 0.6, sight: 240, cost: 150, r: 12, buildTime: 9, shape: 'square', armor: 0.2, cargoCap: 4, bailOut: true },
   disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, detector: true, brood: { type: 'phantom', count: 4, regen: 6 } },
   // the rebuilt Drill Tank: an armored digger whose auger opens Dig Sites
   // (right-click one to dig; progress is visible to EVERYONE). The drill
@@ -1096,6 +1113,12 @@ const UNIT_TYPES = {
   // balloons loitering at its own altitude (lowAir). Fast jets and the
   // high-altitude fleet are simply out of its envelope now — it used to
   // dominate the entire sky for 150 minerals.
+  // Black Hawk: a lift, not a gunship. Four infantry in, a pintle gun that
+  // barely matters, and a thin skin — it is how a SWAT team or a pair of
+  // Handlers gets to the far side of the map, and it dies fast if it lingers.
+  // `noPorts`: the riders sit strapped in and do not shoot out. Troops only
+  // come off over open ground (see unloadTransport).
+  blackhawk: { name: 'UH-60 Black Hawk', role: 'combat', builtAt: 'factory', hp: 130, speed: 125, dmg: 4, atkRange: 110, cooldown: 0.8, sight: 260, cost: 160, r: 12, buildTime: 10, flying: true, targets: 'ground', lowAir: true, shape: 'tri', cargoCap: 4, noPorts: true },
   apache:   { name: 'AH-64 Apache',     role: 'combat', builtAt: 'factory', hp: 115, speed: 118, dmg: 16, dmgVsGround: 16, atkRange: 150, cooldown: 0.72, sight: 270, cost: 190, r: 11, buildTime: 11, flying: true, targets: 'ground', lowAir: true, shape: 'tri', rocketArt: true },
   // resistance drone wing: dirt-cheap racing quads with a payload strapped on
   // detector: with the Weather Balloon gone the cell had NO counter-stealth at
@@ -1126,7 +1149,12 @@ const UNIT_TYPES = {
   b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, stealth: true, req: 'tech', limit: 2 },
   // Deep State signature air: a TR-3B black triangle that hovers dead silent —
   // invisible (stealth) until it opens fire, then it lights up for a moment
-  tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'factory', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
+  // The TR-3B is a BLACK PROJECT: there is only ever one, it takes a long time
+  // and a lot of money to replace, and everybody hunts it. Two modes (see
+  // TR3B): TRANSIT — fast, unseen, unarmed — and HOVER — slow, plainly
+  // visible, armed, blacking out every enemy structure beneath it, and able
+  // to lift an enemy vehicle in its tractor beam.
+  tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.35, role: 'combat', builtAt: 'factory', hp: 700, speed: 118, dmg: 30, atkRange: 175, cooldown: 0.9, sight: 320, cost: 650, r: 14, buildTime: 35, flying: true, targets: 'both', shape: 'plane', limit: 1, req: 'tech', blackProject: true },
   // the GAU-8 does the talking: wide lazy turns into long saturation runs
   // (weapon 'gunrun') that annihilate vehicles and infantry along the flight
   // path — friend or foe, no IFF. Nearly useless against buildings.

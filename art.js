@@ -5816,6 +5816,25 @@
       c2.strokeStyle = '#c9a95e'; c2.lineWidth = 0.4; c2.strokeRect(-4.2, -4.4, 2.6, 0.01);
     },
   });
+  // Deniable Asset: all black, balaclava, the three green eyes of the
+  // night-vision rig, a knife held low
+  I.deniable = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#101317', pants: '#0c0e11',
+    head: (c2) => {
+      c2.fillStyle = '#121519'; c2.beginPath(); c2.arc(0, 0, 2.2, 0, TAU); c2.fill();
+      c2.fillStyle = '#7dff8a';
+      for (const y of [-0.9, 0, 0.9]) { c2.beginPath(); c2.arc(1.7, y, 0.45, 0, TAU); c2.fill(); }
+    },
+    weapon: (c2) => {
+      c2.strokeStyle = '#c8cdd5'; c2.lineWidth = 0.8;
+      c2.beginPath(); c2.moveTo(2.2, -5.4); c2.lineTo(6, -6.4); c2.stroke();
+      c2.fillStyle = '#2a2e34'; c2.fillRect(1.4, -5.9, 1.2, 1.2);
+    },
+    pack: (c2) => { // a charge strapped at the small of the back
+      c2.fillStyle = '#4b3a2a'; rr(c2, -3.6, -7.2, 2.2, 2.8, 0.4); c2.fill();
+      c2.fillStyle = '#ff4a3a'; c2.beginPath(); c2.arc(-2.5, -6.6, 0.45, 0, TAU); c2.fill();
+    },
+  });
   // Field Agent: dark suit, white shirt, bare head with shades, carbine
   I.fieldagent = (ctx, t, o) => isoTrooper(ctx, t, o, {
     coat: '#23282f', pants: '#1b1f25', weapon: iwRifle,
@@ -7565,6 +7584,28 @@
       if (Math.sin(t * 6) > 0.3) { c.fillStyle = 'rgba(255,70,70,0.95)'; c.beginPath(); c.arc(-6, 0, 1.1, 0, TAU); c.fill(); }
     },
   });
+  // UH-60 Black Hawk: a bulky utility cabin in gloss black, the side door
+  // slid open, a long tail boom with the canted tail rotor, four-blade main
+  I.blackhawk = (ctx, t, o) => isoAircraft(ctx, t, o, {
+    parts: [
+      { poly: [[-6, -1.4], [-19, -1], [-19, 1], [-6, 1.4]], base: 3.2, h: 2, body: '#1a1d22' },     // tail boom
+      { poly: [[-17, -0.6], [-20, -0.6], [-20, 0.6], [-17, 0.6]], base: 3.4, h: 5, body: '#16191d' }, // tail fin
+      { poly: [[11, -1.8], [9, -4], [-6, -4.2], [-8, -2.4], [-8, 2.4], [-6, 4.2], [9, 4], [11, 1.8]], base: 1, h: 6, body: '#20242a',
+        detail: (c) => {
+          c.fillStyle = 'rgba(255,255,255,0.08)'; rr(c, -6, -1.6, 15, 2.2, 1); c.fill();
+          c.fillStyle = '#16232d'; rr(c, 6, -3.2, 4.2, 6.4, 1.4); c.fill();                 // cockpit glass
+          c.strokeStyle = 'rgba(160,210,240,0.35)'; c.lineWidth = 0.4; rr(c, 6, -3.2, 4.2, 6.4, 1.4); c.stroke();
+          c.fillStyle = '#0c0e11'; c.fillRect(-3.5, 3.4, 6.5, 0.9);                        // open cabin door
+          c.fillStyle = '#3a3f47'; c.fillRect(0.5, 4.1, 3.2, 0.6);                         // door gun
+        } },
+    ],
+    props: [{ x: 0.5, y: 0, z: 9.5, r: 15, speed: 32 }, { x: -19.5, y: 0, z: 4.2, r: 3, speed: 44 }],
+    rigLift: 5,
+    rig: (c, t, o) => {
+      if (o.firing) { c.fillStyle = 'rgba(255,225,150,0.95)'; c.beginPath(); c.arc(4, 5, 1.5, 0, TAU); c.fill(); }
+      if (Math.sin(t * 5) > 0.4) { c.fillStyle = 'rgba(255,70,70,0.95)'; c.beginPath(); c.arc(-8, 0, 1, 0, TAU); c.fill(); }
+    },
+  });
   function quadDrone(body, s, eye) {
     const arm = 6 * s;
     return {
@@ -8921,28 +8962,6 @@
         c.restore();
       }
     },
-  });
-  // Armored Suburban: a black full-size SUV, tinted glass, push bar, and a
-  // red-and-blue strobe hidden in the grille
-  I.suburban = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 24,
-    under: (c, t, o) => wheels(c, t, o, [[-7.5, -7], [-7.5, 7], [7, -7], [7, 7]], 5.4, 3),
-    tiers: [
-      { poly: [[12, -4.5], [12.5, 4.5], [11, 6], [-12, 6], [-12, -6], [11, -6]], h: 5.5, body: '#121418',
-        detail: (c) => {
-          c.fillStyle = '#4b5059'; c.fillRect(12, -4.5, 1.2, 9);                         // push bar
-          const blink = Math.sin(t * 9) > 0;
-          c.fillStyle = blink ? 'rgba(255,60,60,0.95)' : 'rgba(70,140,255,0.95)';
-          c.fillRect(11.2, -3.2, 0.9, 1.6); c.fillRect(11.2, 1.6, 0.9, 1.6);           // grille strobes
-        },
-      },
-      { poly: [[6, -5], [6, 5], [-11, 5], [-11, -5]], h: 4.5, body: '#16191e',
-        detail: (c) => {
-          c.fillStyle = '#20252c'; rr(c, -10.5, -4.5, 16, 9, 1.4); c.fill();             // roof
-          c.fillStyle = 'rgba(30,40,52,0.95)'; c.fillRect(4.6, -4, 1.4, 8);               // tinted windscreen
-        },
-      },
-    ],
   });
   // Disinfo Van: a windowless black van bristling with antennas and a spoofing
   // dish — the gear that fills the enemy radar with ghosts
