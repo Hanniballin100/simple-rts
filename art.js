@@ -1746,6 +1746,7 @@
     // to 0.75. Deliberately that way round: downscaling only ever sharpens
     // linework, where magnifying a small drawing is what made it look coarse.
     homestead: [200, 172], bushplane: [72, 56],
+    fedreserve: [80, 72],
   };
 
   // ================= HQ =================
@@ -3667,82 +3668,133 @@
     });
   };
   // ================= Federal Reserve =================
-  // A neoclassical vault block: columned portico, pediment, blank stone, and a
-  // single lit window at four in the morning. Where the skim is counted.
+  // A marble central bank, built up in stone like the HQ is built up in
+  // concrete: a pale podium with a stair, a main block with tall windows on
+  // both walls, a columned portico and pediment drawn ON the front (SE) wall so
+  // it follows the building's angle, and an attic block with a flag on the
+  // roof. Authored at its real 80x72 footprint.
+  //   o.hike    — Rate Hike running: a red ticker runs round the cornice and
+  //               the vault door glows
+  //   o.payroll — sleepers on the books: that many upper windows burn gold
   B.fedreserve = (ctx, t, o) => {
     pad(ctx, o);
-    isoBox(ctx, -22, -19, 44, 38, 17, '#7d7a70', { r: 1 });
-    // stepped plinth along the SE face
-    ctx.fillStyle = '#8d8a80';
-    ctx.beginPath();
-    ctx.moveTo(-22, 19); ctx.lineTo(22, 19); ctx.lineTo(26, 23); ctx.lineTo(-18, 23);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = 'rgba(50,48,42,0.4)'; ctx.lineWidth = 0.6; ctx.stroke();
-    billboard(ctx, 2, 16, () => {
-      // the portico: six fluted columns under a pediment
-      ctx.fillStyle = '#6e6b62';
-      ctx.fillRect(-13, -20, 26, 2);
-      for (let i = 0; i < 6; i++) {
-        const cx = -11 + i * 4.4;
-        ctx.fillStyle = '#a5a196';
-        ctx.fillRect(cx, -20, 2.6, 15);
-        ctx.fillStyle = 'rgba(255,255,255,0.18)'; ctx.fillRect(cx, -20, 0.9, 15);
-        ctx.fillStyle = 'rgba(40,38,33,0.35)'; ctx.fillRect(cx + 2.1, -20, 0.5, 15);
-        ctx.fillStyle = '#b8b4a8';                       // capital + base
-        ctx.fillRect(cx - 0.5, -20.8, 3.6, 1.1);
-        ctx.fillRect(cx - 0.5, -5.6, 3.6, 1.2);
-      }
-      // pediment
-      ctx.fillStyle = '#949086';
+    const STONE = '#cfc8b6', MARBLE = '#e4dece', TRIM = '#b9b19c';
+    // ---- podium ----
+    const PH = 4;
+    isoBox(ctx, -38, -34, 74, 66, PH, STONE, { r: 1, roofCol: '#d9d3c3' });
+    // ---- main block, standing on the podium ----
+    const X = -30 - PH, Y = -27 - PH, W = 54, H = 48, HG = 22;
+    isoBox(ctx, X, Y, W, H, HG, MARBLE, { r: 1, roofCol: '#d3ccbc', noShadow: true });
+    const rx = X - HG, ry = Y - HG;
+    // a quad on the SE (front) wall: s along the wall, k down from the roof
+    const se = (s0, s1, k0, k1) => {
       ctx.beginPath();
-      ctx.moveTo(-14.5, -20.8); ctx.lineTo(0, -27.5); ctx.lineTo(14.5, -20.8);
-      ctx.closePath(); ctx.fill();
-      ctx.strokeStyle = '#5c594f'; ctx.lineWidth = 0.7; ctx.stroke();
-      ctx.fillStyle = '#c9a95e';                          // gilded roundel in the tympanum
-      ctx.beginPath(); ctx.arc(0, -22.6, 1.7, 0, TAU); ctx.fill();
-      // the one lit window, always
-      ctx.fillStyle = 'rgba(235,225,175,0.8)';
-      ctx.fillRect(-3.4, -4.4, 3, 3.4);
-      ctx.fillStyle = 'rgba(48,45,40,0.9)';
-      ctx.fillRect(0.6, -4.4, 3, 3.4);
-      // brass plate by the door, kept polished
-      ctx.fillStyle = 'rgba(201,169,94,0.85)';
-      ctx.fillRect(6.6, -4.2, 4.4, 2.2);
-    });
-  };
-  // ================= Front Company =================
-  // A shopfront with a brass plaque and nobody in it: awning, blind window,
-  // a discreet sign, and a light on upstairs at all hours. Deliberately the
-  // least interesting building on the map.
-  B.frontcompany = (ctx, t, o) => {
-    pad(ctx, o);
-    isoBox(ctx, -17, -15, 34, 30, 13, '#6a6258', { r: 1, doorSE: { w: 7, h: 8 } });
-    // striped awning over the shopfront
-    ctx.fillStyle = '#7a4a42';
-    ctx.beginPath();
-    ctx.moveTo(-2, 9); ctx.lineTo(15, 1); ctx.lineTo(15, -3); ctx.lineTo(-2, 5);
-    ctx.closePath(); ctx.fill();
-    ctx.strokeStyle = 'rgba(30,26,22,0.5)'; ctx.lineWidth = 0.5; ctx.stroke();
-    ctx.strokeStyle = '#d8cfc2'; ctx.lineWidth = 0.8;
-    for (let i = 0; i < 3; i++) {
+      ctx.moveTo(rx + W + k0, ry + s0 + k0); ctx.lineTo(rx + W + k0, ry + s1 + k0);
+      ctx.lineTo(rx + W + k1, ry + s1 + k1); ctx.lineTo(rx + W + k1, ry + s0 + k1);
+      ctx.closePath();
+    };
+    // ...and on the SW (side) wall
+    const sw = (s0, s1, k0, k1) => {
       ctx.beginPath();
-      ctx.moveTo(1 + i * 4.6, 7.6 - i * 2.2); ctx.lineTo(1 + i * 4.6, 3.6 - i * 2.2);
-      ctx.stroke();
+      ctx.moveTo(rx + s0 + k0, ry + H + k0); ctx.lineTo(rx + s1 + k0, ry + H + k0);
+      ctx.lineTo(rx + s1 + k1, ry + H + k1); ctx.lineTo(rx + s0 + k1, ry + H + k1);
+      ctx.closePath();
+    };
+    // ---- cornice band round the top of both walls ----
+    ctx.fillStyle = TRIM;
+    se(0, H, 0, 3); ctx.fill();
+    sw(0, W, 0, 3); ctx.fill();
+    // Rate Hike: a red ticker crawling along the cornice
+    if (o.hike) {
+      ctx.fillStyle = '#2a2622';
+      se(1, H - 1, 0.8, 2.4); ctx.fill();
+      sw(1, W - 1, 0.8, 2.4); ctx.fill();
+      ctx.fillStyle = 'rgba(255,72,60,0.95)';
+      const off = (t * 10) % 6;
+      for (let p = 1 + off; p < H - 3; p += 6) { se(p, p + 3, 1.1, 2.1); ctx.fill(); }
+      for (let p = 1 + off; p < W - 3; p += 6) { sw(p, p + 3, 1.1, 2.1); ctx.fill(); }
     }
-    billboard(ctx, -6, 12, () => {
-      // the plaque — brass, unreadable, faintly lit when a cut lands
-      const lit = o.skim ? 1 : 0.45;
-      ctx.fillStyle = `rgba(201,169,94,${lit.toFixed(2)})`;
-      rr(ctx, -5, -9, 10, 4.5, 0.6); ctx.fill();
-      ctx.strokeStyle = '#3a3225'; ctx.lineWidth = 0.4; ctx.stroke();
-      ctx.fillStyle = 'rgba(40,34,26,0.8)';
-      for (let i = 0; i < 3; i++) ctx.fillRect(-3.6, -7.9 + i * 1.2, 7.2, 0.5);
-      // a single lit window upstairs, always
-      ctx.fillStyle = 'rgba(230,220,170,0.75)';
-      ctx.fillRect(-3, -16, 2.6, 3);
-      ctx.fillStyle = 'rgba(60,56,48,0.9)';
-      ctx.fillRect(0.6, -16, 2.6, 3);
+    // ---- windows: two storeys of tall narrow sash, gold where an asset reports ----
+    let lit = Math.min(12, o.payroll || 0);
+    const glass = (on) => on ? 'rgba(250,214,120,0.95)' : 'rgba(40,52,66,0.85)';
+    for (const [k0, k1] of [[6, 12], [14.5, 20]]) {
+      for (let p = 4; p + 3 <= W - 3; p += 6.5) {
+        ctx.fillStyle = glass(k0 < 10 && lit > 0 && lit--);
+        sw(p, p + 3, k0, k1); ctx.fill();
+      }
+      // the front wall only has windows either side of the portico
+      for (const p of [3.5, 8.5, H - 11.5, H - 6.5]) {
+        ctx.fillStyle = glass(k0 < 10 && lit > 0 && lit--);
+        se(p, p + 3, k0, k1); ctx.fill();
+      }
+    }
+    // ---- the portico on the front wall ----
+    const P0 = 13, P1 = H - 13;            // its extent along the wall
+    ctx.fillStyle = 'rgba(60,54,44,0.55)'; // the shaded recess behind the columns
+    se(P0, P1, 3, HG); ctx.fill();
+    // vault door, set back in the middle
+    const mid = (P0 + P1) / 2;
+    ctx.fillStyle = '#1b1a18';
+    se(mid - 3, mid + 3, 9, HG); ctx.fill();
+    if (o.hike) {
+      ctx.fillStyle = `rgba(255,60,50,${(0.35 + 0.25 * Math.sin(t * 3)).toFixed(2)})`;
+      se(mid - 3, mid + 3, 9, HG); ctx.fill();
+    }
+    // eight columns: lit face, shaded edge, capital and base
+    const n = 8, step = (P1 - P0) / n;
+    for (let i = 0; i < n; i++) {
+      const c0 = P0 + i * step + step * 0.22, c1 = c0 + step * 0.56;
+      ctx.fillStyle = '#f2ede1'; se(c0, c1, 3, HG); ctx.fill();
+      ctx.fillStyle = 'rgba(120,110,92,0.45)'; se(c1 - 0.7, c1, 3, HG); ctx.fill();
+      ctx.fillStyle = '#d8d0bc';
+      se(c0 - 0.5, c1 + 0.5, 3, 4.4); ctx.fill();
+      se(c0 - 0.5, c1 + 0.5, HG - 1.4, HG); ctx.fill();
+    }
+    // entablature across the column tops
+    ctx.fillStyle = '#c9c1ab';
+    se(P0 - 1.5, P1 + 1.5, 0, 3.2); ctx.fill();
+    ctx.strokeStyle = 'rgba(90,82,66,0.6)'; ctx.lineWidth = 0.6; ctx.stroke();
+    // pediment rising above the roofline
+    const apexK = -12;
+    ctx.beginPath();
+    ctx.moveTo(rx + W, ry + P0 - 1.5);
+    ctx.lineTo(rx + W + apexK, ry + mid + apexK);
+    ctx.lineTo(rx + W, ry + P1 + 1.5);
+    ctx.closePath();
+    ctx.fillStyle = '#ddd6c5'; ctx.fill();
+    ctx.strokeStyle = '#8f8670'; ctx.lineWidth = 0.9; ctx.stroke();
+    // ---- stair down the podium, in front of the portico ----
+    const sx = -38 + 74, sy0 = -34 - PH;   // podium SE wall at roof level
+    for (let i = 0; i < 3; i++) {
+      const k0 = i * (PH / 3), k1 = k0 + PH / 3;
+      ctx.fillStyle = i % 2 ? '#e6e0d1' : '#d2cbb9';
+      ctx.beginPath();
+      ctx.moveTo(sx - PH + k0, sy0 + 22 + k0); ctx.lineTo(sx - PH + k0, sy0 + 48 + k0);
+      ctx.lineTo(sx - PH + k1, sy0 + 48 + k1); ctx.lineTo(sx - PH + k1, sy0 + 22 + k1);
+      ctx.closePath(); ctx.fill();
+    }
+    // ---- attic block and flag on the roof ----
+    const AX = -22 - PH - HG, AY = -18 - PH - HG;
+    isoBox(ctx, AX, AY, 32, 26, 5, '#dcd5c4', { r: 1, roofCol: '#c8c0ad', noShadow: true });
+    billboard(ctx, AX - 5 + 4, AY - 5 + 4, () => {
+      ctx.strokeStyle = '#6d7480'; ctx.lineWidth = 0.9;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, -18); ctx.stroke();
+      const wv = Math.sin(t * 2.2) * 0.8;
+      ctx.fillStyle = '#3c4a66';
+      ctx.beginPath(); ctx.moveTo(0, -18); ctx.lineTo(8, -16.5 + wv); ctx.lineTo(0, -13); ctx.closePath(); ctx.fill();
     });
+    // ---- gilded eagle in the pediment ----
+    billboard(ctx, rx + W - 5, ry + mid - 5, () => {
+      ctx.fillStyle = '#d4b062';
+      ctx.beginPath();
+      ctx.moveTo(0, -2.6);
+      ctx.lineTo(-5, 0.6); ctx.lineTo(-1.6, 0); ctx.lineTo(0, 2);
+      ctx.lineTo(1.6, 0); ctx.lineTo(5, 0.6);
+      ctx.closePath(); ctx.fill();
+    });
+    // gold bar across the vault door
+    ctx.fillStyle = '#d4b062';
+    se(mid - 2.4, mid + 2.4, 14.6, 15.6); ctx.fill();
   };
   // ================= Mechanicum =================
   // the ascension hall: a casting shed where servitors are taken apart. A
@@ -8814,44 +8866,6 @@
       c.save(); c.translate(5, -4.5); c.scale(Math.sin(t * 1.4), 1);
       c.strokeStyle = '#c8cdd5'; c.lineWidth = 1;
       c.beginPath(); c.arc(0, 0, 2.6, Math.PI * 0.15, Math.PI * 0.85, true); c.stroke();
-      c.restore();
-    },
-  });
-  // Front Company truck: a rented box van in unbranded white. Every other
-  // vehicle on this roster is trying to look like something — the Disinfo Van
-  // bristles with masts, the Black Van wears a dish. This one is trying to look
-  // like nothing, so its roof is conspicuously bare: ribs, a skylight, one
-  // extractor. It goes quiet the moment it stops (cloakStill), and the art has
-  // to earn that. Nobody looks twice at a parked white truck.
-  I.frontco = (ctx, t, o) => isoVehicle(ctx, t, o, {
-    len: 25,
-    under: (c, t, o) => wheels(c, t, o, [[-8, -7.1], [-8, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
-    tiers: [
-      { poly: [[12, -3], [12, 3], [11, 6], [-12.5, 6], [-12.5, -6], [11, -6]], h: 8, body: '#b9bcbd',
-        detail: (c) => {
-          c.fillStyle = shade('#b9bcbd', 0.14); rr(c, -11.5, -5, 20, 10, 1.5); c.fill();   // box roof
-          // transverse ribs: the tell of a cheap rental box body
-          c.strokeStyle = shade('#b9bcbd', -0.22); c.lineWidth = 0.5;
-          for (let x = -10.4; x <= 2.5; x += 2.3) { c.beginPath(); c.moveTo(x, -4.7); c.lineTo(x, 4.7); c.stroke(); }
-          // the one concession to daylight inside the box
-          c.fillStyle = 'rgba(238,242,245,0.55)'; rr(c, -5.4, -3.1, 6.4, 6.2, 1); c.fill();
-          c.strokeStyle = shade('#b9bcbd', -0.3); c.lineWidth = 0.4;
-          rr(c, -5.4, -3.1, 6.4, 6.2, 1); c.stroke();
-          c.fillStyle = shade('#b9bcbd', -0.2); rr(c, 5.5, -5.5, 6.5, 11, 1.5); c.fill();  // cab, a shade darker
-          c.fillStyle = '#1c2026'; c.fillRect(10.2, -4, 1.6, 8);                            // windscreen
-        },
-      },
-    ],
-    above: (c, t) => {
-      // a small extractor over the tail, turning over. The only moving part.
-      c.fillStyle = shade('#b9bcbd', -0.34);
-      c.beginPath(); c.ellipse(-8.5, -0.9, 1.5, 1.1, 0, 0, TAU); c.fill();
-      c.save(); c.translate(-8.5, -1.4); c.rotate(t * 1.3); c.scale(1, 0.55);
-      c.strokeStyle = '#e2e6e9'; c.lineWidth = 0.5;
-      for (let i = 0; i < 3; i++) {
-        const a = (i / 3) * TAU;
-        c.beginPath(); c.moveTo(0, 0); c.lineTo(Math.cos(a) * 1.25, Math.sin(a) * 1.25); c.stroke();
-      }
       c.restore();
     },
   });

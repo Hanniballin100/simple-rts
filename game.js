@@ -41,8 +41,12 @@ const state = {
   reveals: [],     // Leaked Footage windows: {owner,x,y,r,until}
   charges: [],     // live demolition charges: {id,bld,owner,at,x,y}
   floats: [],      // short-lived world-space numbers ("+6" over a skim)
-  leverage: {},    // owner -> total skimmed by Front Companies (the ledger)
+  leverage: {},    // owner -> leverage banked from sleepers (the ledger)
   books: {},       // owner -> {on, until}: whose estate is currently laid open to them
+  rateHike: {},    // owner -> time their Rate Hike ends
+  rateHikeCd: {},  // owner -> time their next Rate Hike is allowed
+  loyaltyCd: {},   // owner -> time their next Loyalty Check is allowed
+  bribeCd: {},     // owner -> time their next Payroll bribe is allowed
   hqGrace: {},     // owner -> {until,at} while an HQ-less faction may still rebuild
   hqRebuilt: {},   // owner -> has already used its one rebuild
   seed: 0,         // match seed: the single input to the sim RNG stream
@@ -61,7 +65,6 @@ let pings = [];              // minimap ping ripples: view-only, never hashed
 // live on a sim object — state.skimSeen, state.construction[o].announced,
 // b.announcedReady — which meant a hashed field was being written according to
 // who happened to be watching. They are view state and they live out here now.
-let skimHintSeen = false;
 let announcedBuild = {};        // owner -> the construction job already announced
 let announcedSuper = new Set(); // building ids whose "ready" line has played
 let placing = null;          // building type being placed
@@ -75,6 +78,9 @@ const STRUCT_GAP = 8;        // min world gap between structure footprints (RA2-
                              // squeezing between — the path grid + A* handle it.
 let superTargeting = null;   // building id of a charged superweapon awaiting its target
 let leverageTargeting = null; // LEVERAGE_PLAYS key awaiting a target structure
+let contactTargeting = false; // selected Agents waiting for a unit to make contact with
+let loyaltyTargeting = false; // a Loyalty Check waiting for a spot
+let bribeTargeting = false;   // a Payroll bribe waiting for a unit
 let dropTargeting = null;    // Bush Plane building id awaiting its drop zone
 let demoTargeting = null;    // Ex-Special Forces ids awaiting an enemy structure
 let bcastTargeting = null;   // BROADCASTS key awaiting a spot on the map
@@ -107,8 +113,7 @@ function usesLeverage(owner) {
   const f = FACTIONS[key];
   if (!f) return false;
   if (_leverageFactions[key] === undefined) {
-    _leverageFactions[key] = [f.worker, f.infantry, f.aa, f.vehicle, f.air, ...(f.extras || []), ...(f.advanced || [])]
-      .some(u => u && UNIT_TYPES[u] && UNIT_TYPES[u].establishes);
+    _leverageFactions[key] = !!f.leverage;
   }
   return _leverageFactions[key];
 }
@@ -1106,7 +1111,7 @@ function nextStory(u) {
   let best = null, bestD = Infinity;
   for (const b of state.buildings) {
     if (b.hp <= 0 || !b.done || b.owner === u.owner || b.owner === NEUTRAL) continue;
-    if (filmLeft(b) <= 0 || !visibleTo(u.owner, b)) continue;
+    if (storyIn(b) <= 0 || !visibleTo(u.owner, b)) continue;
     // no sense starting a job we have no room to be paid for
     if (journoCap(u) - (u.proof || 0) < storyValue(b) * 0.5) continue;
     const d = dist(u, b);
@@ -1141,6 +1146,9 @@ function resumeBeat(u) {
 // government, the research lab, the doomsday device — are worth going back for.
 function storyValue(b) {
   const bt = bstatsOf(b);
+  // Walls and gates are not a story. Without this a Journalist could farm a
+  // line of 7-mineral segments for 55 proof apiece.
+  if (bt.wallKind) return 0;
   return (b.type === 'hq' || b.type === 'tech' || bt.superweapon)
     ? STORY_HEADLINE : STORY_PER_BUILDING;
 }
@@ -1292,6 +1300,12 @@ function retrainInto(u, kit) {
   // With it, your headcount is fixed by your farms and conversion is a quality
   // upgrade you pay for in income, for as long as the upgrade is alive.
   n.homeFarm = u.homeFarm;
+  // a sleeper stays a sleeper through retraining: the new specialist is the
+  // same man, and the handler still has his file
+  if (u.sleeperFor !== undefined && u.sleeperFor !== null) {
+    n.sleeperFor = u.sleeperFor;
+    if (u.sleeperUntil) n.sleeperUntil = u.sleeperUntil;
+  }
   u.hp = 0; u.abducted = true;        // consumed, no wreck and no death cry
   Particles.pulse(u.x, u.y, 16, [235, 200, 120]);
   return true;
@@ -1528,8 +1542,8 @@ function startConstruction(owner, type) {
   const rq = bstats(owner, type).req;
   if (rq && !hasStruct(owner, rq)) return false;
   const cost = bstats(owner, type).cost;
-  if (state.minerals[owner] < cost) return false;
-  state.minerals[owner] -= cost;
+  if (state.minerals[owner] < hikedCost(owner, cost)) return false;
+  payHiked(owner, cost);
   state.construction[owner] = { type, t: 0, duration: bstats(owner, type).buildTime, ready: false };
   return true;
 }
@@ -1860,6 +1874,12 @@ function updateHqContinuity(dt) {
 // ---------- spending LEVERAGE ----------
 // Applied to an enemy STRUCTURE; the play decides what happens to its owner.
 // Returns true if the leverage was actually spent.
+// The asset a play would run through: the unburned sleeper of `owner`'s
+// nearest to the target, if one is within reach.
+function leverageAsset(owner, target) {
+  return nearest(target, state.units, u => u.hp > 0 && u.sleeperFor === owner && !u.burned &&
+    !u.garrisoned && dist(u, target) <= LEVERAGE.reach);
+}
 function playLeverage(owner, key, target) {
   const play = LEVERAGE_PLAYS[key];
   if (!play || !target || target.kind !== 'building' || target.hp <= 0) return false;
@@ -1871,6 +1891,11 @@ function playLeverage(owner, key, target) {
     if (owner === localOwner) eva('Not enough leverage');
     return false;
   }
+  const asset = leverageAsset(owner, target);
+  if (!asset) {
+    if (owner === localOwner) eva('None of our people are close enough to that');
+    return false;
+  }
   const victim = target.owner;
   if (key === 'freeze') {
     // reuse the blackout the Deep State superweapon already speaks: dark
@@ -1879,23 +1904,81 @@ function playLeverage(owner, key, target) {
     Particles.pulse(target.x, target.y, 46, [190, 140, 255]);
   } else if (key === 'books') {
     state.books[owner] = { on: victim, until: state.time + play.dur };
-  } else if (key === 'margin') {
-    if (!state.construction[victim]) {
-      if (owner === localOwner) eva('They have nothing on the books right now');
-      return false;                       // nothing to call in — no charge
+  } else if (key === 'squeeze') {
+    if (!target.queue || !target.queue.length) {
+      if (owner === localOwner) eva('Nothing on order there');
+      return false;                       // nothing to squeeze — no charge
     }
-    state.construction[victim] = null;    // cancelled, and no refund
+    target.queue = [];                    // cancelled, and no refund
     Particles.pulse(target.x, target.y, 40, [190, 140, 255]);
   }
   state.leverage[owner] -= play.cost;
+  burnAsset(asset);
   if (owner === localOwner) eva(play.name + ' — executed');
-  // the victim is told only what they could work out for themselves
+  // the victim is told what happened, and who did it
   if (victim === localOwner) {
     eva(key === 'freeze' ? buildingName(target) + ' has gone dark'
-      : key === 'margin' ? 'Construction cancelled — the paperwork fell through'
+      : key === 'squeeze' ? 'Production cancelled — and one of ours was behind it'
       : 'Someone is reading our files');
   }
   return true;
+}
+// ---------- PAYROLL: buy a man outright ----------
+function bribePrice(u) {
+  const res = resilienceOf(u);
+  if (res === null) return null;
+  return Math.round(Math.max(PAYROLL.minBase, UNIT_TYPES[u.type].cost || 0) * PAYROLL.mul * (1 + res));
+}
+function bribeReady(owner) {
+  return fedReserves(owner).some(b => !isOffline(b)) && (state.bribeCd[owner] || 0) <= state.time;
+}
+function bribe(owner, m) {
+  if (!bribeReady(owner)) return false;
+  const why = contactBlocker(owner, m);
+  if (why) { if (owner === localOwner) eva(CONTACT_REFUSAL[why]); return false; }
+  const price = bribePrice(m);
+  if (state.minerals[owner] < price) { if (owner === localOwner) eva('Insufficient funds'); return false; }
+  state.minerals[owner] -= price;
+  state.bribeCd[owner] = state.time + PAYROLL.cd;
+  delete m.contact;
+  if (!makeSleeper(m, owner)) return false;
+  m.bribed = true;
+  return true;
+}
+
+// ---------- LOYALTY CHECK ----------
+function loyaltyReady(owner) {
+  return hasHq(owner) && (state.loyaltyCd[owner] || 0) <= state.time && state.minerals[owner] >= LOYALTY.cost;
+}
+function loyaltyCheck(owner, x, y) {
+  if (!loyaltyReady(owner)) return false;
+  state.minerals[owner] -= LOYALTY.cost;
+  state.loyaltyCd[owner] = state.time + LOYALTY.cd;
+  let found = 0;
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.owner !== owner) continue;
+    const d = Math.hypot(u.x - x, u.y - y);
+    if (u.sleeperFor !== undefined && u.sleeperFor !== null && !u.burned &&
+        d <= LOYALTY.r * (u.bribed ? 2 : 1)) {
+      burnAsset(u);
+      found++;
+      if (u.sleeperFor === localOwner) eva('One of our assets has been exposed');
+    }
+    // a half-made approach: the man is debriefed and warned
+    if (u.contact && d <= LOYALTY.r) {
+      delete u.contact;
+      u.contactImmuneUntil = state.time + LOYALTY.immune;
+    }
+  }
+  Particles.pulse(x, y, 60, [255, 210, 120]);
+  if (owner === localOwner) eva(found ? `Loyalty check — ${found} compromised` : 'Loyalty check — nothing found');
+  return true;
+}
+// An asset whose cover is gone: it stops reporting, and its real owner can see
+// exactly who it is (marked over the unit). Still the handler's to wake.
+function burnAsset(u) {
+  u.burned = true;
+  Particles.pulse(u.x, u.y, 12, [255, 90, 80]);
 }
 
 // ---------- structure repair ----------
@@ -2072,34 +2155,175 @@ function moleEligible(type) {
 // u.sleeperFor = owner of the handler. The unit's real owner never changes
 // until it is woken (see wakeSleeper), so nothing about it looks wrong.
 const SLEEPER_MAX = 3;          // assets in place at once
+
+// ---------- RATE HIKE (Federal Reserve) ----------
+// See RATE_HIKE in data.js. A hike only runs while a finished Federal Reserve
+// of the hiker's stands — burn it and rates come straight back down.
+function fedReserves(owner) {
+  return state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.done && b.type === 'fedreserve');
+}
+function rateHikeOn(owner) {
+  return !!(state.rateHike && state.rateHike[owner] > state.time) && fedReserves(owner).length > 0;
+}
+// who is squeezing this buyer right now (the first hiker, if several)
+function hikerAgainst(buyer) {
+  for (const o of OWNERS) if (o !== buyer && rateHikeOn(o)) return o;
+  return null;
+}
+// what `buyer` actually pays for something stickered at `base`
+function hikedCost(buyer, base) {
+  return hikerAgainst(buyer) !== null ? Math.ceil(base * RATE_HIKE.mul) : base;
+}
+// charge a purchase at the hiked price; the hiker pockets their cut
+function payHiked(buyer, base) {
+  const price = hikedCost(buyer, base);
+  state.minerals[buyer] -= price;
+  const hiker = hikerAgainst(buyer);
+  if (hiker !== null && price > base) state.minerals[hiker] += Math.floor((price - base) * RATE_HIKE.kickback);
+}
+function startRateHike(owner) {
+  if (!fedReserves(owner).some(b => !isOffline(b))) return false;
+  if ((state.rateHikeCd[owner] || 0) > state.time) return false;
+  state.rateHike[owner] = state.time + RATE_HIKE.dur;
+  state.rateHikeCd[owner] = state.time + RATE_HIKE.cd;
+  if (owner === localOwner) eva('Rates are up — everything they buy costs more');
+  else if (localOwner !== owner) eva('Interest rates have gone up — everything costs ' +
+    Math.round((RATE_HIKE.mul - 1) * 100) + '% more');
+  return true;
+}
 function sleeperCount(owner) {
   return state.units.reduce((n, u) => n + (u.hp > 0 && u.sleeperFor === owner ? 1 : 0), 0);
 }
-function recruitSleeper(owner) {
-  if (sleeperCount(owner) >= SLEEPER_MAX) return;
-  // anybody's line trooper will do, so long as they're not elite kit, not a
-  // one-of-a-kind, and not already somebody else's asset
-  const pool = state.units.filter(u => u.hp > 0 && u.owner !== owner && u.owner !== NEUTRAL &&
-    !u.sleeperFor && !u.garrisoned && !u.transit && moleEligible(u.type));
-  if (!pool.length) return;
-  const u = pool[Math.floor(simRandom() * pool.length)];
+// Sleepers come from CONTACT now (an Agent works on one enemy unit until it
+// turns) or from a Payroll bribe — never for free on a timer.
+function sleeperCap(owner) { return SLEEPER_MAX + PAYROLL.capPer * fedReserves(owner).length; }
+// Put `u` on `owner`'s books. False if the network is full.
+function makeSleeper(u, owner) {
+  if (sleeperCount(owner) >= sleeperCap(owner)) return false;
   u.sleeperFor = owner;
+  u.leverT = 0;
   // Crisis Actors: the handler can still turn them, but the arrangement has a
   // shelf life — they come to their senses and stop reporting
   if (disproved(u.owner, 'actors')) u.sleeperUntil = state.time + ACTORS_RETURN;
-  if (owner === localOwner) eva('An asset is in place');
+  if (owner === localOwner) eva(UNIT_TYPES[u.type].name + ' is on our books');
+  return true;
 }
+
+// ---------- RESILIENCE: how hard a unit is to turn ----------
+// null = cannot be turned at all. See RESILIENCE in data.js.
+function resilienceOf(u) {
+  const ut = UNIT_TYPES[u.type];
+  if (!ut || MINDLESS.has(u.type) || u.broodOf || ut.lifespan || ut.kamikaze) return null;
+  // one-of-a-kind units (the Prophet) stay loyal; a worker's `limit` is just
+  // the rig cap and does not make him special
+  if (ut.limit && ut.role !== 'worker') return null;
+  if (u.garrisoned || u.transit) return null;
+  let r;
+  if (ut.role === 'worker') r = RESILIENCE.worker;
+  else {
+    // militia are never bought (cost 0), so unitTier files them as elite; they
+    // are the most ordinary soldier in the game
+    const tier = u.type === 'militia' ? 1 : unitTier(u.type);
+    if (tier >= 3) return null;           // elite kit stays bought
+    r = tier === 1 ? RESILIENCE.tier1 : RESILIENCE.tier2;
+  }
+  const R = RESILIENCE;
+  if (state.buildings.some(b => b.owner === u.owner && b.hp > 0 && b.done &&
+      (b.type === 'hq' || bstatsOf(b).dmg) && dist(b, u) <= R.homeR)) r += R.home;
+  let friends = 0, anyone = false;
+  for (const o of state.units) {
+    if (o === u || o.hp <= 0 || o.owner !== u.owner || o.garrisoned) continue;
+    const d = dist(o, u);
+    if (d <= R.aloneR) anyone = true;
+    if (d <= R.friendR && UNIT_TYPES[o.type].role === 'combat') friends++;
+  }
+  r += Math.min(R.friendMax, friends * R.friend);
+  if (!anyone) r += R.alone;
+  r += vetRankOf(u) * R.vet;
+  if (u.hp < u.maxHp * 0.5) r += R.wounded;
+  if (u.type === 'militia') r += R.believer;
+  if (disproved(u.owner, 'actors')) r += R.actors;
+  return clamp(r, 0, R.max);
+}
+// Why `agentOwner` cannot work on `m` right now, or null if it can.
+function contactBlocker(agentOwner, m) {
+  if (!m || m.kind !== 'unit' || m.hp <= 0) return 'gone';
+  if (m.owner === agentOwner || m.owner === NEUTRAL) return 'ours';
+  if (m.sleeperFor !== undefined && m.sleeperFor !== null) return 'taken';
+  if (resilienceOf(m) === null) return 'immune';
+  if (m.contactImmuneUntil > state.time) return 'reported';
+  if (sleeperCount(agentOwner) >= sleeperCap(agentOwner)) return 'full';
+  return null;
+}
+const CONTACT_REFUSAL = {
+  gone: 'Nobody there', ours: 'Pick one of THEIR people', taken: "Already somebody's asset",
+  immune: 'That one cannot be turned', reported: 'They reported the last approach — give it time',
+  full: 'The network is full',
+};
+// An approach gone wrong: the target tells its officers, the Agent is burned.
+function blowContact(agent) {
+  const m = findEntity(agent.order.targetId);
+  if (m && m.kind === 'unit') {
+    m.contactImmuneUntil = state.time + CONTACT.reportImmune;
+    delete m.contact;
+    if (m.owner === localOwner) eva('A soldier has reported being approached');
+  }
+  agent.blownUntil = state.time + CONTACT.blown;
+  agent.order = { type: 'idle' };
+  if (agent.owner === localOwner) eva('Contact blown');
+}
+// Plain clothes, and the mark's safety: things a unit's OWN target scan skips.
+// Explicit attack orders ignore this — a player who spots the Agent can still
+// point at it and say "him".
+// An Agent who has not fired and has not been blown looks like a civilian.
+function inPlainClothes(e) {
+  return e.kind === 'unit' && !!UNIT_TYPES[e.type].plainClothes &&
+    !(e.exposedUntil > state.time) && !(e.blownUntil > state.time);
+}
+function autoIgnores(u, e) {
+  if (e.kind !== 'unit') return false;
+  if (inPlainClothes(e) && !(u.kind === 'unit' && UNIT_TYPES[u.type].detector)) return true;
+  // never shoot the man our own Agent is in the middle of talking to
+  if (e.contact && e.contact.by === u.owner && state.time - e.contact.t < 1) return true;
+  return false;
+}
+
 // wake one: it turns on the spot, right where it stands
 function wakeSleeper(u) {
   if (!u || u.hp <= 0 || u.sleeperFor === undefined) return false;
   const handler = u.sleeperFor;
   const wasOwner = u.owner;
   delete u.sleeperFor;
+  delete u.burned; delete u.bribed;
   u.owner = handler;
   u.disguised = false;
   u.carrying = 0;
   u.order = { type: 'idle' };
   delete u.homeId; delete u.slot;          // no longer welcome at its old airfield
+  // a sleeper woken inside one of their buildings (a farmhand back in his
+  // homestead) walks out of it — otherwise he sits in their yard, yours in
+  // name, still counted as their farmhand
+  if (u.garrisoned) {
+    const b = findEntity(u.garrisoned);
+    if (b && b.garrison) {
+      b.garrison = b.garrison.filter(id => id !== u.id);
+      u.x = b.x; u.y = b.y + entityRadius(b) + 14;
+    }
+    u.garrisoned = null;
+  }
+  // he deserted: his farm is short a body and grows a replacement
+  delete u.homeFarm;
+  // Turn on the PEOPLE around him, not the nearest wall. Left to the normal
+  // idle scan he locked onto whatever was closest — often the building he had
+  // just walked out of — and plinked at it while the squad beside him shot him
+  // dead. Whoever is already shooting at him comes first.
+  const ut = UNIT_TYPES[u.type];
+  const shooter = u.lastHitBy ? findEntity(u.lastHitBy) : null;
+  const first = (shooter && shooter.hp > 0 && shooter.owner !== handler && canTarget(ut, shooter) &&
+      dist(u, shooter) <= ut.sight) ? shooter
+    : nearestTarget(u, enemiesOf(handler), e => e.kind === 'unit' && !hiddenFrom(e, handler) &&
+        canTarget(ut, e) && dist(u, e) <= ut.sight);
+  if (first) orderAttack(u, first);
   Particles.pulse(u.x, u.y, 34, [190, 140, 255]);
   if (handler === localOwner) eva(UNIT_TYPES[u.type].name + ' was always ours');
   else if (wasOwner === localOwner) eva('One of ours was never ours');
@@ -2207,9 +2431,6 @@ function updateAbilities(dt) {
     } else if (fkey === 'resistance' && sig.timer >= 120) {
       sig.timer -= 120;
       spawnSmuggler(owner);
-    } else if (fkey === 'deep' && sig.timer >= 75) {
-      sig.timer -= 75;
-      recruitSleeper(owner);
     }
     // AIs cast their manual powers on simple rules (throttled so the cluster
     // scans don't run every frame)
@@ -2218,6 +2439,33 @@ function updateAbilities(dt) {
       if (sig.tryT <= 0) {
         sig.tryT = 2;
         if (fkey === 'deep' && sig.cd <= 0) castGaslight(owner);
+        if (fkey === 'deep' && (state.rateHikeCd[owner] || 0) <= state.time &&
+            fedReserves(owner).some(b => !isOffline(b))) startRateHike(owner);
+        // Payroll: buy a man in their base when the books have room and the
+        // treasury can carry it
+        if (fkey === 'deep' && bribeReady(owner) && sleeperCount(owner) < sleeperCap(owner)) {
+          let pick = null, cheapest = Infinity;
+          for (const m of state.units) {
+            if (m.owner === owner || m.owner === NEUTRAL || m.hp <= 0 || contactBlocker(owner, m)) continue;
+            if (!state.buildings.some(b => b.owner === m.owner && b.hp > 0 && (b.type === 'hq' || b.type === 'tech') &&
+                dist(b, m) <= LEVERAGE.deepR)) continue;   // only men who will report from the inside
+            const pr = bribePrice(m);
+            if (pr < cheapest) { cheapest = pr; pick = m; }
+          }
+          if (pick && state.minerals[owner] >= cheapest + 400) bribe(owner, pick);
+        }
+        // facing a Deep State: vet the army now and then, where it is thickest
+        if (OWNERS.some(o => o !== owner && state.factions[o] === 'deep') && ais[owner].time > 150 &&
+            state.minerals[owner] >= LOYALTY.cost + 200 && loyaltyReady(owner)) {
+          let best = null, bestN = 0;
+          for (const u of state.units) {
+            if (u.owner !== owner || u.hp <= 0 || u.garrisoned) continue;
+            let n = 0;
+            for (const o of state.units) if (o.owner === owner && o.hp > 0 && !o.garrisoned && dist(o, u) <= LOYALTY.r) n++;
+            if (n > bestN) { bestN = n; best = u; }
+          }
+          if (best && bestN >= 4) loyaltyCheck(owner, best.x, best.y);
+        }
         // ASSETS: an AI handler wakes a sleeper when it is standing INSIDE a
         // fight — surrounded by its nominal allies with the handler's own
         // troops in reach. Turning it in an empty field would waste it.
@@ -2225,8 +2473,11 @@ function updateAbilities(dt) {
           for (const a of sleeperEyes(owner)) {
             const friendsOfTheirs = state.units.reduce((n, e) => n +
               (e.hp > 0 && e.owner === a.owner && e !== a && dist(e, a) < 170 ? 1 : 0), 0);
-            const mineNear = state.units.some(e => e.hp > 0 && e.owner === owner && dist(e, a) < 420);
-            if (friendsOfTheirs >= 2 && mineNear) { wakeSleeper(a); break; }
+            // real troops close enough to exploit it — an Agent standing next
+            // to the man it just turned is not an army
+            const mineNear = state.units.reduce((n, e) => n + (e.hp > 0 && e.owner === owner &&
+              UNIT_TYPES[e.type].role === 'combat' && !UNIT_TYPES[e.type].plainClothes && dist(e, a) < 420 ? 1 : 0), 0);
+            if (friendsOfTheirs >= 2 && mineNear >= 2) { wakeSleeper(a); break; }
           }
         }
         else if (fkey === 'reptilian' && !sig.used && ais[owner].time > 240) castRevealInfiltrator(owner);
@@ -2964,6 +3215,9 @@ function dealDamage(attacker, target, dmg, stats) {
   if (stats.sup && target.owner !== undefined && disproved(target.owner, 'nukes')) dmg *= 0.5;
   // who last hit it, so the death sweep can credit the kill to somebody
   if (attacker && attacker.kind === 'unit' && attacker.id !== undefined) target.lastHitBy = attacker.id;
+  // shot at in the middle of an approach: the mark reports it
+  if (target.kind === 'unit' && target.order && target.order.type === 'contact' && attacker &&
+      attacker.owner !== target.owner) blowContact(target);
   target.hp -= dmg;
   // loosh harvest: book it once, on the lethal blow. A Reptilian killer reaps
   // loosh from any kill (more from enemy infantry); a Reptilian owner reaps it
@@ -3332,7 +3586,7 @@ function fireAt(u, target, t) {
     // EXPOSE_FIRING seconds. Pad aircraft are the exception and stay lit all
     // the way home (cleared when they land to rearm), because a jet cannot
     // simply hold still until people forget about it.
-    if (t.stealth || t.cloakStill || t.forestOnly) {
+    if (t.stealth || t.cloakStill || t.forestOnly || t.plainClothes) {
       if (t.cloakStill && u.cloaked) u.ambush = true;   // decloak first-strike
       u.exposedUntil = (t.stealth && t.pad) ? Infinity : state.time + EXPOSE_FIRING;
     }
@@ -3510,7 +3764,7 @@ const isIdleWall = (u, e) =>
 function nextTargetOrIdle(u, t) {
   if (t.flying && !(t.maxAmmo && u.ammo <= 0)) {
     const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-      !hiddenFrom(e, u.owner) && canTarget(t, e) && !isIdleWall(u, e) &&
+      !hiddenFrom(e, u.owner) && canTarget(t, e) && !isIdleWall(u, e) && !autoIgnores(u, e) &&
       dist(u, e) <= Math.max(t.sight * 1.6, 450) && dist(u, e) >= (t.minRange || 0));
     if (foe) { orderAttack(u, foe); return; }
   }
@@ -3535,7 +3789,7 @@ function nextTargetOrIdle(u, t) {
 // will chase anything in the sky, at any altitude.
 function volleyPick(u, range, mode) {
   return nearestTarget(u, enemiesOf(u.owner), e => {
-    if (hiddenFrom(e, u.owner)) return false;
+    if (hiddenFrom(e, u.owner) || autoIgnores(u, e)) return false;
     if (dist(u, e) > range + entityRadius(e)) return false;
     if (e.kind === 'building') return mode !== 'air';
     const et = UNIT_TYPES[e.type];
@@ -3621,13 +3875,16 @@ function updateVolley(u, t, dt) {
 function autoAcquire(u, dt) {
   const t = UNIT_TYPES[u.type];
   if (t.maxAmmo && u.ammo <= 0) return; // nothing left to shoot with
+  // a man in plain clothes does not start fights: the first shot is the end
+  // of the cover. He fires when ordered to, or once he has been made.
+  if (inPlainClothes(u)) return;
   // stagger the full-map target sweeps — every idle unit scanning every
   // frame was a big slice of late-game frame time
   u.scanT = (u.scanT === undefined ? (u.id % 10) * 0.03 : u.scanT) - dt;
   if (u.scanT > 0) return;
   u.scanT = 0.3;
   const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-    !hiddenFrom(e, u.owner) && canTarget(t, e) && !isIdleWall(u, e) &&
+    !hiddenFrom(e, u.owner) && canTarget(t, e) && !isIdleWall(u, e) && !autoIgnores(u, e) &&
     dist(u, e) <= t.sight && dist(u, e) >= (t.minRange || 0));
   if (foe) orderAttack(u, foe);
 }
@@ -3795,7 +4052,7 @@ function updateBrood(u, stats, dt) {
       // whatever the swarm can find for itself, out to well past her sight —
       // the escort picks its own fights rather than waiting to be pointed
       const own = stats.dmg ? nearestTarget(u, enemiesOf(u.owner), e => !hiddenFrom(e, u.owner) &&
-        canTarget(stats, e) && dist(mom, e) <= UNIT_TYPES[mom.type].sight + 140) : null;
+        canTarget(stats, e) && !autoIgnores(u, e) && dist(mom, e) <= UNIT_TYPES[mom.type].sight + 140) : null;
       const threat = momTgt || own;
       if (threat && stats.dmg) {
         u.order = { type: 'attack', targetId: threat.id };
@@ -4007,7 +4264,8 @@ function workerSelfDefense(u, stats, dt) {
   if (u.defT <= 0) {
     u.defT = 0.35;
     const foe = nearest(u, enemiesOf(u.owner), e =>
-      !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.atkRange + entityRadius(e));
+      !hiddenFrom(e, u.owner) && canTarget(stats, e) && !autoIgnores(u, e) &&
+      dist(u, e) <= stats.atkRange + entityRadius(e));
     u.defFoeId = foe ? foe.id : null;
   }
   if (u.defFoeId && u.cooldown <= 0) {
@@ -4040,7 +4298,8 @@ function updateCargoRiders(u, dt) {
     const pt = UNIT_TYPES[p.type];
     if (ferrying || !pt.dmg || p.cooldown > 0) continue;
     const foe = nearestTarget(u, enemiesOf(u.owner), e =>
-      !hiddenFrom(e, u.owner) && canTarget(pt, e) && dist(u, e) <= pt.atkRange + reach + entityRadius(e));
+      !hiddenFrom(e, u.owner) && canTarget(pt, e) && !autoIgnores(p, e) &&
+      dist(u, e) <= pt.atkRange + reach + entityRadius(e));
     if (foe) { p.facing = Math.atan2(foe.y - u.y, foe.x - u.x); fireAt(p, foe, pt); }
   }
 }
@@ -4243,7 +4502,8 @@ function updateUnit(u, dt) {
       if (!foe && u.scanT <= 0) {
         u.scanT = 0.25;
         foe = nearestTarget(u, enemiesOf(u.owner), e =>
-          !hiddenFrom(e, u.owner) && canTarget(stats, e) && dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
+          !hiddenFrom(e, u.owner) && canTarget(stats, e) && !autoIgnores(u, e) &&
+          dist(u, e) <= stats.sight && dist(u, e) >= (stats.minRange || 0));
       }
       o.foeId = foe ? foe.id : null;
       if (foe) { tryAttack(u, foe, dt); break; }
@@ -4397,22 +4657,6 @@ function updateUnit(u, dt) {
       break;
     }
 
-    case 'establish': {
-      // park and become the building. It can go anywhere — deep in their
-      // territory is the point — but not on top of something else.
-      if (placementBlocked(u.owner, stats.establishes, u.x, u.y)) {
-        if (u.owner === localOwner) eva('No room to open here');
-        u.order = { type: 'idle' }; break;
-      }
-      const b = makeBuilding(u.owner, stats.establishes, u.x, u.y);
-      b.done = true;
-      u.abducted = true; u.hp = 0;    // consumed, no wreck
-      Particles.pulse(b.x, b.y, 30, [190, 140, 255]);
-      if (u.owner === localOwner) eva('Front company open for business');
-      break;
-    }
-
-
     // ---------- militia: walk into the tent and come out as something ----------
     case 'retrain': {
       const tent = findEntity(o.destId);
@@ -4469,6 +4713,35 @@ function updateUnit(u, dt) {
       break;
     }
     // ---------- Journalist: get the story ----------
+    // ---------- Agent: make contact with an enemy unit ----------
+    // Walk up, hold fire, and work on him. The meter lives on the TARGET, so
+    // a second Agent picks up where the first left off, and walking away only
+    // lets it drain slowly (see the decay pass in stepSim).
+    case 'contact': {
+      const m = findEntity(o.targetId);
+      const why = contactBlocker(u.owner, m);
+      if (why) {
+        if (u.owner === localOwner && why !== 'gone') eva(CONTACT_REFUSAL[why]);
+        u.contacting = false; u.order = { type: 'idle' }; break;
+      }
+      if (dist(u, m) > CONTACT.r) {
+        u.contacting = false;
+        moveToward(u, m.x, m.y, dt, CONTACT.r * 0.75, m.id);
+        break;
+      }
+      u.contacting = true;
+      u.facing = Math.atan2(m.y - u.y, m.x - u.x);
+      if (!m.contact || m.contact.by !== u.owner) m.contact = { by: u.owner, p: 0 };
+      m.contact.t = state.time;
+      m.contact.p += dt / (CONTACT.base / (1 - resilienceOf(m)));
+      if (m.contact.p >= 1) {
+        delete m.contact;
+        u.contacting = false;
+        u.order = { type: 'idle' };
+        if (makeSleeper(m, u.owner)) Particles.pulse(m.x, m.y, 14, [190, 140, 255]);
+      }
+      break;
+    }
     case 'film': {
       const tgt = findEntity(o.destId);
       if (!tgt || tgt.hp <= 0 || tgt.owner === u.owner || tgt.owner === NEUTRAL ||
@@ -4723,32 +4996,7 @@ function updateUnit(u, dt) {
       // HQ by traffic or neighboring buildings must not be told "not close enough"
       if (moveToward(u, dock.x, dock.y, dt, UNIT_TYPES[u.type].r + 6, depot.id) ||
           rectDist(u, depot) <= UNIT_TYPES[u.type].r + 14) {
-        // THE AUDIT: a hostile Front Company within reach of this drop-off
-        // takes its cut off the top. The victim is told NOTHING — they simply
-        // bank less than they mined and have to work out why.
-        let load = u.carrying;
-        const field = state.patches.find(p => p.id === o.patchId);
-        const skimmer = nearest(depot, state.buildings, b => b.hp > 0 && b.owner !== u.owner &&
-          b.owner !== NEUTRAL && bstatsOf(b).thief &&
-          (dist(b, depot) <= bstatsOf(b).thief.r ||            // sat on their depot
-           (field && dist(b, field) <= bstatsOf(b).thief.r))); // ...or on the field they worked
-        if (skimmer) {
-          // every Federal Reserve standing widens the take
-          const boost = state.buildings.reduce((n, b) => n + (b.owner === skimmer.owner && b.hp > 0 &&
-            b.done && bstatsOf(b).skimBoost ? bstatsOf(b).skimBoost : 0), 0);
-          const rate = Math.min(0.75, bstatsOf(skimmer).thief.cut + boost);
-          const cut = Math.min(load, Math.max(1, Math.round(load * rate)));
-          load -= cut;
-          state.leverage[skimmer.owner] = (state.leverage[skimmer.owner] || 0) + cut;
-          state.minerals[skimmer.owner] += cut;
-          skimmer.skimT = state.time;                 // the plaque flickers (art)
-          skimmer.skimAmt = cut;
-          state.floats.push({ x: skimmer.x, y: skimmer.y - 18, text: '+' + cut, t: state.time, col: '#c9a7ff' });
-          if (skimmer.owner === localOwner && !skimHintSeen) {
-            skimHintSeen = true;
-            eva('First cut banked — spend LEVERAGE from your HQ or any front company');
-          }
-        }
+        const load = u.carrying;
         // Sponsors Pulled Out: their backers are gone and the load is worth half
         state.minerals[u.owner] += bcastAgainst(u.owner, 'sponsors')
           ? Math.round(load * BROADCASTS.sponsors.mul) : load;
@@ -4828,10 +5076,10 @@ function trainUnit(owner, unitType) {
     b.owner === owner && b.hp > 0 && b.done && b.type === ut.builtAt && b.queue.length < 5);
   if (ut.pad) trainers = trainers.filter(b => padLoad(b) < padCapOf(b)); // needs a free pad slot
   if (!trainers.length) return false;
-  if (state.minerals[owner] < ut.cost) return false;
+  if (state.minerals[owner] < hikedCost(owner, ut.cost)) return false;
   if ((ut.loosh || 0) > (state.loosh[owner] || 0)) return false; // caste tier runs on loosh
   trainers.sort((a, b) => ut.pad ? padLoad(a) - padLoad(b) : a.queue.length - b.queue.length);
-  state.minerals[owner] -= ut.cost;
+  payHiked(owner, ut.cost);
   if (ut.loosh) state.loosh[owner] -= ut.loosh;
   // Deep Forges relic: the assembly lines remember how it was done
   trainers[0].queue.push({ type: unitType, t: 0, duration: ut.buildTime });
@@ -5331,6 +5579,8 @@ function aiDesiredStructure(owner, counts, power) {
     order.push('airpad');
     if (f.airFocus > 1) order.push('airpad');
   }
+  // a faction with no airfield (the Deep State) never queues one
+  if (f.noAirpad) for (let i; (i = order.indexOf('airpad')) >= 0;) order.splice(i, 1);
   // once teched up, everyone wants their doomsday device (needs the extra power)
   if (superweaponsOn && (f.structs || []).includes('superweapon')) order.push('powerplant', 'superweapon');
   // income structures (e.g. Hollow's Crystal Geode) ARE economy for the worker
@@ -5639,45 +5889,58 @@ function aiTrainArmy(owner, f, counts, army, reserve) {
   }
 }
 
-// ---------- the Deep State runs its front companies ----------
-// Nobody else would ever build a Front Company: it has no gun, so the army
-// mix filters it straight out. It has to be bought on purpose, driven to
-// THEIR doorstep, and opened — and then the ledger it fills has to be spent.
-function aiDeepStateFronts(owner, counts, reserve) {
-  const FRONTS = 2;
-  const open = state.buildings.filter(b => b.owner === owner && b.hp > 0 && b.type === 'frontcompany');
-  const vans = state.units.filter(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].establishes);
-  if (counts.factory && counts.tech && open.length + vans.length < FRONTS &&
-      state.minerals[owner] >= UNIT_TYPES.frontco.cost + reserve &&
-      !state.buildings.some(b => b.owner === owner && b.queue.some(j => UNIT_TYPES[j.type].establishes))) {
-    trainUnit(owner, 'frontco');
-  }
-  // drive each idle van to an enemy drop-off and open up just outside it
-  for (const v of vans) {
-    if (v.order.type !== 'idle') continue;
-    const mark = nearest(v, state.buildings, b => b.owner !== owner && b.owner !== NEUTRAL && b.hp > 0 &&
-      (b.type === 'hq' || bstatsOf(b).dropoff) &&
-      !open.some(f => dist(f, b) <= bstatsOf(f).thief.r * 0.6));
-    if (!mark) continue;
-    // stand off a little: close enough to skim, far enough to go unnoticed
-    const d = dist(v, mark) || 1;
-    const sx = mark.x + (v.x - mark.x) / d * 300, sy = mark.y + (v.y - mark.y) / d * 300;
-    if (dist(v, { x: sx, y: sy }) > 60) v.order = { type: 'move', x: clamp(sx, 60, WORLD_W - 60), y: clamp(sy, 60, WORLD_H - 60) };
-    else v.order = { type: 'establish' };
-  }
-  // spend the ledger: the most expensive play it can afford, on whatever of
-  // theirs matters most (production first, then anything at all)
-  const lev = state.leverage[owner] || 0;
-  if (lev >= LEVERAGE_PLAYS.books.cost) {
-    const affordable = Object.entries(LEVERAGE_PLAYS)
-      .filter(([, pl]) => lev >= pl.cost).sort((a, b) => b[1].cost - a[1].cost);
-    const foe = randomHostile(owner);
-    const prize = state.buildings.find(b => b.owner === foe && b.hp > 0 &&
-        ['factory', 'barracks', 'airpad', 'tech'].includes(b.type)) ||
-      state.buildings.find(b => b.owner === foe && b.hp > 0 && b.type !== 'wall');
-    if (prize) {
-      for (const [key] of affordable) if (playLeverage(owner, key, prize)) break;
+// ---------- the Deep State works its agents ----------
+// Up to two Agents at a time peel off to work on the softest enemy they can
+// see nearby: lone, green, wounded, far from home. Never a hard target.
+function aiDeepStateAgents(owner) {
+  if (sleeperCount(owner) >= sleeperCap(owner)) return;
+  const busy = state.units.reduce((n, u) => n + (u.owner === owner && u.hp > 0 && u.order.type === 'contact' ? 1 : 0), 0);
+  if (busy >= 2) return;
+  const free = state.units.filter(u => u.owner === owner && u.hp > 0 && UNIT_TYPES[u.type].contacts &&
+    !u.garrisoned && ['idle', 'move', 'attackmove'].includes(u.order.type) && !(u.blownUntil > state.time));
+  for (const ag of free.slice(0, 2 - busy)) {
+    let best = null, bs = Infinity;
+    for (const m of state.units) {
+      if (m.owner === owner || m.owner === NEUTRAL || m.hp <= 0 || m.garrisoned) continue;
+      // the AI knows where their people are (as the rest of the AI does); what
+      // it will NOT do is walk into a crowd — soft targets only
+      const d = dist(ag, m);
+      if (d > 2600 || contactBlocker(owner, m)) continue;
+      const res = resilienceOf(m);
+      if (res > 0.45) continue;
+      // towers do not care about plain clothes: never work a man under their guns
+      if (state.buildings.some(b => b.owner === m.owner && b.hp > 0 && b.done && bstatsOf(b).dmg &&
+          dist(b, m) <= (bstatsOf(b).atkRange || 0) + CONTACT.r + 40)) continue;
+      const score = d + res * 2500;
+      if (score < bs) { bs = score; best = m; }
     }
+    if (best) ag.order = { type: 'contact', targetId: best.id };
+  }
+}
+
+// ---------- the Deep State spends its ledger ----------
+function aiDeepStateLeverage(owner) {
+  // spend the ledger through whichever asset is standing next to something
+  // worth hitting: production first (Freeze, then Squeeze if it has a queue),
+  // a Leak if nothing better is affordable
+  const lev = state.leverage[owner] || 0;
+  if (lev < LEVERAGE_PLAYS.books.cost) return;
+  for (const a of state.units) {
+    if (a.hp <= 0 || a.sleeperFor !== owner || a.burned || a.garrisoned) continue;
+    const near = state.buildings.filter(b => b.owner === a.owner && b.hp > 0 && b.done &&
+      !bstatsOf(b).wallKind && dist(b, a) <= LEVERAGE.reach);
+    const prize = near.find(b => ['factory', 'barracks', 'airpad', 'tech'].includes(b.type)) || near[0];
+    if (!prize) continue;
+    if (lev >= LEVERAGE_PLAYS.freeze.cost && playLeverage(owner, 'freeze', prize)) return;
+    if (lev >= LEVERAGE_PLAYS.squeeze.cost && prize.queue && prize.queue.length &&
+        playLeverage(owner, 'squeeze', prize)) return;
+  }
+  // nothing worth hitting is in reach of anyone: hold the money unless it is
+  // piling up, then buy a look at their whole estate
+  if (lev >= 200) {
+    const any = state.units.find(a => a.hp > 0 && a.sleeperFor === owner && !a.burned && !a.garrisoned);
+    const b = any && nearest(any, state.buildings, x => x.owner === any.owner && x.hp > 0 && x.done);
+    if (b) playLeverage(owner, 'books', b);
   }
 }
 
@@ -5827,6 +6090,9 @@ function aiDefend(owner, army, hq) {
   let threat = null, best = Infinity;
   for (const u of state.units) {
     if (u.owner === owner || u.hp <= 0 || u.garrisoned || hiddenFrom(u, owner)) continue;
+    // a man in plain clothes is not an alarm — the AI has to catch him at it,
+    // exactly as a player would
+    if (inPlainClothes(u)) continue;
     const dh = dist(hq, u);
     let score = dh < 560 ? dh : Infinity;             // wide ring around the HQ
     if (score === Infinity) {                          // else: raiding an outlying building?
@@ -5951,7 +6217,7 @@ function updateAI(owner, dt) {
   aiTrainArmy(owner, f, counts, army, reserve);
 
   // faction business nobody else transacts
-  if (state.factions[owner] === 'deep') aiDeepStateFronts(owner, counts, reserve);
+  if (state.factions[owner] === 'deep') { aiDeepStateAgents(owner); aiDeepStateLeverage(owner); }
 
   // wall in the base once it's established and flush
   if (ai.time > 100 && state.minerals[owner] > 300 + riteHold) aiFortify(owner, ai, hq);
@@ -6125,7 +6391,7 @@ function issueCommand(owner, unitIds, x, y) {
   // beats the normal attack order because the Journalist has no weapon — an
   // attack order on a camera crew is just a walk toward the guns.
   const filmTgt = state.buildings.find(b2 => b2.hp > 0 && b2.owner !== owner && b2.owner !== NEUTRAL &&
-    Math.abs(x - b2.x) <= b2.w / 2 + 12 && Math.abs(y - b2.y) <= b2.h / 2 + 12);
+    !bstatsOf(b2).wallKind && Math.abs(x - b2.x) <= b2.w / 2 + 12 && Math.abs(y - b2.y) <= b2.h / 2 + 12);
   if (filmTgt) {
     const crew = units.filter(u => UNIT_TYPES[u.type].investigator && (u.proof || 0) < journoCap(u));
     if (crew.length) {
@@ -6224,7 +6490,7 @@ function issueCommand(owner, unitIds, x, y) {
 // selection? Read-only mirror of issueCommand, used to draw a contextual
 // cursor reticle so the player sees "attack / repair / capture / ..." on hover.
 function hoverContext(x, y) {
-  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || wallDrag ||
+  if (placing || attackMoveArmed || plantArmed || abilityTargeting || superTargeting || leverageTargeting || contactTargeting || loyaltyTargeting || bribeTargeting || wallDrag ||
       dropTargeting || demoTargeting || bcastTargeting) return null;
   const units = selection.filter(e => e.kind === 'unit' && e.hp > 0 && e.owner === localOwner);
   if (!units.length) return null;
@@ -6548,7 +6814,6 @@ function unitBlurb(type) {
   if (t.detector) b.push('DETECTOR: reveals stealth, disguise and burrowers');
   if (t.stealth) b.push('stealth — invisible until it fires');
   if (t.forestOnly) b.push('only fires from INSIDE a forest — invisible among the trees until the muzzle flash');
-  if (t.establishes) b.push('DEPLOYS into a disguised front — skims a share of every enemy mineral delivery within reach, until a detector finds it');
   if (t.digger) b.push('right-click a Dig Site to excavate its relic (everyone sees the progress)');
   if (t.priest) b.push('recovers exposed relics (teleports home with the prize) and salvages fallen Guard/Dreadnought armor to halve the next rite');
   if (t.relentless) b.push('relentless: builds speed once it has a target marked, and runs foot troops down');
@@ -6611,7 +6876,6 @@ function buildingBlurb(type) {
     b.push('superweapon — charges over minutes, then devastates a target zone anywhere on the map');
     if (isReptilian(localOwner)) b.push('the throne also deepens the slave pit by 4 while it stands');
   }
-  if (bt.thief) b.push(`skims ${Math.round(bt.thief.cut * 100)}% of every enemy mineral load delivered within ${bt.thief.r} — silently, until a detector exposes it`);
   if (bt.trip) b.push('buried charge — detonates under enemy ground forces');
   if (type === 'wall') b.push('blocks ground movement');
   if (type === 'gate') b.push('wall segment that lets your own ground forces through');
@@ -6637,7 +6901,7 @@ function buildSidebar() {
   for (const k of Object.keys(cameoButtons)) delete cameoButtons[k];
   const f = facOf(localOwner);
 
-  let structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', 'airpad', 'tech', ...(f.structs || [])];
+  let structs = ['powerplant', 'barracks', f.tower, f.aaTower, 'factory', ...(f.noAirpad ? [] : ['airpad']), 'tech', ...(f.structs || [])];
   if (!superweaponsOn) structs = structs.filter(s => s !== 'superweapon');
   for (const s of structs) {
     // a faction that never renamed a slot falls back to the base table's name
@@ -6648,7 +6912,7 @@ function buildSidebar() {
       (bstats(localOwner, s).req ? `\nRequires ${f.buildingNames[bstats(localOwner, s).req] || bstats(localOwner, s).req}` : '');
   }
   const unlocks = [...(f.advanced || []).map(u => UNIT_TYPES[u].name),
-    ...(bstats(localOwner, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
+    ...(!f.noAirpad && bstats(localOwner, 'airpad').req === 'tech' ? [f.buildingNames.airpad || 'Airfield'] : [])];
   cameoButtons['s:tech'].btn.title = buildingBlurb('tech') +
     (unlocks.length ? '\nUnlocks: ' + unlocks.join(', ') : '');
   // worker-less factions have no worker cameo — their buildings pay the bills
@@ -6929,6 +7193,10 @@ function startGame(faction, seed, opts) {
     state.armorBank[owner] = { guard: 0, dread: 0 };
     state.leverage[owner] = 0;
     state.books[owner] = null;
+    state.rateHike[owner] = 0;
+    state.rateHikeCd[owner] = 0;
+    state.loyaltyCd[owner] = 0;
+    state.bribeCd[owner] = 0;
     state.hqGrace[owner] = null;
     state.hqRebuilt[owner] = false;
   }
@@ -6936,7 +7204,6 @@ function startGame(faction, seed, opts) {
   state.charges = [];
   state.reveals = []; state.bcast = {}; state.bcastT = {};
   state.floats = [];
-  skimHintSeen = false;
   announcedBuild = {};
   announcedSuper.clear();
 
@@ -6969,8 +7236,14 @@ function startGame(faction, seed, opts) {
 // click, which is why Launch/orders sometimes needed several presses)
 function panelSignature() {
   let s = (placing || '') + '|' + (attackMoveArmed ? 'a' : '') + (plantArmed ? 'p' : '') +
-    (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (wallDrag ? 'w' : '') +
+    (abilityTargeting || '') + (superTargeting || '') + (leverageTargeting || '') + (contactTargeting ? 'c' : '') + (loyaltyTargeting ? 'y' : '') + (bribeTargeting ? 'b' : '') + (wallDrag ? 'w' : '') +
+    'B' + (bribeReady(localOwner) ? 1 : 0) +
+    'L' + (loyaltyReady(localOwner) ? 1 : 0) +
     (dropTargeting || '') + (demoTargeting ? 'd' : '') + (bcastTargeting || '') +
+    // the sleeper network grows or shrinks -> Make Contact relabels
+    'S' + sleeperCount(localOwner) +
+    // Rate Hike comes off cooldown / starts / ends -> its button changes
+    'R' + (rateHikeOn(localOwner) ? 1 : 0) + ((state.rateHikeCd[localOwner] || 0) > state.time ? 0 : 1) +
     // leverage crosses a play's price threshold -> its button enables
     (state.leverage[localOwner] ? 'L' + Object.values(LEVERAGE_PLAYS).filter(pl => state.leverage[localOwner] >= pl.cost).length : '') +
     (isReptilian(localOwner) ? 'd' + slaveDriveOf(localOwner) : '') +
@@ -7058,10 +7331,29 @@ function panelTargetingMode(addAction) {
         : 'Cloning Vats — click one of your infantry, Esc to cancel';
     return true;
   }
+  if (bribeTargeting) {
+    elSelInfo.style.color = '#c9a7ff';
+    elSelInfo.textContent = `Bribe — click an ENEMY unit (price shown over each), Esc to cancel` +
+      ` — network ${sleeperCount(localOwner)}/${sleeperCap(localOwner)}`;
+    return true;
+  }
+  if (loyaltyTargeting) {
+    elSelInfo.style.color = '#ffd27a';
+    elSelInfo.textContent = `Loyalty Check (${LOYALTY.cost}) — click where to look; your own units inside the ` +
+      `circle are vetted. Esc to cancel`;
+    return true;
+  }
+  if (contactTargeting) {
+    elSelInfo.style.color = '#c9a7ff';
+    elSelInfo.textContent = `Make Contact — click an ENEMY unit (resilience shown over each), Esc to cancel` +
+      ` — network ${sleeperCount(localOwner)}/${sleeperCap(localOwner)}`;
+    return true;
+  }
   if (leverageTargeting) {
     const play = LEVERAGE_PLAYS[leverageTargeting];
     elSelInfo.style.color = '#c9a7ff';
-    elSelInfo.textContent = `${play.name} (${play.cost} leverage) — click an ENEMY structure, Esc to cancel`;
+    elSelInfo.textContent = `${play.name} (${play.cost} leverage) — click an ENEMY structure within ` +
+      `${LEVERAGE.reach} of one of your assets (it will be burned), Esc to cancel`;
     return true;
   }
   if (superTargeting) {
@@ -7392,17 +7684,52 @@ function panelForBuilding(first, addAction) {
   }
   elSelInfo.textContent = `${buildingName(first)} — ${Math.ceil(first.hp)}/${bt.hp} HP` +
     (first.queue.length ? ` — training (${first.queue.length} queued)` : '') +
-    ((first.type === 'hq' || bstatsOf(first).thief) && usesLeverage(localOwner)
+    ((first.type === 'hq' || first.type === 'fedreserve') && usesLeverage(localOwner)
       ? ` — LEVERAGE ${Math.floor(state.leverage[localOwner] || 0)}` : '') +
-    (bstatsOf(first).thief ? ` — skimming ${Math.round(bstatsOf(first).thief.r)} around it` : '') +
     (producesUnits(first) ? ' — right-click to set rally point' : '');
+  // LOYALTY CHECK: every faction, from the HQ
+  if (first.type === 'hq' && first.owner === localOwner && first.done) {
+    const cd = Math.ceil((state.loyaltyCd[localOwner] || 0) - state.time);
+    const btn = document.createElement('button');
+    btn.textContent = cd > 0 ? `Loyalty Check (${cd}s)` : `Loyalty Check — ${LOYALTY.cost}`;
+    btn.title = `Vet your own people inside a ${LOYALTY.r}-radius circle. Any sleeper there is exposed — ` +
+      `marked red so you can deal with him — and any approach half-made there is wiped. ` +
+      `Cooldown ${LOYALTY.cd}s.`;
+    btn.disabled = !loyaltyReady(localOwner);
+    btn.onclick = () => { loyaltyTargeting = true; refreshPanel(); };
+    addAction(btn);
+  }
+  // RATE HIKE: fired from the Federal Reserve itself
+  if (first.type === 'fedreserve' && first.owner === localOwner && first.done) {
+    const left = Math.ceil((state.rateHike[localOwner] || 0) - state.time);
+    const cd = Math.ceil((state.rateHikeCd[localOwner] || 0) - state.time);
+    elSelInfo.textContent += rateHikeOn(localOwner) ? ` — RATES UP (${left}s)`
+      : cd > 0 ? ` — next hike in ${cd}s` : ' — rates steady';
+    const btn = document.createElement('button');
+    btn.textContent = `Rate Hike (${RATE_HIKE.dur}s)`;
+    btn.title = `For ${RATE_HIKE.dur}s every enemy pays ${Math.round((RATE_HIKE.mul - 1) * 100)}% more for ` +
+      `everything they train or build, and you pocket ${Math.round(RATE_HIKE.kickback * 100)}% of the ` +
+      `difference. Ends early if you lose every Federal Reserve. Cooldown ${RATE_HIKE.cd}s.`;
+    btn.disabled = cd > 0 || isOffline(first);
+    btn.onclick = () => { cmd('ratehike', {}); sfx('click'); refreshPanel(); };
+    addAction(btn);
+    const bcd = Math.ceil((state.bribeCd[localOwner] || 0) - state.time);
+    const bb = document.createElement('button');
+    bb.textContent = bcd > 0 ? `Bribe (${bcd}s)` : `Bribe (${sleeperCount(localOwner)}/${sleeperCap(localOwner)})`;
+    bb.title = `Payroll: buy an enemy unit outright — no Agent needed. Price is his cost x ${PAYROLL.mul} x ` +
+      `(1 + resilience). A bought man is sloppy: Loyalty Checks find him from twice as far. Each Federal ` +
+      `Reserve also adds ${PAYROLL.capPer} to your network. Cooldown ${PAYROLL.cd}s.`;
+    bb.disabled = !bribeReady(localOwner) || sleeperCount(localOwner) >= sleeperCap(localOwner);
+    bb.onclick = () => { bribeTargeting = true; refreshPanel(); };
+    addAction(bb);
+  }
   // LEVERAGE: spend it from the seat of the operation OR from any front
   // company — whichever you happen to have clicked. Hiding it on one
   // building meant nobody ever found it.
   // ...but only for the side that has a ledger to spend from. This used to be
   // ungated, so Open the Books and Freeze Assets sat on every faction's HQ,
   // permanently unaffordable, for a currency they could never earn.
-  if ((first.type === 'hq' || bstatsOf(first).thief) && first.owner === localOwner &&
+  if ((first.type === 'hq' || first.type === 'fedreserve') && first.owner === localOwner &&
       usesLeverage(localOwner) && LEVERAGE_PLAYS) {
     for (const [key, play] of Object.entries(LEVERAGE_PLAYS)) {
       const btn = document.createElement('button');
@@ -7452,16 +7779,6 @@ function panelForSelection(addAction) {
     if (ut.cargoCap) info += ` — carrying ${(uu.cargo || []).length}/${ut.cargoCap} (right-click it with infantry to board)`;
   }
   elSelInfo.textContent = info;
-  // an unmarked van that can open a shopfront where it stands
-  const vans = selection.filter(e => e.kind === 'unit' && e.owner === localOwner && e.hp > 0 &&
-    UNIT_TYPES[e.type].establishes);
-  if (vans.length) {
-    const btn = document.createElement('button');
-    btn.textContent = `Establish Front Company (${vans.length})`;
-    btn.title = 'Deploys into a disguised building that skims a share of every enemy delivery nearby. Consumed.';
-    btn.onclick = () => { cmd('establish', { u: idsOf(vans) }); refreshPanel(); };
-    addAction(btn);
-  }
   // transports in the selection: one button dumps every rider out
   const trs = selection.filter(s => s.kind === 'unit' && s.owner === localOwner && s.cargo && s.cargo.length);
   if (trs.length) {
@@ -7544,6 +7861,18 @@ Walks a militiaman into the Recruitment Tent and spends him. His farm ` +
       };
       addAction(btn);
     }
+  }
+  // Agents: work on one of theirs
+  const agents = mine.filter(u => UNIT_TYPES[u.type].contacts);
+  if (agents.length) {
+    const btn = document.createElement('button');
+    btn.textContent = `Make Contact (${sleeperCount(localOwner)}/${sleeperCap(localOwner)})`;
+    btn.title = 'Walk up to an enemy unit and turn it. The Agent holds fire while it works and troops will ' +
+      'not shoot a man in plain clothes — but if anyone does, the approach is reported. Lone, wounded, green ' +
+      'soldiers far from home turn fastest; veterans in a crowd at their own base barely turn at all.';
+    btn.disabled = sleeperCount(localOwner) >= sleeperCap(localOwner);
+    btn.onclick = () => { contactTargeting = true; refreshPanel(); };
+    addAction(btn);
   }
   // Journalists: which way they are working, and what they are holding
   const crews = mine.filter(u => UNIT_TYPES[u.type].investigator);
@@ -8062,7 +8391,8 @@ function drawBuildingIso(b) {
     (b.garrison ? '|g' + b.garrison.length : '') +
     (b.proof ? '|p' + Math.floor(b.proof / 25) : '') +
     (b.crew || b.launched ? '|f' + (b.crew || []).length + (b.launched ? '!' : '') : '') +
-    (superKind ? '|' + superKind + '|' + (fireP >= 0 ? Math.round(fireP * 14) : 'x') : '');
+    (superKind ? '|' + superKind + '|' + (fireP >= 0 ? Math.round(fireP * 14) : 'x') : '') +
+    (b.type === 'fedreserve' ? '|h' + (rateHikeOn(b.owner) ? 1 : 0) + '|y' + sleeperCount(b.owner) : '');
   const spr = cachedSprite(b.id, cw, chh, ax, ay, sig, 12, g => {
     isoShear(g); // building art draws in its local ground-plane frame
     Art.building(b.type, g, state.time + (b.id % 89) * 0.71, {
@@ -8073,7 +8403,8 @@ function drawBuildingIso(b) {
       crew: (b.crew || []).length, launched: !!b.launched,
       conn: { e: !!(conn & 1), w: !!(conn & 2), n: !!(conn & 4), s: !!(conn & 8) },
       superKind, fireP,
-      skim: state.time - (b.skimT || -9) < 1.2, // front company: a cut just landed
+      hike: b.type === 'fedreserve' && rateHikeOn(b.owner),
+      payroll: b.type === 'fedreserve' ? sleeperCount(b.owner) : 0,
     });
   });
   ctx.drawImage(spr.cv, ix - ax, iy - ay);
@@ -8437,7 +8768,17 @@ function drawUnitIso(u) {
     ctx.beginPath(); ctx.ellipse(ix, sy + 2, rs + 4, (rs + 4) * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = 'rgba(201,167,255,0.95)';
     ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center';
-    ctx.fillText('\u25C6', ix, sy - rs - 14);
+    ctx.fillText(u.burned ? '\u25C7' : '\u25C6', ix, sy - rs - 14);
+  }
+  // a BURNED asset is marked for the side it was betraying: this is the man
+  // who leaked, and they can do something about him
+  if (u.burned && u.owner === localOwner && u.sleeperFor !== undefined && u.sleeperFor !== null) {
+    ctx.strokeStyle = 'rgba(255,90,80,0.9)';
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.ellipse(ix, sy + 2, rs + 4, (rs + 4) * 0.55, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.fillStyle = 'rgba(255,90,80,0.95)';
+    ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
+    ctx.fillText('!', ix, sy - rs - 14);
   }
   if (u.hp < u.maxHp) drawBar(ix, sy - rs - 12, rs * 2.4, u.hp / u.maxHp);
   // ---------- suspicion pip (your own infiltrators only) ----------
@@ -8653,7 +8994,6 @@ const AURA_RINGS = [
   { key: 'debuffAura', col: '255,140,140' },   // hostile: their aim suffers
   { key: 'aaAura',     col: '125,255,214' },   // hostile: shreds aircraft
   { key: 'convert',    col: '201,167,255' },   // hostile: takes their people
-  { key: 'thief',      col: '255,206,120' },   // economic: skims their deliveries
 ];
 const AURA_MAX_R = 600;   // the TV Station converts map-wide; that is not a ring
 
@@ -8927,6 +9267,51 @@ function drawOverlays() {
       ctx.fillText(Math.ceil(left), rx, ry + 0.5);
       ctx.textBaseline = 'alphabetic';
     }
+  }
+
+  // Loyalty Check aim: the circle it will vet
+  if (loyaltyTargeting) auraRing(mouse.x, mouse.y, LOYALTY.r, '255,210,122', 0.9, false);
+  // Leverage aim: how far each asset of ours can reach
+  if (leverageTargeting) {
+    for (const u of state.units) {
+      if (u.hp > 0 && u.sleeperFor === localOwner && !u.burned && !u.garrisoned) {
+        auraRing(u.x, u.y, LEVERAGE.reach, '201,167,255', 0.7, true);
+      }
+    }
+  }
+  // ---------- who can be turned ----------
+  // With an Agent selected, every visible enemy unit near the cursor wears its
+  // resilience (how long it would take), or a bar if it cannot be turned at
+  // all. Any approach of ours in progress shows its meter regardless.
+  const agentSel = selection.some(e => e.kind === 'unit' && e.owner === localOwner && e.hp > 0 &&
+    UNIT_TYPES[e.type].contacts);
+  for (const u of state.units) {
+    if (u.hp <= 0 || u.owner === localOwner || u.owner === NEUTRAL || u.garrisoned) continue;
+    const working = u.contact && u.contact.by === localOwner;
+    if (!working && !((agentSel || bribeTargeting) && dist(u, mouse) < 420)) continue;
+    if (!visibleToPlayer(u)) continue;
+    const rx = isoX(u.x, u.y), ry = isoY(u.x, u.y) - unitAlt(u) - UNIT_TYPES[u.type].r * UNIT_DRAW_SCALE - 12;
+    const res = resilienceOf(u);
+    const hot = clickHitsUnit(u, mouse.x, mouse.y, 8);
+    ctx.globalAlpha = hot || working ? 1 : 0.7;
+    ctx.font = 'bold 9px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const label = res === null ? '✕' : u.sleeperFor === localOwner ? 'ours' :
+      u.contactImmuneUntil > state.time ? 'wary' :
+      bribeTargeting ? '$' + bribePrice(u) : Math.round(res * 100) + '%';
+    const w = ctx.measureText(label).width + 8;
+    ctx.fillStyle = 'rgba(20,18,28,0.8)';
+    ctx.fillRect(rx - w / 2, ry - 6, w, 12);
+    ctx.fillStyle = res === null ? '#8a8f98' : hot ? '#ffe14d' : '#c9a7ff';
+    ctx.fillText(label, rx, ry + 0.5);
+    if (working) {
+      ctx.strokeStyle = '#c9a7ff'; ctx.lineWidth = 2.2;
+      ctx.beginPath();
+      ctx.arc(isoX(u.x, u.y), isoY(u.x, u.y) - unitAlt(u), UNIT_TYPES[u.type].r * UNIT_DRAW_SCALE + 6,
+        -Math.PI / 2, -Math.PI / 2 + Math.min(1, u.contact.p) * Math.PI * 2);
+      ctx.stroke();
+    }
+    ctx.textBaseline = 'alphabetic';
+    ctx.globalAlpha = 1;
   }
 
   // ---------- what is worth filming ----------
@@ -9398,7 +9783,6 @@ const COMMANDS = {
   },
   boardplane:  (o, p) => { for (const u of cmdUnits(p.u, o)) if (u.type === 'homesteader') u.order = { type: 'boardplane', destId: p.b }; },
   launchplane: (o, p) => { const b = cmdBuilding(p.b, o); if (b) launchPlane(b, p.x, p.y); },
-  establish:   (o, p) => { for (const u of cmdUnits(p.u, o)) u.order = { type: 'establish' }; },
   cull:        (o, p) => { for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].looshOnDeath) u.hp = 0; },
   drive:       (o, p) => { if (SLAVE_DRIVES.includes(p.v)) state.slaveDrive[o] = p.v; },
   wake:        (o, p) => { const u = state.units.find(x => x.id === p.u && x.hp > 0); if (u && u.sleeperFor === o) wakeSleeper(u); },
@@ -9423,6 +9807,14 @@ const COMMANDS = {
   rite:        (o, p) => { const b = cmdBuilding(p.b, o); if (b) beginRite(b, p.k, p.u); },
   cancelrite:  (o, p) => { const u = cmdUnit(p.u, o); if (u) cancelRite(u); },
   super:       (o, p) => { const b = cmdBuilding(p.b, o); if (b && superReady(b) && !isOffline(b)) fireSuperweapon(b, p.x, p.y); },
+  ratehike:    (o) => startRateHike(o),
+  bribe:       (o, p) => { const m = state.units.find(x => x.id === p.t && x.hp > 0); if (m) bribe(o, m); },
+  loyalty:     (o, p) => { if (Number.isFinite(p.x) && Number.isFinite(p.y)) loyaltyCheck(o, p.x, p.y); },
+  contact:     (o, p) => {
+    const m = state.units.find(x => x.id === p.t && x.hp > 0);
+    if (!m) return;
+    for (const u of cmdUnits(p.u, o)) if (UNIT_TYPES[u.type].contacts) u.order = { type: 'contact', targetId: m.id };
+  },
   leverage:    (o, p) => { const t = state.buildings.find(b => b.id === p.b && b.hp > 0 && b.owner !== o && b.owner !== NEUTRAL); if (t) playLeverage(o, p.k, t); },
   // A player is gone. This is a COMMAND rather than something the network
   // layer does directly, because every client has to hand the seat over on the
@@ -9564,6 +9956,19 @@ function stepSim() {
       }
       delete u.coupRevert; delete u.coupOrig;
     }
+    // LEVERAGE: every asset still reporting feeds the ledger, more from deep
+    // inside their base
+    if (u.sleeperFor !== undefined && u.sleeperFor !== null && !u.burned && u.hp > 0 && !u.garrisoned) {
+      const inner = state.buildings.some(b => b.owner === u.owner && b.hp > 0 &&
+        (b.type === 'hq' || b.type === 'tech') && dist(b, u) <= LEVERAGE.deepR);
+      state.leverage[u.sleeperFor] = (state.leverage[u.sleeperFor] || 0) +
+        LEVERAGE.rate * (inner ? LEVERAGE.deep : 1) * TICK;
+    }
+    // CONTACT: an approach nobody is working on drains, slowly
+    if (u.contact && state.time - u.contact.t > 0.2) {
+      u.contact.p -= CONTACT.decay * TICK;
+      if (u.contact.p <= 0 || u.hp <= 0) delete u.contact;
+    }
     // Crisis Actors: a recruited sleeper comes to their senses and stops
     // reporting. They were never taken off their owner — they simply stop
     // being anybody else's asset.
@@ -9571,6 +9976,7 @@ function stepSim() {
       const handler = u.sleeperFor;
       u.sleeperFor = null;
       delete u.sleeperUntil;
+      delete u.burned; delete u.bribed;
       if (handler === localOwner) eva('An asset has gone dark');
     }
   }
@@ -10034,6 +10440,31 @@ canvas.addEventListener('mousedown', e => {
     return;
   }
   if (e.button === 0) {
+    if (bribeTargeting) {
+      const tgt = state.units.find(u => u.hp > 0 && u.owner !== localOwner && u.owner !== NEUTRAL &&
+        !u.garrisoned && visibleToPlayer(u) && clickHitsUnit(u, p.x, p.y, 8));
+      if (tgt) { cmd('bribe', { t: tgt.id }); bribeTargeting = false; sfx('click'); }
+      else eva('Click one of THEIR people');
+      refreshPanel();
+      return;
+    }
+    if (loyaltyTargeting) {
+      cmd('loyalty', { x: p.x, y: p.y });
+      loyaltyTargeting = false; sfx('click');
+      refreshPanel();
+      return;
+    }
+    if (contactTargeting) {
+      const tgt = state.units.find(u => u.hp > 0 && u.owner !== localOwner && u.owner !== NEUTRAL &&
+        !u.garrisoned && visibleToPlayer(u) && clickHitsUnit(u, p.x, p.y, 8));
+      const why = tgt ? contactBlocker(localOwner, tgt) : 'gone';
+      if (!why) {
+        cmd('contact', { u: selectedUnitIds(u => UNIT_TYPES[u.type].contacts), t: tgt.id });
+        contactTargeting = false; sfx('click');
+      } else eva(why === 'gone' ? 'Click one of THEIR people' : CONTACT_REFUSAL[why]);
+      refreshPanel();
+      return;
+    }
     if (leverageTargeting) {
       const key = leverageTargeting;
       const tgt = state.buildings.find(b => b.hp > 0 && b.owner !== localOwner && b.owner !== NEUTRAL &&
@@ -10138,12 +10569,16 @@ canvas.addEventListener('mousedown', e => {
     const pi = screenToIso(e);
     mouse.sel = { x1: pi.x, y1: pi.y, x2: pi.x, y2: pi.y };
   } else if (e.button === 2) {
-    if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || plantArmed || wallDrag ||
+    if (placing || attackMoveArmed || abilityTargeting || superTargeting || leverageTargeting || contactTargeting || loyaltyTargeting || bribeTargeting || plantArmed || wallDrag ||
         dropTargeting || demoTargeting || bcastTargeting) {
       placing = null;
       attackMoveArmed = false;
       abilityTargeting = null;
       superTargeting = null;
+      leverageTargeting = null;
+      contactTargeting = false;
+      loyaltyTargeting = false;
+      bribeTargeting = false;
       plantArmed = false;
       wallDrag = null;
       refreshPanel();
@@ -10270,7 +10705,7 @@ window.addEventListener('keydown', e => {
   if (!started) return;
   const k = e.key.toLowerCase();
 
-  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; plantArmed = false; wallDrag = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
+  if (e.key === 'Escape') { placing = null; attackMoveArmed = false; abilityTargeting = null; superTargeting = null; leverageTargeting = null; contactTargeting = false; loyaltyTargeting = false; bribeTargeting = false; plantArmed = false; wallDrag = null; dropTargeting = null; demoTargeting = null; bcastTargeting = null; refreshPanel(); }
   if (k === 'h') centerCameraOnHome();
   if (k === 'm') setMuted(!muted);
 

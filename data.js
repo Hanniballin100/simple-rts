@@ -153,22 +153,25 @@ const FACTIONS = {
   },
   deep: {
     name: 'The Deep State', family: 'GLOBALISTS', emoji: '🕶️',
-    desc: 'It was never elected and never leaves. Its assets run silent and strike first from concealment, its air wing arrives before anyone sees it, and a detector is the only way to find any of it.',
+    desc: 'It was never elected and never leaves. It does not out-fight you, it out-knows you: Agents in plain clothes turn your own people into sleepers, every sleeper feeds a ledger of leverage, and the Federal Reserve sets the price of everything you buy.',
     economy: { workers: 3 },
     // Continuity of Government: it was never in that building anyway
     hqRebuild: { cost: 0, grace: 75, auto: 25 },
     worker: 'blackrig', infantry: 'agent', aa: 'jammer', vehicle: 'spooktank',
-    airFocus: 1.4, // still a black-budget air wing, second only to the USAF
-    air: ['tr3b', 'b1'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'disinfovan', 'frontco', 'engineer', 'mechanic'], advanced: ['b2'],
+    // No air force: the sky belongs to the Globalists. The Deep State keeps one
+    // black project, rolled out of the Motor Pool, and never builds an airfield.
+    noAirpad: true,
+    air: ['tr3b'], tower: 'tower5g', aaTower: 'samsite',
+    extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: [],
+    leverage: true, // runs a ledger of leverage, earned by its sleepers
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'fedreserve', 'superweapon'],
     powers: {
-      passive: { name: 'Continuity of Government', desc: 'ASSETS: enemy line troops are quietly turned into sleepers — they keep serving their owner, but you see whatever they see, and you can wake them at will to fight for you. And if your HQ falls, an undisclosed location takes over: it relocates itself, once per game.' },
+      passive: { name: 'Continuity of Government', desc: 'ASSETS: Agents make contact with enemy units and turn them into sleepers — they keep serving their owner, but you see whatever they see, they earn you LEVERAGE, and you can wake them at will to fight for you. Leverage plays (Leak, Squeeze, Freeze Assets) run through a sleeper near the target and burn its cover. And if your HQ falls, an undisclosed location takes over: it relocates itself, once per game.' },
       sig: { name: 'Gaslight', desc: 'Phantom signatures appear near the enemy base and their defenses scramble to fight nothing.', kind: 'instant', cd: 120 },
     },
     buildingNames: {
       hq: 'Undisclosed Location', powerplant: 'Fusion Plant', barracks: 'Field Office',
-      factory: 'Motor Pool', airpad: 'Undisclosed Airstrip', tech: 'Continuity Bunker',
+      factory: 'Motor Pool', tech: 'Continuity Bunker',
       tower5g: '5G Tower', samsite: 'Patriot Battery', fedreserve: 'Federal Reserve',
       wall: 'Security Wall', gate: 'Security Gate', mine: 'Claymore', repairpad: 'Motor Pool Annex',
       superweapon: 'Blackout Command Node',
@@ -308,7 +311,7 @@ const EXPOSE_FIRING = 5;       // seconds a shot keeps you visible, anywhere
 // vehicles, vehicles beat aircraft, and a buried mine beats everything.
 const STEALTH_SKILL = {
   mine: 0.25,
-  specops: 0.5, frontcompany: 0.55, bushplane: 0.6,
+  specops: 0.5, bushplane: 0.6,
   agent: 0.7, mib: 0.7, homesteader: 0.7,
   // 0.55, not 0.85. At 0.85 a Journalist filming DISCREETLY sat at 61
   // suspicion, and a busy base catches anything over ~59 — so the quiet stance
@@ -585,27 +588,84 @@ const QE_RATE = 0.06;   // fraction of power drawn, paid every 10s
 const QE_CAP = 20;      // ...but never more than this per payout (2/sec)
 
 // ---------- LEVERAGE (Deep State) ----------
-// Every mineral a Front Company skims is banked twice: once as money, and once
-// as a record of what it was skimmed from. That record is LEVERAGE, and it
-// buys things money cannot. Every play is non-lethal and aimed at an enemy
-// STRUCTURE — the Deep State does not shoot your base, it ruins your quarter.
-// (Cost is in leverage, never in minerals; the minerals were already paid.)
+// What the sleepers are worth while they sleep. Each asset on the books feeds
+// the ledger `rate` per second — `deep` times that when it is standing near
+// its own side's HQ or research building, because that is where the good
+// material is. A BURNED asset (used for a play, or caught by a Loyalty Check)
+// stops reporting.
+const LEVERAGE = { rate: 0.6, deep: 2, deepR: 500, reach: 350 };
+// Every play is non-lethal, aimed at an enemy STRUCTURE, and goes THROUGH an
+// asset standing within `LEVERAGE.reach` of it — the one closest to the
+// target. Using an asset burns it: the victim sees exactly which of their men
+// it was, and can deal with him. (Cost is in leverage, never in minerals.)
 const LEVERAGE_PLAYS = {
   books: {
-    name: 'Open the Books', cost: 60,
+    name: 'Leak', cost: 60,
     desc: 'Their entire estate — every building and everything standing near it — is laid bare to you for 25s.',
     dur: 25,
+  },
+  squeeze: {
+    name: 'Squeeze', cost: 100,
+    desc: 'Everything queued in the target building is cancelled, and not one mineral comes back.',
   },
   freeze: {
     name: 'Freeze Assets', cost: 140,
     desc: 'The target structure goes dark for 30s: no production, no weapons, no power on the grid.',
     dur: 30,
   },
-  margin: {
-    name: 'Margin Call', cost: 220,
-    desc: "Their construction is called in — whatever they are building right now is cancelled, and not one mineral comes back.",
-  },
 };
+
+// ---------- CONTACT (Deep State Agents) ----------
+// How an Agent turns an enemy unit into a sleeper. Order it to make contact,
+// it walks up within `r`, holds fire, and a meter fills on the TARGET over
+// base / (1 - resilience) seconds. Walk away and the meter only drains slowly
+// (`decay` per second), so several short visits add up. If anybody shoots the
+// Agent mid-contact the approach is REPORTED: the target cannot be approached
+// again for `reportImmune` seconds and the Agent is `blown` — every enemy
+// soldier treats it as hostile for that long.
+const CONTACT = { r: 120, base: 6, decay: 0.03, reportImmune: 60, blown: 10 };
+// Resilience: 0 = turns in `base` seconds, 0.9 = ten times as long. A unit's
+// kind sets the base; where it is standing and who it is with move it.
+const RESILIENCE = {
+  worker: 0.2, tier1: 0.35, tier2: 0.55,
+  home: 0.15, homeR: 320,                     // near its own HQ or a defensive building
+  friend: 0.05, friendMax: 0.3, friendR: 160, // each friendly soldier close by
+  vet: 0.1,                                   // each veterancy rank
+  wounded: -0.1,                              // under half health
+  alone: -0.1, aloneR: 260,                   // nobody friendly in sight
+  believer: 0.1,                              // Flat Earth militia: true believers
+  actors: 0.25,                               // their side researched Crisis Actors
+  max: 0.9,
+};
+// Nobody to talk to: machines, munitions, drones and the bred.
+const MINDLESS = new Set(['moleservitor', 'greydrone', 'orb', 'probedrone', 'fpv', 'shahed',
+  'slave', 'broodslave', 'gargoyle', 'phantom', 'tictac']);
+
+// ---------- PAYROLL (Federal Reserve) ----------
+// Every Federal Reserve standing keeps `capPer` more people on the books, and
+// lets you skip the Agent and simply BUY a man: price = his sticker (never
+// less than `minBase`) x `mul` x (1 + resilience). Instant, from anywhere you
+// can see him — but a bought man is sloppy, and a Loyalty Check finds him from
+// twice as far. One bribe every `cd` seconds.
+const PAYROLL = { capPer: 2, mul: 1.5, minBase: 50, cd: 45 };
+
+// ---------- LOYALTY CHECK (every faction) ----------
+// The answer to sleepers, on every HQ. Pick a spot: every sleeper among your
+// own units within `r` is EXPOSED (burned — it stops reporting and you can see
+// exactly who it is), and any approach half-made in there is wiped and the man
+// warned for `immune` seconds. Bribed assets are sloppier and show up from
+// twice as far. Costs minerals and has a long cooldown, so aim it.
+const LOYALTY = { cost: 100, cd: 90, r: 280, immune: 60 };
+
+// ---------- RATE HIKE (Federal Reserve) ----------
+// The Globalists print money; the Deep State sets what money COSTS. For `dur`
+// seconds every enemy pays `mul` times the sticker price for everything they
+// train or build, and the Deep State pockets `kickback` of the difference. A
+// timed play rather than a toggle so WHEN you hike is the decision: during
+// their rebuild after a lost fight, not while they are sitting on cash.
+// Counterplay is the building: it is a beacon on every minimap, and the hike
+// ends the moment no Federal Reserve of yours is standing.
+const RATE_HIKE = { mul: 1.15, kickback: 0.5, dur: 45, cd: 120 };
 
 // ---------- bound escorts (Broodmother, Disinfo Van, Mothership) ----------
 // The swarm screens in FRONT of its master and makes contact first; the master
@@ -693,7 +753,11 @@ const UNIT_TYPES = {
   // competing for it (and it takes no Vault/Throne bonus of its own).
   broodslave:  { name: 'Broodslave',       role: 'worker', builtAt: 'barracks', hp: 55,  speed: 78, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 170, cost: 70, r: 8,  buildTime: 5, limit: 4, carry: 13, lifespan: 95, looshOnDeath: 9, req: 'tech', drawScale: 1.12 },
   // Deep State line infantry now: an agent is nobody until the wire comes in
-  agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6, cloakStill: true, cloakDelay: 1.8 },
+  // PLAIN CLOTHES, not a cloak: anyone can see an Agent, but enemy troops will
+  // not open fire on one that is not shooting (see CONTACT). Towers, detectors
+  // and anything the Agent shoots at treat it as the threat it is. `contacts`:
+  // it can make CONTACT with an enemy unit and turn it into a sleeper.
+  agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6, plainClothes: true, contacts: true },
   // Globalist line infantry: contractors with MiB-grade training and a
   // MiB-grade invoice — no cloak, just kit
   pmc:         { name: 'PMC Contractor',  role: 'combat', builtAt: 'barracks', hp: 105, speed: 72, dmg: 12, atkRange: 140, cooldown: 0.85, sight: 240, cost: 120, r: 10, buildTime: 7, drawScale: 1.08 },
@@ -960,13 +1024,6 @@ const UNIT_TYPES = {
   // Globalist detector: an unmarked van bristling with antennas — no cloak,
   // the Globalists watch openly. Finds spies, stealth and burrowers.
   blackvan:  { name: 'Surveillance Van', role: 'combat', builtAt: 'factory', hp: 220, speed: 80,  dmg: 12, atkRange: 150, cooldown: 0.7,  sight: 300, cost: 130, r: 12, buildTime: 9,  shape: 'square', detector: true },
-  // Front Company: an unmarked van that DEPLOYS INTO A BUILDING — a shopfront
-  // with a brass plaque and nobody in it. While it stands undetected it skims a
-  // cut of every mineral load delivered to an enemy drop-off inside its reach
-  // (see thief.r). It is unarmed, it runs silent while parked, and a single
-  // detector walking past strips the disguise and leaves a 260-HP shed anyone
-  // can shoot. Plant it near THEIR base: that is the whole risk.
-  frontco: { name: 'Front Company', role: 'combat', builtAt: 'factory', hp: 190, speed: 84, dmg: 0, atkRange: 0, cooldown: 1, sight: 250, cost: 190, r: 12, buildTime: 11, shape: 'square', cloakStill: true, cloakDelay: 1.2, establishes: 'frontcompany', req: 'tech' },
   // Deep State signature armor: a blacked-out ambush tank that vanishes when
   // it stops (cloakStill) and lands a doubled first strike from concealment;
   // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
@@ -1042,7 +1099,7 @@ const UNIT_TYPES = {
   b2:      { name: 'B-2 Spirit', flyH: 40, drawScale: 1.25,   role: 'combat', builtAt: 'airpad', hp: 300, speed: 125, dmg: 90, atkRange: 44,  cooldown: 1.5,  sight: 300, cost: 360, r: 15, buildTime: 20, flying: true, shape: 'plane', pad: true, maxAmmo: 2, plane: true, turn: 1.5, weapon: 'bomb', splash: 64, bldgBonus: 1.6, stealth: true, req: 'tech', limit: 2 },
   // Deep State signature air: a TR-3B black triangle that hovers dead silent —
   // invisible (stealth) until it opens fire, then it lights up for a moment
-  tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'airpad', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
+  tr3b:    { name: 'TR-3B Black Triangle', flyH: 38, drawScale: 1.2, role: 'combat', builtAt: 'factory', hp: 250, speed: 118, dmg: 18, atkRange: 165, cooldown: 0.85, sight: 300, cost: 220, r: 12, buildTime: 12, flying: true, targets: 'both', shape: 'plane', stealth: true },
   // the GAU-8 does the talking: wide lazy turns into long saturation runs
   // (weapon 'gunrun') that annihilate vehicles and infantry along the flight
   // path — friend or foe, no IFF. Nearly useless against buildings.
@@ -1206,11 +1263,12 @@ const BUILDING_TYPES = {
   // build-radius rule — forward entrances near the enemy are the point.
   tunnelentrance: { name: 'Tunnel Entrance', hp: 280, w: 44, h: 44, cost: 60, buildTime: 8, sight: 200, power: -10, cap: 6, anywhere: true },
   geode:          { name: 'Crystal Geode', hp: 340, w: 48, h: 48, cost: 150, buildTime: 14, sight: 170, power: 0, income: 10, cap: 4, req: 'tech' },
-  // Deep State economy: it does not mine and it does not print — it takes a
-  // bigger cut. Every Front Company skims harder while this stands, and the
-  // Reserve pays a small float of its own. Gated behind the Continuity Bunker,
-  // so it is the SECOND thing you tech into, after the front companies exist.
-  fedreserve:     { name: 'Federal Reserve', hp: 420, w: 58, h: 54, cost: 260, buildTime: 18, sight: 190, power: -40, income: 8, cap: 2, req: 'tech', skimBoost: 0.18 },
+  // Deep State central bank. It does not print money, it sets the PRICE of
+  // money: Rate Hike makes everything the enemy buys dearer, and Payroll keeps
+  // more people on the books (sleeper cap) and lets you buy one outright.
+  // HQ-sized and a BEACON on every minimap — the one Deep State building
+  // everybody always knows the location of, which is what makes it fair.
+  fedreserve:     { name: 'Federal Reserve', hp: 620, w: 80, h: 72, cost: 260, buildTime: 18, sight: 190, power: -40, income: 8, cap: 2, req: 'tech', beacon: true },
   // Globalist premium income: a server farm that prints money off the grid.
   // Power-hungry (fits their infrastructure identity), capped so it's a floor,
   // not a runaway — the late-game answer for a faction with no field income.
@@ -1296,11 +1354,6 @@ const BUILDING_TYPES = {
   // takes off once and never comes back (see BUSHPLANE).
   bushplane: { name: 'Bush Plane', hp: 300, w: 70, h: 56, cost: 260, buildTime: 18, sight: 200, power: 0,
                cap: 2, req: 'airpad', stealth: true, bushplane: true },
-  // the deployed Front Company. Never built from a menu — an unmarked van
-  // establishes it (see UNIT_TYPES.frontco). thief.cut is the share taken from
-  // every enemy delivery to a drop-off within thief.r.
-  frontcompany: { name: 'Front Company', hp: 260, w: 46, h: 42, cost: 0, buildTime: 0, sight: 230, power: 0,
-                  stealth: true, anywhere: true, thief: { r: 470, cut: 0.3 } },
   // resistance passive: hidden observation posts (never buildable)
   sleepercell:  { hp: 60,  w: 22, h: 22, cost: 0,   buildTime: 0,  sight: 260, power: 0 },
   // neutral map structures — garrison infantry inside to claim them
