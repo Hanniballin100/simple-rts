@@ -3710,6 +3710,12 @@ function fireAt(u, target, t) {
     } else {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
+      // Air Marshal: the aircraft is tagged and everybody on this side hits it harder
+      if (t.tagsAir && isAir && target.hp > 0) {
+        const prev = target.designatedBy === u.owner ? (target.designatedUntil || 0) : 0;
+        target.designatedBy = u.owner;
+        target.designatedUntil = Math.max(prev, state.time + t.tagsAir);
+      }
       if (t.petrify && target.kind === 'unit') target.petrifiedUntil = state.time + t.petrify; // the gaze
       if (t.leech) u.hp = Math.min(u.maxHp, u.hp + dmg * 0.8); // vivisection pays
       // a close-quarters hit swings the power fist (dreadnought art)
@@ -4094,6 +4100,26 @@ function updateBrood(u, stats, dt) {
 // friendly buff/harden auras, the enemy debuff + desertion aura, and the
 // Barrage Balloon's tether cables shredding anything airborne that strays near
 function updateAuras(u, stats, dt) {
+  // SWAT: a flashbang into the nearest knot of enemy infantry, on a timer
+  if (stats.flashbang) {
+    const F = stats.flashbang;
+    u.flashT = (u.flashT === undefined ? (u.id % 10) * 0.3 : u.flashT) - dt;
+    if (u.flashT <= 0) {
+      const foe = nearest(u, state.units, e => e.owner !== u.owner && e.owner !== NEUTRAL && e.hp > 0 &&
+        !e.garrisoned && isFootSoldier(UNIT_TYPES[e.type]) && !hiddenFrom(e, u.owner) &&
+        dist(u, e) <= stats.atkRange + F.r);
+      if (foe) {
+        u.flashT = F.every;
+        for (const e of state.units) {
+          if (e.owner === u.owner || e.owner === NEUTRAL || e.hp <= 0 || e.garrisoned) continue;
+          if (!isFootSoldier(UNIT_TYPES[e.type]) || dist(e, foe) > F.r) continue;
+          e.stunUntil = Math.max(e.stunUntil || 0, state.time + F.stun);
+        }
+        Particles.pulse(foe.x, foe.y, F.r * 0.6, [255, 250, 225]);
+        if (tileState(foe.x, foe.y) === 2) sfx('shot');
+      } else u.flashT = 0.5;   // nobody worth it in reach: check again soon
+    }
+  }
   // broodmother: hatch free swarms on a timer, embolden nearby infantry
   if (stats.spawns && !u.transit) {
     u.spawnT = (u.spawnT || 0) + dt;
@@ -4366,8 +4392,9 @@ function updateUnit(u, dt) {
   if (stats.flying && u.hp < u.maxHp && state.airTechOwners && state.airTechOwners.has(u.owner))
     u.hp = Math.min(u.maxHp, u.hp + 2.5 * dt);
 
-  // petrified: a statue until the stone wears off
-  if (u.petrifiedUntil > state.time) return;
+  // petrified: a statue until the stone wears off — and a flashbang does the
+  // same for a second or two
+  if (u.petrifiedUntil > state.time || u.stunUntil > state.time) return;
 
   // deep-state passive: units run silent when they hold still (and aren't
   // still lit up from a recent shot). Moving or firing drops the cloak; a
@@ -9961,8 +9988,10 @@ function stepSim() {
     if (u.sleeperFor !== undefined && u.sleeperFor !== null && !u.burned && u.hp > 0 && !u.garrisoned) {
       const inner = state.buildings.some(b => b.owner === u.owner && b.hp > 0 &&
         (b.type === 'hq' || b.type === 'tech') && dist(b, u) <= LEVERAGE.deepR);
+      const handled = state.units.some(h => h.owner === u.sleeperFor && h.hp > 0 && !h.garrisoned &&
+        UNIT_TYPES[h.type].contacts && dist(h, u) <= LEVERAGE.handlerR);
       state.leverage[u.sleeperFor] = (state.leverage[u.sleeperFor] || 0) +
-        LEVERAGE.rate * (inner ? LEVERAGE.deep : 1) * TICK;
+        LEVERAGE.rate * (inner ? LEVERAGE.deep : 1) * (handled ? LEVERAGE.handler : 1) * TICK;
     }
     // CONTACT: an approach nobody is working on drains, slowly
     if (u.contact && state.time - u.contact.t > 0.2) {

@@ -157,12 +157,12 @@ const FACTIONS = {
     economy: { workers: 3 },
     // Continuity of Government: it was never in that building anyway
     hqRebuild: { cost: 0, grace: 75, auto: 25 },
-    worker: 'blackrig', infantry: 'agent', aa: 'jammer', vehicle: 'spooktank',
+    worker: 'blackrig', infantry: 'fieldagent', aa: 'airmarshal', vehicle: 'spooktank',
     // No air force: the sky belongs to the Globalists. The Deep State keeps one
     // black project, rolled out of the Motor Pool, and never builds an airfield.
     noAirpad: true,
     air: ['tr3b'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['riot', 'disinfovan', 'engineer', 'mechanic'], advanced: [],
+    extras: ['swat', 'disinfovan', 'agent', 'engineer', 'mechanic'], advanced: [],
     leverage: true, // runs a ledger of leverage, earned by its sleepers
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'fedreserve', 'superweapon'],
     powers: {
@@ -592,8 +592,9 @@ const QE_CAP = 20;      // ...but never more than this per payout (2/sec)
 // the ledger `rate` per second — `deep` times that when it is standing near
 // its own side's HQ or research building, because that is where the good
 // material is. A BURNED asset (used for a play, or caught by a Loyalty Check)
-// stops reporting.
-const LEVERAGE = { rate: 0.6, deep: 2, deepR: 500, reach: 350 };
+// stops reporting. A sleeper within `handlerR` of one of its handler's
+// Handlers reports `handler` times as much.
+const LEVERAGE = { rate: 0.6, deep: 2, deepR: 500, reach: 350, handler: 1.5, handlerR: 320 };
 // Every play is non-lethal, aimed at an enemy STRUCTURE, and goes THROUGH an
 // asset standing within `LEVERAGE.reach` of it — the one closest to the
 // target. Using an asset burns it: the victim sees exactly which of their men
@@ -753,11 +754,16 @@ const UNIT_TYPES = {
   // competing for it (and it takes no Vault/Throne bonus of its own).
   broodslave:  { name: 'Broodslave',       role: 'worker', builtAt: 'barracks', hp: 55,  speed: 78, dmg: 0,  atkRange: 0,   cooldown: 1,    sight: 170, cost: 70, r: 8,  buildTime: 5, limit: 4, carry: 13, lifespan: 95, looshOnDeath: 9, req: 'tech', drawScale: 1.12 },
   // Deep State line infantry now: an agent is nobody until the wire comes in
-  // PLAIN CLOTHES, not a cloak: anyone can see an Agent, but enemy troops will
-  // not open fire on one that is not shooting (see CONTACT). Towers, detectors
-  // and anything the Agent shoots at treat it as the threat it is. `contacts`:
-  // it can make CONTACT with an enemy unit and turn it into a sleeper.
-  agent:       { name: 'Agent',           role: 'combat', builtAt: 'barracks', hp: 110, speed: 68, dmg: 8,  atkRange: 130, cooldown: 0.85, sight: 220, cost: 65, r: 10, buildTime: 6, plainClothes: true, contacts: true },
+  // Deep State line infantry: a suit with a carbine. No tricks — this is the
+  // body the army is made of, so it fights like one and defends like one.
+  fieldagent:  { name: 'Field Agent',     role: 'combat', builtAt: 'barracks', hp: 100, speed: 70, dmg: 9,  atkRange: 140, cooldown: 0.85, sight: 230, cost: 60, r: 10, buildTime: 5 },
+  // The HANDLER runs the network. PLAIN CLOTHES, not a cloak: anyone can see
+  // one, but enemy troops will not open fire on a man who is not shooting (see
+  // CONTACT). Towers, detectors and anything he shoots at treat him as the
+  // threat he is. `contacts`: makes CONTACT with an enemy unit and turns it
+  // into a sleeper. `handlerBoost`: sleepers near him report more (see
+  // LEVERAGE). Capped — a handler is somebody, and losing one hurts.
+  agent:       { name: 'Handler',         role: 'combat', builtAt: 'barracks', hp: 110, speed: 70, dmg: 6,  atkRange: 120, cooldown: 0.85, sight: 240, cost: 90, r: 10, buildTime: 7, plainClothes: true, contacts: true, limit: 4 },
   // Globalist line infantry: contractors with MiB-grade training and a
   // MiB-grade invoice — no cloak, just kit
   pmc:         { name: 'PMC Contractor',  role: 'combat', builtAt: 'barracks', hp: 105, speed: 72, dmg: 12, atkRange: 140, cooldown: 0.85, sight: 240, cost: 120, r: 10, buildTime: 7, drawScale: 1.08 },
@@ -796,6 +802,15 @@ const UNIT_TYPES = {
              buffAura: { r: 118 },                  // ...and they hit 25% harder for it
              debuffAura: { r: 130, weaken: 0.28 },  // the racket puts the enemy off their aim
              convert: { every: 30, r: 105 } },      // and now and then one of them walks over
+  // Deep State close-quarters: armour, a shotgun, and a FLASHBANG every
+  // `flashbang.every` seconds that stuns enemy foot soldiers within `r` for
+  // `stun` seconds — crowd control, not a damage race.
+  swat:     { name: 'SWAT Team',          role: 'combat', builtAt: 'barracks', hp: 170, speed: 66, dmg: 14, atkRange: 70,  cooldown: 1.0, sight: 200, cost: 85, r: 10, buildTime: 7, armor: 0.3,
+              flashbang: { every: 9, r: 80, stun: 1.6 } },
+  // Deep State anti-air: a long reach into the sky, and every hit TAGS the
+  // aircraft — your whole side does +30% to it for `tagsAir` seconds (the same
+  // mark the Grey probe paints).
+  airmarshal: { name: 'Air Marshal',      role: 'combat', builtAt: 'barracks', hp: 85, speed: 72, dmg: 13, dmgVsGround: 4, atkRange: 230, cooldown: 0.75, sight: 300, cost: 75, r: 9, buildTime: 6, targets: 'both', tagsAir: 4 },
   riot:     { name: 'Riot Trooper',       role: 'combat', builtAt: 'barracks', hp: 180, speed: 60, dmg: 10, atkRange: 26,  cooldown: 0.8, sight: 190, cost: 75, r: 10, buildTime: 7, armor: 0.35 }, // shield wall: melee baton
   // grey lab crew: the vivisector drains the living and mends the machine,
   // the mutilator turns fresh wrecks into minerals (scavenge = payout/kill)

@@ -5808,7 +5808,58 @@
     },
   });
   I.partisan = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#6b5a3f', head: ihFoil, weapon: iwRifle });
-  I.agent = (ctx, t, o) => isoTrooper(ctx, t, o, { coat: '#2e3742', head: ihFedora, weapon: iwPistol });
+  // Handler: the old fedora-and-trenchcoat, now carrying the files
+  I.agent = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#2e3742', head: ihFedora, weapon: iwPistol,
+    pack: (c2) => { // a black briefcase at the hip
+      c2.fillStyle = '#16191e'; rr(c2, -4.6, -5.2, 3.4, 2.6, 0.5); c2.fill();
+      c2.strokeStyle = '#c9a95e'; c2.lineWidth = 0.4; c2.strokeRect(-4.2, -4.4, 2.6, 0.01);
+    },
+  });
+  // Field Agent: dark suit, white shirt, bare head with shades, carbine
+  I.fieldagent = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#23282f', pants: '#1b1f25', weapon: iwRifle,
+    head: (c2) => {
+      ihSkin(c2, '#caa27e');
+      c2.fillStyle = '#0c0d10'; rr(c2, 0.1, -0.8, 2.3, 1, 0.3); c2.fill();   // the shades (face +x)
+    },
+    pack: (c2) => { // shirt-and-tie flash at the collar, earpiece coil
+      c2.fillStyle = '#e9ecef'; c2.fillRect(-0.7, -9, 1.4, 1.6);
+      c2.fillStyle = '#1a2a44'; c2.fillRect(-0.3, -8.6, 0.6, 1.8);
+      c2.strokeStyle = '#d7dbe0'; c2.lineWidth = 0.35;
+      c2.beginPath(); c2.moveTo(1.6, -11.6); c2.quadraticCurveTo(2.4, -10, 1.4, -8.8); c2.stroke();
+    },
+  });
+  // SWAT Team: black kit, visored helmet, shotgun, a lettered vest
+  I.swat = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#1d232b', pants: '#161a20', head: (c2) => ihHelmet(c2, '#14181d'), weapon: iwRifle,
+    pack: (c2) => {
+      c2.fillStyle = '#2b333d'; rr(c2, -2.4, -8.8, 4.8, 4.6, 0.8); c2.fill();   // plate carrier
+      c2.fillStyle = '#e9ecef'; c2.fillRect(-1.8, -7.4, 3.6, 0.9);              // the lettering band
+      c2.fillStyle = '#9aa3ad'; c2.beginPath(); c2.arc(2.6, -5.4, 0.9, 0, TAU); c2.fill(); // a flashbang on the belt
+    },
+  });
+  // Air Marshal: navy windbreaker, ball cap, a SAM tube angled skyward
+  I.airmarshal = (ctx, t, o) => isoTrooper(ctx, t, o, {
+    coat: '#26344a', pants: '#2b2f36',
+    head: (c2) => {
+      ihSkin(c2, '#caa27e');
+      c2.fillStyle = '#1b2433';
+      c2.beginPath(); c2.arc(0, -0.5, 2.3, Math.PI, 0); c2.fill();              // cap crown
+      c2.fillRect(0.6, -0.9, 2.8, 0.8);                                         // bill
+    },
+    weapon: (c2, t2, o2) => {
+      c2.save(); c2.translate(1, -9); c2.rotate(-0.95);
+      c2.fillStyle = '#3a4250'; c2.fillRect(-4.5, -1.4, 12.5, 2.8);
+      c2.fillStyle = '#232830'; c2.beginPath(); c2.arc(8, 0, 1.6, 0, TAU); c2.fill();
+      c2.fillStyle = '#e9ecef'; c2.fillRect(1, -1.4, 1.2, 2.8);                 // a white band on the tube
+      if (o2.firing) {
+        c2.fillStyle = 'rgba(255,220,140,0.95)'; c2.beginPath(); c2.arc(10, 0, 2.4, 0, TAU); c2.fill();
+        c2.fillStyle = 'rgba(255,220,140,0.55)'; c2.beginPath(); c2.moveTo(-4.5, -1.2); c2.lineTo(-9, 0); c2.lineTo(-4.5, 1.2); c2.closePath(); c2.fill();
+      }
+      c2.restore();
+    },
+  });
   I.pmc = (ctx, t, o) => isoTrooper(ctx, t, o, {
     // light contractor khaki — deliberately brighter than the terrain so the
     // silhouette pops instead of ghosting into the grass
