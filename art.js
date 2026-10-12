@@ -8892,6 +8892,58 @@
     if (o.firing) { ctx.fillStyle = 'rgba(255,230,140,0.95)'; ctx.beginPath(); ctx.arc(14.2, 0, 1.9, 0, TAU); ctx.fill(); }
     ctx.restore();
   };
+  // LRAD Truck: a grey flatbed with a big square speaker array on a turntable
+  // in the bed, and a wavefront rolling out of it when it fires
+  I.lrad = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 25,
+    under: (c, t, o) => wheels(c, t, o, [[-8, -7.1], [-8, 7.1], [7.5, -7.1], [7.5, 7.1]], 5.5, 3),
+    tiers: [
+      { poly: [[12, -3], [12, 3], [11, 6], [-12.5, 6], [-12.5, -6], [11, -6]], h: 5, body: '#4a5058',
+        detail: (c) => {
+          c.fillStyle = shade('#4a5058', -0.2); rr(c, 4.5, -5.5, 7, 11, 1.5); c.fill();  // cab
+          c.fillStyle = '#1c2026'; c.fillRect(10, -4.2, 1.6, 8.4);                       // windscreen
+          c.fillStyle = shade('#4a5058', 0.1); rr(c, -12, -5.5, 15.5, 11, 1); c.fill();  // bed
+        },
+      },
+    ],
+    above: (c, t, o) => {
+      // the speaker panel standing up on the bed, facing forward
+      c.save(); c.translate(-4, -3.5);
+      c.fillStyle = '#2b2f36'; rr(c, -1.2, -6, 2.4, 12, 0.6); c.fill();               // panel, edge-on
+      c.fillStyle = '#5a616b';
+      for (let k = -4.5; k <= 4.5; k += 3) { c.beginPath(); c.arc(1.6, k, 1.1, 0, TAU); c.fill(); }
+      c.restore();
+      if (o.firing) {
+        // the wavefront rolls out flat along the ground, the way the truck faces
+        c.save(); c.translate(0, 3.5); c.transform(1, 0.5, -1, 0.5, 0, 0); c.rotate(o.facing || 0);
+        c.strokeStyle = 'rgba(200,225,255,0.75)'; c.lineWidth = 1;
+        for (let i = 1; i <= 3; i++) { c.beginPath(); c.arc(4, 0, 4 + i * 4, -0.55, 0.55); c.stroke(); }
+        c.restore();
+      }
+    },
+  });
+  // Armored Suburban: a black full-size SUV, tinted glass, push bar, and a
+  // red-and-blue strobe hidden in the grille
+  I.suburban = (ctx, t, o) => isoVehicle(ctx, t, o, {
+    len: 24,
+    under: (c, t, o) => wheels(c, t, o, [[-7.5, -7], [-7.5, 7], [7, -7], [7, 7]], 5.4, 3),
+    tiers: [
+      { poly: [[12, -4.5], [12.5, 4.5], [11, 6], [-12, 6], [-12, -6], [11, -6]], h: 5.5, body: '#121418',
+        detail: (c) => {
+          c.fillStyle = '#4b5059'; c.fillRect(12, -4.5, 1.2, 9);                         // push bar
+          const blink = Math.sin(t * 9) > 0;
+          c.fillStyle = blink ? 'rgba(255,60,60,0.95)' : 'rgba(70,140,255,0.95)';
+          c.fillRect(11.2, -3.2, 0.9, 1.6); c.fillRect(11.2, 1.6, 0.9, 1.6);           // grille strobes
+        },
+      },
+      { poly: [[6, -5], [6, 5], [-11, 5], [-11, -5]], h: 4.5, body: '#16191e',
+        detail: (c) => {
+          c.fillStyle = '#20252c'; rr(c, -10.5, -4.5, 16, 9, 1.4); c.fill();             // roof
+          c.fillStyle = 'rgba(30,40,52,0.95)'; c.fillRect(4.6, -4, 1.4, 8);               // tinted windscreen
+        },
+      },
+    ],
+  });
   // Disinfo Van: a windowless black van bristling with antennas and a spoofing
   // dish — the gear that fills the enemy radar with ghosts
   I.disinfovan = (ctx, t, o) => isoVehicle(ctx, t, o, {

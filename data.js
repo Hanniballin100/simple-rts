@@ -162,7 +162,7 @@ const FACTIONS = {
     // black project, rolled out of the Motor Pool, and never builds an airfield.
     noAirpad: true,
     air: ['tr3b'], tower: 'tower5g', aaTower: 'samsite',
-    extras: ['swat', 'disinfovan', 'agent', 'engineer', 'mechanic'], advanced: [],
+    extras: ['swat', 'disinfovan', 'agent', 'lrad', 'suburban', 'engineer', 'mechanic'], advanced: [],
     leverage: true, // runs a ledger of leverage, earned by its sleepers
     structs: ['wall', 'gate', 'repairpad', 'refinery', 'fedreserve', 'superweapon'],
     powers: {
@@ -322,7 +322,6 @@ const STEALTH_SKILL = {
   journalist: 0.55,
   blackrig: 1.0, disinfovan: 1.1,
   tr3b: 1.15, b2: 1.2, b1: 1.25,
-  spooktank: 1.3,
 };
 const STEALTH_SKILL_DEFAULT = 0.9;
 
@@ -1042,7 +1041,20 @@ const UNIT_TYPES = {
   // Deep State signature armor: a blacked-out ambush tank that vanishes when
   // it stops (cloakStill) and lands a doubled first strike from concealment;
   // the Disinfo Van seeds phantom radar contacts around itself to bleed fire
-  spooktank: { name: 'Redacted', role: 'combat', builtAt: 'factory', hp: 260, speed: 78, dmg: 24, atkRange: 155, cooldown: 1.6, sight: 250, cost: 155, r: 12, buildTime: 9, shape: 'square', armor: 0.15, cloakStill: true, cloakDelay: 1.3 },
+  // Redacted: no cloak. It is right there — you just cannot read it. No
+  // health bar is drawn for it, ever, and an enemy who selects it is told
+  // nothing; whether your guns are getting anywhere is something you find out
+  // when it stops moving.
+  spooktank: { name: 'Redacted', role: 'combat', builtAt: 'factory', hp: 260, speed: 78, dmg: 24, atkRange: 155, cooldown: 1.6, sight: 250, cost: 155, r: 12, buildTime: 9, shape: 'square', armor: 0.15, redacted: true },
+  // LRAD Truck: a sound cannon. Its blast barely hurts, but every enemy foot
+  // soldier in a cone `lrad.cone` radians either side of the target is
+  // SLOWED for `slow` seconds and cannot fire for `suppress` seconds. Crowd
+  // control on wheels; nothing to say to a tank.
+  lrad:      { name: 'LRAD Truck', role: 'combat', builtAt: 'factory', hp: 230, speed: 74, dmg: 3, atkRange: 170, cooldown: 2.2, sight: 240, cost: 130, r: 12, buildTime: 9, shape: 'square', armor: 0.15,
+               lrad: { cone: 0.5, slow: 2.5, suppress: 0.8 } },
+  // Armored Suburban: a black SUV with run-flats and plate in the doors. Fast,
+  // carries four, and the riders shoot out of the windows (see cargo riders).
+  suburban:  { name: 'Armored Suburban', role: 'combat', builtAt: 'factory', hp: 260, speed: 104, dmg: 5, atkRange: 110, cooldown: 0.6, sight: 240, cost: 150, r: 12, buildTime: 9, shape: 'square', armor: 0.2, cargoCap: 4, bailOut: true },
   disinfovan: { name: 'Disinfo Van', role: 'combat', builtAt: 'factory', hp: 200, speed: 86, dmg: 7, atkRange: 130, cooldown: 0.8, sight: 280, cost: 140, r: 12, buildTime: 9, shape: 'square', cloakStill: true, detector: true, brood: { type: 'phantom', count: 4, regen: 6 } },
   // the rebuilt Drill Tank: an armored digger whose auger opens Dig Sites
   // (right-click one to dig; progress is visible to EVERYONE). The drill

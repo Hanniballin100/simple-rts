@@ -3710,6 +3710,21 @@ function fireAt(u, target, t) {
     } else {
       dealDamage(u, target, dmg, t);
       if (t.jams && isAir) target.slowUntil = state.time + 0.6; // scrambled avionics
+      // LRAD: the whole cone of foot soldiers in front of the target reels
+      if (t.lrad && !isAir) {
+        const L = t.lrad, aim = Math.atan2(target.y - u.y, target.x - u.x);
+        for (const e of state.units) {
+          if (e.owner === u.owner || e.owner === NEUTRAL || e.hp <= 0 || e.garrisoned) continue;
+          if (!isFootSoldier(UNIT_TYPES[e.type])) continue;
+          const d = dist(u, e);
+          if (d > t.atkRange + 30) continue;
+          const off = Math.abs(((Math.atan2(e.y - u.y, e.x - u.x) - aim + Math.PI * 3) % (Math.PI * 2)) - Math.PI);
+          if (off > L.cone) continue;
+          e.slowUntil = Math.max(e.slowUntil || 0, state.time + L.slow);
+          e.cooldown = Math.max(e.cooldown || 0, L.suppress);
+        }
+        u.lradT = state.time;   // the art draws the wavefront
+      }
       // Air Marshal: the aircraft is tagged and everybody on this side hits it harder
       if (t.tagsAir && isAir && target.hp > 0) {
         const prev = target.designatedBy === u.owner ? (target.designatedUntil || 0) : 0;
@@ -7483,7 +7498,7 @@ function refreshPanel() {
     const fName = facOf(first.owner).name;
     if (first.kind === 'unit') {
       const t = UNIT_TYPES[first.type];
-      const parts = [`☠ ${t.name} (${fName})`, `HP ${Math.ceil(first.hp)}/${t.hp}`];
+      const parts = [`☠ ${t.name} (${fName})`, t.redacted ? 'HP [REDACTED]' : `HP ${Math.ceil(first.hp)}/${t.hp}`];
       if (t.dmg) {
         parts.push(`DMG ${t.dmg}${t.dmgVsGround !== undefined ? ` air / ${t.dmgVsGround} grd` : ''} every ${t.cooldown}s`);
         parts.push(`Range ${t.atkRange}${t.minRange ? ` (min ${t.minRange})` : ''}`);
@@ -8807,7 +8822,7 @@ function drawUnitIso(u) {
     ctx.font = 'bold 10px monospace'; ctx.textAlign = 'center';
     ctx.fillText('!', ix, sy - rs - 14);
   }
-  if (u.hp < u.maxHp) drawBar(ix, sy - rs - 12, rs * 2.4, u.hp / u.maxHp);
+  if (u.hp < u.maxHp && !UNIT_TYPES[u.type].redacted) drawBar(ix, sy - rs - 12, rs * 2.4, u.hp / u.maxHp);
   // ---------- suspicion pip (your own infiltrators only) ----------
   // The meter is the whole stealth system and it was invisible: you could not
   // tell a Marksman who had gone quiet from one about to be spotted. Shown only
